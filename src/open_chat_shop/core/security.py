@@ -26,14 +26,25 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _INJECTION_PATTERNS: list[re.Pattern[str]] = [
-    # Instruction override attempts
+    # Instruction override attempts (English)
     re.compile(r"ignore\s+(previous|prior|all|above)\s+instructions?", re.IGNORECASE),
     re.compile(r"disregard\s+(previous|prior|all|above|the)", re.IGNORECASE),
     re.compile(r"forget\s+(everything|all|previous|prior)", re.IGNORECASE),
-    # Role manipulation
+    # Instruction override attempts (Chinese)
+    re.compile(r"忽略.{0,4}(之前|上面|所有|全部).{0,4}(指令|规则|设定|约束)"),
+    re.compile(r"忘记.{0,4}(之前|上面|所有|全部).{0,4}(指令|规则|设定)"),
+    re.compile(r"不要(遵守|遵循|执行).{0,4}(之前|上面|任何|所有)"),
+    re.compile(r"无视.{0,4}(之前|上面|所有).{0,4}(指令|规则|设定)"),
+    # Role manipulation (English)
     re.compile(r"you\s+are\s+now\b", re.IGNORECASE),
     re.compile(r"pretend\s+you\s+are\b", re.IGNORECASE),
     re.compile(r"act\s+as\s+(if\s+you\s+are|a|an)\b", re.IGNORECASE),
+    # Role manipulation (Chinese)
+    re.compile(r"你(现在|从现在起|以后).{0,4}(是|变成|成为)(一个|一名)?(管理员|超级用户|root|admin|系统)"),
+    re.compile(r"假装(你是|你是一个|你是名)"),
+    re.compile(r"扮演(一个|一名)?(管理员|系统|超级用户)"),
+    # System prompt extraction
+    re.compile(r"(告诉|说出|输出|显示|泄露)(我|一下)?(你的|系统)(提示|指令|prompt|系统提示)"),
     # System role injection
     re.compile(r"^\s*system\s*:", re.IGNORECASE | re.MULTILINE),
     re.compile(r"^\s*admin\s*:", re.IGNORECASE | re.MULTILINE),
