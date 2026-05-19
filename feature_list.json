@@ -234,6 +234,97 @@
       "evidence": "Dockerfile + docker-compose.yml (api+postgres+redis+pgvector), seed data, quick_start.py",
       "blocked_reason": "",
       "iteration_count": 1
+    },
+    {
+      "id": "feat-014",
+      "title": "LiteLLM Provider 实现",
+      "description": "通过 LiteLLM 实现 OpenAI/Anthropic/Ollama Provider，支持配置驱动切换、流式响应、embedding、tool_calling。从 providers.yaml 加载配置，提供运行时模型切换能力",
+      "status": "passing",
+      "priority": 1,
+      "depends_on": ["feat-003"],
+      "verification": "LiteLLMProvider 可 chat/stream/embed，配置加载正确，单元测试通过（mocked），级联降级正常",
+      "plan_file": "",
+      "evidence": "21 tests: LiteLLMProvider chat/stream/embed, ProviderConfig YAML load, ProviderFactory, capability degradation",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-015",
+      "title": "SQLModel 数据模型",
+      "description": "定义业务数据库模型：User, Order, OrderItem, Product, RefundRecord, ConversationLog, AuditRecord。SQLModel 声明 + SQLite 内存测试 CRUD 操作",
+      "status": "passing",
+      "priority": 1,
+      "depends_on": ["feat-002"],
+      "verification": "所有模型可创建表、执行 CRUD、字段约束正确、关系查询正常",
+      "plan_file": "",
+      "evidence": "39 tests: 6 models CRUD, relationships User-Orders Order-Refunds, field constraints, SQLite in-memory",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-016",
+      "title": "评测框架",
+      "description": "GoldenDataset 加载器（JSON schema 验证）、RegressionRunner（agent 输出 vs 期望对比）、LLMJudge（4 维度评分：accuracy/safety/helpfulness/tone）、评测报告生成",
+      "status": "passing",
+      "priority": 1,
+      "depends_on": ["feat-009"],
+      "verification": "GoldenDataset 加载验证正确，regression 对比逻辑正确，LLMJudge 4 维度评分正常，评测报告生成",
+      "plan_file": "",
+      "evidence": "27 tests: GoldenDataset load/filter/validate, RegressionRunner compare/report, LLMJudge 4-dimension scoring",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-017",
+      "title": "增强场景 FSM",
+      "description": "OrderInquiryScenarioFSM（查询→定位→展示→追问）、ComplaintScenarioFSM（投诉→分类→处理→反馈）。含 guard 条件、超时处理、状态机持久化",
+      "status": "passing",
+      "priority": 2,
+      "depends_on": ["feat-010"],
+      "verification": "两个 FSM 状态转换正确，guard 阻止非法转换，超时触发降级",
+      "plan_file": "",
+      "evidence": "16 tests: OrderInquiryFSM happy_path/not_found/follow_up/cancel/guard, ComplaintFSM classify/escalate/guard",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-018",
+      "title": "成本治理",
+      "description": "SessionBudgetManager（per-session token 预算+阈值警告）、CostAlertEngine（日/会话成本告警）、BudgetAwareStrategy（LLM 调用前检查预算）、与 CostTracker 集成",
+      "status": "passing",
+      "priority": 2,
+      "depends_on": ["feat-003", "feat-012"],
+      "verification": "预算超限拦截 LLM 调用，告警触发正确，降级到低级别 cascade",
+      "plan_file": "",
+      "evidence": "16 tests: BudgetConfig, BudgetStatus, SessionBudgetManager consume/thresholds/can_proceed/reset, CostAlertEngine warning/critical/exceeded",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-019",
+      "title": "Redis 上下文管理器",
+      "description": "RedisContextManager：Redis Hash 存储会话数据，TTL 过期策略，序列化/反序列化 SessionContext，与 InMemoryContextManager 接口一致",
+      "status": "passing",
+      "priority": 3,
+      "depends_on": ["feat-004"],
+      "verification": "Redis load/save 循环正常，TTL 过期触发 ContextError，序列化不丢数据",
+      "plan_file": "",
+      "evidence": "17 tests: serialization roundtrip, load/create/save, compress, update_slots, Redis error handling",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-020",
+      "title": "语义搜索增强",
+      "description": "EmbeddingService 包装 provider.embed()，替换 Jaccard 词重叠为向量相似度搜索，支持 pgvector 和内存两种后端，intent engine Level 1 语义层升级",
+      "status": "passing",
+      "priority": 3,
+      "depends_on": ["feat-005", "feat-014"],
+      "verification": "向量相似度搜索正确排序结果，内存后端可用于测试，与 intent engine 集成正确",
+      "plan_file": "",
+      "evidence": "16 tests: cosine similarity, InMemoryVectorStore add/search/clear, EmbeddingService with/without provider, end-to-end search",
+      "blocked_reason": "",
+      "iteration_count": 1
     }
   ]
 }

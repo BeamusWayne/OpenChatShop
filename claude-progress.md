@@ -5,7 +5,7 @@
 - 仓库根目录：/Users/katya/Files/TestField/电商智能对话系统
 - 标准启动路径：./init.sh
 - 标准验证路径：./init.sh verify
-- 当前最高优先级未完成功能：全部完成（Phase 1）
+- 当前最高优先级未完成功能：全部完成（Phase 1 + Phase 2）
 - 当前 blocker：无
 
 ## 重启路径
@@ -43,3 +43,35 @@
 - Phase 2: Agent 能力增强（人机协作、多渠道深度适配、评测框架）
 - 可选：接入真实 LLM（OpenAI/Anthropic）替换 MockProvider
 - 可选：React Web Chat Widget 前端
+
+### 2026-05-19 Session 3 (Phase 2)
+
+**任务：** 分层并行构建 CommerceAgent Phase 2 增强功能
+
+**完成内容：**
+- 7/7 功能全部 passing
+- 507 单元测试全部通过（Phase 1: 338 + Phase 2: 169）
+- 使用了 3 个并行 Agent + 直接实现
+
+**构建批次：**
+| 批次 | 功能 | 测试数 | 构建方式 |
+|------|------|--------|---------|
+| Batch 0 | feat-014 LiteLLM Provider, feat-015 SQLModel Models, feat-016 评测框架 | 87 | 3 并行 Agent |
+| Batch 1 | feat-017 增强FSM, feat-018 成本治理 | 32 | 直接实现 |
+| Batch 2 | feat-019 Redis Context, feat-020 语义搜索 | 33 | 直接实现 |
+
+**Phase 2 新增模块：**
+- src/commerce_agent/core/litellm_provider.py — LiteLLM 真实 Provider
+- src/commerce_agent/storage/models.py — SQLModel 业务数据模型 (6 表)
+- src/commerce_agent/storage/database.py — 数据库工具函数
+- src/commerce_agent/storage/redis_context.py — Redis 上下文管理器
+- src/commerce_agent/evaluation/golden_dataset.py — 黄金数据集
+- src/commerce_agent/evaluation/regression.py — 回归测试运行器
+- src/commerce_agent/evaluation/llm_judge.py — LLM 评分器
+- src/commerce_agent/core/scenarios/ — 增强场景 FSM
+- src/commerce_agent/core/cost_governance.py — 成本治理
+- src/commerce_agent/core/semantic_search.py — 语义搜索
+
+**下一步：**
+- Phase 3: Web Chat Widget (React), OpenTelemetry 集成, Kubernetes Helm chart
+- 可选：真实 LLM API 集成测试, pgvector 迁移脚本, 前端组件
