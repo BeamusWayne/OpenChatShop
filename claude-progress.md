@@ -134,3 +134,32 @@
 - 739 个单元测试
 - 覆盖 contracts.md 全部 14 个接口章节
 - 集成测试覆盖 security→context→intent→tools→strategy→execute 全链路
+
+### 2026-05-19 Session 5 — Phase 5
+
+**任务：** 构建可运行演示系统
+
+**完成内容：**
+- 3/3 功能全部 passing
+- 756 测试全部通过（+17 新增测试）
+- 使用了 2 个并行 Agent + 直接实现
+
+**构建批次：**
+| 批次 | 功能 | 测试数 | 构建方式 |
+|------|------|--------|---------|
+| Batch 0 | feat-035 主入口, feat-036 HTML聊天组件 | 17 | 2 并行 Agent |
+| Batch 1 | feat-037 Docker Compose | 12 | 直接实现 |
+
+**Phase 5 新增文件：**
+- main.py — 组件组装 + 服务器启动入口
+- run.sh — 一键启动脚本
+- static/index.html — 单文件聊天 UI（WebSocket 流式响应）
+- Dockerfile 更新 — 支持 main.py + static 文件
+- docker-compose.yml — app + postgres(pgvector) + redis 全栈编排
+- tests/unit/test_main.py, test_docker.py — 部署验证测试
+
+**总计：**
+- 37 个功能全部 passing
+- 756 个测试
+- 系统可通过 `./run.sh` 一键启动
+- 浏览器访问 http://localhost:8000 即可使用聊天界面
