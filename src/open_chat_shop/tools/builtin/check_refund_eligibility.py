@@ -34,9 +34,9 @@ class CheckRefundEligibilityTool(BaseTool):
         order_id = params["order_id"]
         order = ORDERS.get(order_id)
         if order is None:
-            return CheckResult(passed=False, reason=f"Order {order_id} does not exist")
+            return CheckResult(passed=False, reason=f"订单 {order_id} 不存在")
         if order["status"] == "refunded":
-            return CheckResult(passed=False, reason=f"Order {order_id} has already been refunded")
+            return CheckResult(passed=False, reason=f"订单 {order_id} 已退款")
         return CheckResult(passed=True)
 
     async def execute(self, params: dict, context: SessionContext) -> ToolResult:
@@ -50,7 +50,7 @@ class CheckRefundEligibilityTool(BaseTool):
                 success=True,
                 data={
                     "eligible": False,
-                    "reason": "Order has already been refunded",
+                    "reason": "该订单已退款",
                     "deadline": None,
                 },
             )
@@ -63,7 +63,7 @@ class CheckRefundEligibilityTool(BaseTool):
             success=True,
             data={
                 "eligible": True,
-                "reason": "Order is within the 30-day refund window",
+                "reason": "订单在30天退款期限内",
                 "deadline": deadline.isoformat(),
             },
         )
@@ -81,7 +81,12 @@ class CheckRefundEligibilityTool(BaseTool):
             ]
             deadline = data.get("deadline")
             if deadline:
-                lines.append(f"退款截止日期：{deadline}")
+                try:
+                    dt = datetime.fromisoformat(deadline)
+                    formatted = dt.strftime("%Y年%m月%d日")
+                except (ValueError, TypeError):
+                    formatted = deadline
+                lines.append(f"退款截止日期：{formatted}")
         else:
             lines = [
                 "该订单暂不可退款。",

@@ -378,14 +378,14 @@ class TestCheckRefundEligibilityPreCheck:
         tool = CheckRefundEligibilityTool()
         result = await tool.pre_check({"order_id": "ORD-999"}, ctx)
         assert result.passed is False
-        assert "does not exist" in result.reason
+        assert "不存在" in result.reason
 
     @pytest.mark.asyncio
     async def test_fails_for_already_refunded(self, ctx: SessionContext):
         tool = CheckRefundEligibilityTool()
         result = await tool.pre_check({"order_id": "ORD-004"}, ctx)
         assert result.passed is False
-        assert "already been refunded" in result.reason
+        assert "已退款" in result.reason
 
 
 class TestCreateRefundPreCheck:
@@ -420,7 +420,7 @@ class TestCancelOrderPreCheck:
         tool = CancelOrderTool()
         result = await tool.pre_check({"order_id": "ORD-001", "reason": "x"}, ctx)
         assert result.passed is False
-        assert "cannot be cancelled" in result.reason
+        assert "不可取消" in result.reason
 
     @pytest.mark.asyncio
     async def test_fails_for_nonexistent(self, ctx: SessionContext):
@@ -441,7 +441,7 @@ class TestModifyAddressPreCheck:
         tool = ModifyAddressTool()
         result = await tool.pre_check({"order_id": "ORD-001", "address": "x"}, ctx)
         assert result.passed is False
-        assert "already shipped" in result.reason
+        assert "已发货" in result.reason
 
     @pytest.mark.asyncio
     async def test_fails_for_delivered(self, ctx: SessionContext):

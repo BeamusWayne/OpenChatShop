@@ -37,9 +37,9 @@ class CreateRefundTool(BaseTool):
         order_id = params["order_id"]
         order = ORDERS.get(order_id)
         if order is None:
-            return CheckResult(passed=False, reason=f"Order {order_id} does not exist")
+            return CheckResult(passed=False, reason=f"订单 {order_id} 不存在")
         if order["status"] == "refunded":
-            return CheckResult(passed=False, reason=f"Order {order_id} has already been refunded")
+            return CheckResult(passed=False, reason=f"订单 {order_id} 已退款")
         return CheckResult(passed=True)
 
     async def execute(self, params: dict, context: SessionContext) -> ToolResult:

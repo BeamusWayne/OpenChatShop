@@ -40,12 +40,12 @@ class ModifyAddressTool(BaseTool):
         order_id = params["order_id"]
         order = ORDERS.get(order_id)
         if order is None:
-            return CheckResult(passed=False, reason=f"Order {order_id} does not exist")
+            return CheckResult(passed=False, reason=f"订单 {order_id} 不存在")
         shipped_statuses = ("shipped", "delivered")
         if order["status"] in shipped_statuses:
             return CheckResult(
                 passed=False,
-                reason=f"Order {order_id} has already shipped (status: {order['status']})",
+                reason=f"订单 {order_id} 已发货，无法修改地址",
             )
         return CheckResult(passed=True)
 

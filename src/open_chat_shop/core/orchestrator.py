@@ -189,7 +189,7 @@ class DialogueOrchestrator:
             text = tool.format_result(result)
             return AgentMessage(
                 message_type="text",
-                payload={"content": text, "tool_result": result.data},
+                payload={"content": text},
                 text_fallback=text,
             )
         else:
