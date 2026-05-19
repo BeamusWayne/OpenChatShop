@@ -37,5 +37,15 @@ htmlcov/
 # Docker
 docker-compose.override.yml
 
+# Ruff
+.ruff_cache/
+
+# Node (frontend)
+node_modules/
+
 # Data
 data/*.db
+*.sqlite3
+
+# Claude Code local
+.claude/

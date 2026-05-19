@@ -17,6 +17,12 @@ from commerce_agent.core.tool import ToolInjector
 from commerce_agent.core.types import RoutingRule
 from commerce_agent.tools.builtin import ALL_TOOLS
 
+try:
+    from commerce_agent.core.anthropic_provider import AnthropicProvider
+    _LLM_AVAILABLE = True
+except ImportError:
+    _LLM_AVAILABLE = False
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -52,6 +58,15 @@ def build_orchestrator() -> DialogueOrchestrator:
     rule_matcher = RuleBasedMatcher()
     _register_default_rules(rule_matcher)
     intent_engine = CascadeIntentEngine(rule_matcher)
+
+    # Wire LLM provider for Level 3 intent classification
+    if _LLM_AVAILABLE:
+        try:
+            provider = AnthropicProvider()
+            intent_engine.set_provider(provider)
+            logger.info("LLM provider (Anthropic/GLM) connected")
+        except Exception as e:
+            logger.warning("LLM provider unavailable, using rules only: %s", e)
 
     # Instantiate tools and build registry + routing rules
     tool_registry = {}
