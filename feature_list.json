@@ -194,16 +194,16 @@
       "id": "feat-011",
       "title": "Channel Adapter 与 API 层",
       "description": "ChannelAdapter ABC + WebAdapter（11种消息类型+自动降级）、FastAPI REST+WebSocket、CORS、请求验证",
-      "status": "not_started",
+      "status": "passing",
       "priority": 8,
       "depends_on": [
         "feat-009"
       ],
       "verification": "WebAdapter 正确转换消息类型，REST 端点响应正确，WebSocket 收发正常",
       "plan_file": "",
-      "evidence": "",
+      "evidence": "26 tests: ChannelAdapter ABC, WebAdapter 11 types + downgrade, WechatAdapter 3 types + downgrade, adapt_with_fallback, FastAPI health/chat/cors, 503 without orchestrator",
       "blocked_reason": "",
-      "iteration_count": 0
+      "iteration_count": 1
     },
     {
       "id": "feat-012",

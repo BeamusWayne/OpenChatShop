@@ -22,7 +22,16 @@
 
 ## 会话记录
 
-(每次会话结束前，由 AI 或人类在此添加记录)
+### 2026-05-19 — feat-011 Channel Adapter & API 层
+
+**完成内容:**
+- 创建 `src/commerce_agent/channel/base.py` — ChannelAdapter ABC (adapt, get_capabilities, downgrade, adapt_with_fallback)
+- 创建 `src/commerce_agent/channel/web.py` — WebAdapter (11种消息类型) + WechatAdapter (3种消息类型 + 自动降级)
+- 创建 `src/commerce_agent/api/app.py` — FastAPI 应用 (health, REST chat, WebSocket, CORS)
+- 创建 `tests/unit/test_channel.py` — 17 tests: ABC 实例化限制, WebAdapter 能力/适配/降级/回退, WechatAdapter 有限能力 + 降级
+- 创建 `tests/unit/test_api.py` — 9 tests: health 200, 503 无 orchestrator, chat 响应字段, user_id 传递, CORS 预检
+
+**验证:** 26 new tests + 219 existing = 245 passed, 0 failed
 
 ## 自治迭代记录
 
