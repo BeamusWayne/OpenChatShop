@@ -1,6 +1,7 @@
 """FastAPI application — REST + WebSocket endpoints."""
 from __future__ import annotations
 
+import importlib.metadata
 import logging
 from typing import Optional
 
@@ -15,6 +16,11 @@ from open_chat_shop.channel.web import WebAdapter
 from open_chat_shop.api.streaming import StreamEvent, StreamingOrchestrator
 
 logger = logging.getLogger(__name__)
+
+try:
+    _VERSION = importlib.metadata.version("open-chat-shop")
+except importlib.metadata.PackageNotFoundError:
+    _VERSION = "0.1.0"
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +61,7 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
     """
     app = FastAPI(
         title="OpenChatShop API",
-        version="0.1.0",
+        version=_VERSION,
         description="E-commerce intelligent dialogue system",
     )
 
@@ -76,7 +82,7 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
-        return HealthResponse(status="ok", version="0.1.0")
+        return HealthResponse(status="ok", version=_VERSION)
 
     # ------------------------------------------------------------------
     # REST chat
