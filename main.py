@@ -112,11 +112,7 @@ def create_main_app():
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.is_dir():
-        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
-    @app.get("/")
-    async def root():
-        return {"message": "OpenChatShop is running", "version": "0.1.0"}
+        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
 
     return app
 

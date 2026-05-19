@@ -40,7 +40,7 @@ docker compose up
 
 服务启动后访问：
 - API: http://localhost:8000
-- 聊天界面: http://localhost:8000/static/chat.html
+- 聊天界面: http://localhost:8000/
 - API 文档: http://localhost:8000/docs
 
 ### 配置 LLM Provider

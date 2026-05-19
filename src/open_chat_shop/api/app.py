@@ -4,12 +4,9 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from pathlib import Path
-
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from open_chat_shop.core.types import AgentMessage, UserMessage
@@ -166,11 +163,6 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
                 "WebSocket disconnected",
                 extra={"session_id": session_id},
             )
-
-    # Mount static files for the chat widget UI
-    static_dir = Path(__file__).resolve().parent.parent.parent.parent / "static"
-    if static_dir.is_dir():
-        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
 
     return app
 

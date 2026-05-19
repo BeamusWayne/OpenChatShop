@@ -1,11 +1,10 @@
-version: "3.9"
-
 services:
   agent-api:
     build: .
     ports:
       - "${APP_PORT:-8000}:8000"
     environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - DATABASE_URL=postgresql://commerce:commerce@postgres:5432/open_chat_shop
       - REDIS_URL=redis://redis:6379/0

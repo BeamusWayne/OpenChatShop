@@ -60,18 +60,13 @@ class TestMainApp:
 
     def test_static_files_mounted(self) -> None:
         app = _get_app()
-        # The app should have route mounts. Check that a /static mount exists.
-        # Even if static/ dir doesn't exist, we check the route structure.
-        mount_paths = [
-            route.path
-            for route in app.routes
-            if hasattr(route, "path") and "static" in route.path
-        ]
-        # If static dir exists, we expect a /static mount.
-        # If not, we just verify the app doesn't crash (mount_paths may be empty).
-        # The key requirement is that the code handles both cases.
         from pathlib import Path
+        from starlette.routing import Mount
 
         static_dir = Path(__file__).parent.parent.parent / "static"
         if static_dir.is_dir():
-            assert len(mount_paths) > 0, "Expected /static mount when static/ dir exists"
+            has_root_mount = any(
+                isinstance(r, Mount) and r.path == ""
+                for r in app.routes
+            )
+            assert has_root_mount, "Expected static file mount when static/ dir exists"
