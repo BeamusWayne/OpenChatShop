@@ -67,7 +67,7 @@ export default function ChatWindow() {
             <RobotOutlined />
           </div>
           <span style={{ fontSize: 20, fontWeight: 600, color: token.colorText }}>
-            CommerceAgent
+            OpenChatShop
           </span>
         </div>
         <Space>

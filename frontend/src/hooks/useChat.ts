@@ -33,7 +33,7 @@ export function useChat() {
       setConnection({ connected: true, reconnecting: false });
       addMessage({
         role: 'system',
-        content: '欢迎使用 CommerceAgent 智能客服！请问有什么可以帮您？',
+        content: '欢迎使用 OpenChatShop 智能客服！请问有什么可以帮您？',
       });
     };
 
