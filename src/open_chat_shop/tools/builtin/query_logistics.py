@@ -33,13 +33,13 @@ class QueryLogisticsTool(BaseTool):
         order_id = params["order_id"]
 
         if order_id not in ORDERS:
-            return ToolResult(success=False, error=f"Order {order_id} not found")
+            return ToolResult(success=False, error=f"未找到订单 {order_id}")
 
         logistics = LOGISTICS.get(order_id)
         if logistics is None:
             return ToolResult(
                 success=False,
-                error=f"No logistics information available for order {order_id}",
+                error=f"订单 {order_id} 暂无物流信息",
             )
 
         return ToolResult(
@@ -51,3 +51,25 @@ class QueryLogisticsTool(BaseTool):
                 "timeline": logistics["timeline"],
             },
         )
+
+    _STATUS_MAP: dict[str, str] = {
+        "picked_up": "已揽收",
+        "in_transit": "运输中",
+        "out_for_delivery": "派送中",
+        "delivered": "已签收",
+    }
+
+    def format_result(self, result: ToolResult) -> str:
+        data = result.data
+        if not data:
+            return "操作成功"
+        lines = [
+            f"订单 {data['order_id']} 物流信息",
+            f"承运商：{data['carrier']}",
+            f"运单号：{data['tracking_number']}",
+            "物流轨迹：",
+        ]
+        for entry in data.get("timeline", []):
+            status = self._STATUS_MAP.get(entry.get("status", ""), entry.get("status", ""))
+            lines.append(f"  {entry['time']}  {status}  {entry['location']}")
+        return "\n".join(lines)

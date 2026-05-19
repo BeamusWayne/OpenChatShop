@@ -45,6 +45,15 @@ class BaseTool(ABC):
     async def execute(self, params: dict, context: SessionContext) -> ToolResult:
         """Execute tool logic.  Subclasses MUST implement."""
 
+    def format_result(self, result: ToolResult) -> str:
+        """Format a successful tool result into a user-friendly string.
+
+        Subclasses can override for custom formatting.
+        """
+        if result.data is None:
+            return "操作成功"
+        return str(result.data)
+
     # ------------------------------------------------------------------
     # Lifecycle hooks with sensible defaults
     # ------------------------------------------------------------------

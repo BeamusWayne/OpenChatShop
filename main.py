@@ -31,15 +31,19 @@ logger = logging.getLogger(__name__)
 
 # Default intent rules — keyword patterns for each of the 8 builtin intents.
 DEFAULT_RULES: list[tuple[str, str, float]] = [
-    ("query_order", r"查询?订单|查订单|订单[号编号]?|order|我的订单", 1.0),
-    ("query_order", r"ORD-\w+", 0.9),
-    ("query_logistics", r"物流|快递|到哪了|配送|发货|运[单输]号|logistics", 1.0),
-    ("search_product", r"搜索?|查找?|找一下|有没有|想买|来[一几]个|search", 1.0),
-    ("check_refund_eligibility", r"退款[条资][格格]力|能退吗|可以退|退款条件|能退款", 1.0),
+    ("query_order", r"查询订单|查订单|查看订单|看订单|order|我的订单", 1.0),
+    ("query_order", r"订单[号编号]?", 0.5),
+    ("query_order", r"ORD-\w+", 0.3),
+    ("query_logistics", r"物流|快递|到哪了|配送|发货|运[单输]号|logistics|订单到哪", 1.5),
+    ("query_logistics", r"订单.{0,4}到哪", 2.5),
+    ("search_product", r"搜索|查找|找一下|有没有|想买|来[一几]个|search", 1.0),
+    ("check_refund_eligibility", r"退款[条资][格格]力|能退吗|可以退|退款条件|能退款|能退吗", 2.0),
     ("create_refund", r"退款|退货|refund|退[一款货]", 1.0),
-    ("cancel_order", r"取消订单|取消|cancel|不想要了|不要了", 1.0),
+    ("cancel_order", r"取消订单|cancel", 1.5),
+    ("cancel_order", r"取消|不想要了|不要了", 0.6),
     ("modify_address", r"修改?地址|换地址|地址改|改[一一下]?地址", 1.0),
     ("handoff_to_human", r"转人工|人工客服|真人|客服|转接|human|agent", 1.0),
+    ("greeting", r"你好|您好|hi|hello|嗨|hey", 0.8),
 ]
 
 
@@ -57,7 +61,7 @@ def build_orchestrator() -> DialogueOrchestrator:
 
     rule_matcher = RuleBasedMatcher()
     _register_default_rules(rule_matcher)
-    intent_engine = CascadeIntentEngine(rule_matcher)
+    intent_engine = CascadeIntentEngine(rule_matcher, level1_threshold=0.60)
 
     # Wire LLM provider for Level 3 intent classification
     if _LLM_AVAILABLE:
@@ -78,7 +82,7 @@ def build_orchestrator() -> DialogueOrchestrator:
 
     routing_rules = [
         RoutingRule(
-            intent_patterns=[name, "*"],
+            intent_patterns=[name],
             tools=tool_names,
             priority=10 if len(tool_names) == 1 else 0,
         )

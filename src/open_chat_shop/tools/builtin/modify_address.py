@@ -88,3 +88,14 @@ class ModifyAddressTool(BaseTool):
         snapshot = _ORDER_SNAPSHOTS.pop(order_id, None)
         if snapshot and order_id in ORDERS:
             ORDERS[order_id] = snapshot
+
+    def format_result(self, result: ToolResult) -> str:
+        data = result.data
+        if not data:
+            return "地址已修改"
+        lines = [
+            f"订单 {data['order_id']} 的收货地址已更新。",
+            f"原地址：{data.get('old_address', '未知')}",
+            f"新地址：{data.get('new_address', '未知')}",
+        ]
+        return "\n".join(lines)

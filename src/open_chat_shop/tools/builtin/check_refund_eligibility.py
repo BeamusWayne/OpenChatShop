@@ -67,3 +67,24 @@ class CheckRefundEligibilityTool(BaseTool):
                 "deadline": deadline.isoformat(),
             },
         )
+
+    def format_result(self, result: ToolResult) -> str:
+        data = result.data
+        if not data:
+            return "无法获取退款资格信息"
+        eligible = data.get("eligible", False)
+        reason = data.get("reason", "")
+        if eligible:
+            lines = [
+                "该订单可以申请退款。",
+                f"原因：{reason}",
+            ]
+            deadline = data.get("deadline")
+            if deadline:
+                lines.append(f"退款截止日期：{deadline}")
+        else:
+            lines = [
+                "该订单暂不可退款。",
+                f"原因：{reason}",
+            ]
+        return "\n".join(lines)

@@ -83,3 +83,13 @@ class CancelOrderTool(BaseTool):
         snapshot = _ORDER_SNAPSHOTS.pop(order_id, None)
         if snapshot and order_id in ORDERS:
             ORDERS[order_id] = snapshot
+
+    def format_result(self, result: ToolResult) -> str:
+        data = result.data
+        if not data:
+            return "订单已取消"
+        lines = [
+            f"订单 {data['order_id']} 已成功取消。",
+            f"取消原因：{data.get('reason', '未说明')}",
+        ]
+        return "\n".join(lines)

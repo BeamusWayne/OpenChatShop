@@ -31,11 +31,19 @@ class RuleBasedStrategy(Strategy):
     """Simple rule-based strategy for MVP.
 
     Decision logic:
-    - If intent is fallback → clarify
-    - If tools are available and intent requires tool → tool_call
-    - If intent requires confirmation (from tool permissions) → confirm
-    - Otherwise → reply
+    - If intent is fallback -> clarify
+    - If tools are available and intent requires tool -> tool_call
+    - If required tool params are missing -> clarify with prompt
+    - If intent requires confirmation (from tool permissions) -> confirm
+    - Otherwise -> reply
     """
+
+    _MISSING_PARAM_PROMPTS: dict[str, dict[str, str]] = {
+        "order_id": "请问您的订单号是多少？例如 ORD-001",
+        "keyword": "请问您想搜索什么商品？",
+        "new_address": "请问新的收货地址是什么？",
+        "reason": "请问退款原因是什么？",
+    }
 
     async def decide(
         self,
@@ -58,8 +66,32 @@ class RuleBasedStrategy(Strategy):
                 payload={"reason": "用户请求转人工", "department": "客服"},
             )
 
+        if intent.name == "greeting":
+            return Action(
+                type="reply",
+                payload={
+                    "content": "您好！我是智能客服助手，可以帮您查询订单、搜索商品、处理退换货等。请问有什么可以帮您？",
+                    "message_type": "text",
+                },
+            )
+
         if tools:
             tool = tools[0]
+            params = dict(intent.entities)
+
+            # Check for missing required params
+            schema = tool.params_schema
+            required = schema.get("required", [])
+            missing = [r for r in required if r not in params]
+            if missing:
+                prompt = self._MISSING_PARAM_PROMPTS.get(
+                    missing[0], f"请提供以下信息：{', '.join(missing)}"
+                )
+                return Action(
+                    type="clarify",
+                    payload={"question": prompt, "missing_slots": missing},
+                )
+
             # Check if tool requires confirmation
             if hasattr(tool, "permissions") and tool.permissions.requires_confirmation:
                 return Action(
@@ -70,7 +102,7 @@ class RuleBasedStrategy(Strategy):
                         "pending_action": {
                             "type": "tool_call",
                             "tool_name": tool.name,
-                            "params": intent.entities,
+                            "params": params,
                             "call_id": f"call-{intent.name}",
                         },
                     },
@@ -80,7 +112,7 @@ class RuleBasedStrategy(Strategy):
                 type="tool_call",
                 payload={
                     "tool_name": tool.name,
-                    "params": intent.entities,
+                    "params": params,
                     "call_id": f"call-{intent.name}",
                 },
             )

@@ -160,8 +160,8 @@ class DialogueOrchestrator:
         if not validation.valid:
             return AgentMessage(
                 message_type="text",
-                payload={"content": f"参数错误：{'; '.join(validation.errors)}"},
-                text_fallback=f"参数错误：{'; '.join(validation.errors)}",
+                payload={"content": "信息不完整，请提供所需信息后重试。"},
+                text_fallback="信息不完整，请提供所需信息后重试。",
             )
 
         # Pre-check
@@ -186,10 +186,11 @@ class DialogueOrchestrator:
 
         # Build response from tool result
         if result.success:
+            text = tool.format_result(result)
             return AgentMessage(
                 message_type="text",
-                payload={"content": str(result.data or "操作成功"), "tool_result": result.data},
-                text_fallback=str(result.data or "操作成功"),
+                payload={"content": text, "tool_result": result.data},
+                text_fallback=text,
             )
         else:
             return AgentMessage(

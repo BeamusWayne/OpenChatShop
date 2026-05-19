@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage, ConnectionState, StreamEvent } from '../types/chat';
 
-const WS_URL = `ws://${window.location.hostname}:8000/ws/chat/${crypto.randomUUID()}`;
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat/${crypto.randomUUID()}`;
 const RECONNECT_DELAY = 3000;
 
 export function useChat() {

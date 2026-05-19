@@ -38,3 +38,14 @@ class HandoffToHumanTool(BaseTool):
                 "reason": reason,
             },
         )
+
+    def format_result(self, result: ToolResult) -> str:
+        data = result.data
+        if not data:
+            return "正在为您转接人工客服，请稍候。"
+        lines = [
+            "正在为您转接人工客服，请稍候。",
+            f"排队位置：第 {data.get('queue_position', '?')} 位",
+            f"预计等待时间：约 {data.get('estimated_wait_seconds', 0) // 60} 分钟",
+        ]
+        return "\n".join(lines)

@@ -188,7 +188,7 @@ class TestQueryOrderExecute:
     async def test_nonexistent_order(self, ctx: SessionContext):
         result = await QueryOrderTool().execute({"order_id": "ORD-999"}, ctx)
         assert result.success is False
-        assert "not found" in result.error
+        assert "未找到" in result.error
 
 
 class TestQueryLogisticsExecute:
@@ -196,7 +196,7 @@ class TestQueryLogisticsExecute:
     async def test_order_with_logistics(self, ctx: SessionContext):
         result = await QueryLogisticsTool().execute({"order_id": "ORD-001"}, ctx)
         assert result.success is True
-        assert result.data["carrier"] == "SF Express"
+        assert result.data["carrier"] == "顺丰速运"
         assert result.data["tracking_number"] == "SF1234567890"
         assert len(result.data["timeline"]) >= 1
 
@@ -204,7 +204,7 @@ class TestQueryLogisticsExecute:
     async def test_order_without_logistics(self, ctx: SessionContext):
         result = await QueryLogisticsTool().execute({"order_id": "ORD-002"}, ctx)
         assert result.success is False
-        assert "No logistics" in result.error
+        assert "暂无物流" in result.error
 
     @pytest.mark.asyncio
     async def test_nonexistent_order(self, ctx: SessionContext):
@@ -215,10 +215,10 @@ class TestQueryLogisticsExecute:
 class TestSearchProductExecute:
     @pytest.mark.asyncio
     async def test_search_by_keyword(self, ctx: SessionContext):
-        result = await SearchProductTool().execute({"keyword": "mouse"}, ctx)
+        result = await SearchProductTool().execute({"keyword": "鼠标"}, ctx)
         assert result.success is True
         assert result.data["total_found"] >= 1
-        assert any("Mouse" in p["name"] for p in result.data["products"])
+        assert any("鼠标" in p["name"] for p in result.data["products"])
 
     @pytest.mark.asyncio
     async def test_search_with_category(self, ctx: SessionContext):

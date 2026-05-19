@@ -87,3 +87,23 @@ class CreateRefundTool(BaseTool):
         ]
         for rid in to_remove:
             del _md.REFUNDS[rid]
+
+    _REFUND_STATUS_MAP: dict[str, str] = {
+        "processing": "处理中",
+        "approved": "已批准",
+        "rejected": "已拒绝",
+        "completed": "已完成",
+        "cancelled": "已取消",
+    }
+
+    def format_result(self, result: ToolResult) -> str:
+        data = result.data
+        if not data:
+            return "退款申请已提交"
+        status = self._REFUND_STATUS_MAP.get(data.get("status", ""), data.get("status", ""))
+        lines = [
+            f"退款单号：{data['refund_id']}",
+            f"退款状态：{status}",
+            f"退款金额：¥{data.get('amount', 0):.2f}",
+        ]
+        return "\n".join(lines)

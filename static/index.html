@@ -42,7 +42,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Ro
 .suggestion-btn{padding:6px 14px;border:1px solid var(--primary);color:var(--primary);border-radius:20px;background:transparent;font-size:13px;cursor:pointer;transition:all .15s}
 .suggestion-btn:hover{background:var(--primary);color:var(--white)}
 /* Input bar */
-.input-bar{padding:12px 20px;background:var(--white);border-top:1px solid var(--gray-200);display:flex;gap:10px;align-items:flex-end}
+.input-bar{padding:12px 20px;background:var(--white);border-top:1px solid var(--gray-200);display:flex;flex-direction:column;gap:10px}
+.quick-actions{display:flex;flex-wrap:wrap;gap:8px}
 .input-bar textarea{flex:1;border:1px solid var(--gray-200);border-radius:12px;padding:10px 14px;font-size:14px;font-family:inherit;resize:none;outline:none;max-height:120px;transition:border-color .15s;line-height:1.45}
 .input-bar textarea:focus{border-color:var(--primary)}
 .send-btn{width:40px;height:40px;border-radius:12px;border:none;background:var(--primary);color:var(--white);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;flex-shrink:0}
@@ -71,6 +72,13 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Ro
     <div class="header"><span class="header-dot"></span>智能客服对话</div>
     <div class="messages" id="messages"></div>
     <div class="input-bar">
+      <div class="quick-actions" id="quickActions">
+        <button class="suggestion-btn" onclick="send('查询订单 ORD-001')">查询订单</button>
+        <button class="suggestion-btn" onclick="send('搜索手机')">搜索商品</button>
+        <button class="suggestion-btn" onclick="send('物流查询 ORD-001')">物流查询</button>
+        <button class="suggestion-btn" onclick="send('我要退款')">申请退款</button>
+        <button class="suggestion-btn" onclick="send('转人工客服')">转人工</button>
+      </div>
       <textarea id="input" rows="1" placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"></textarea>
       <button class="send-btn" id="sendBtn" title="发送">&#10148;</button>
     </div>
@@ -78,7 +86,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Ro
 </div>
 <script>
 (function(){
-  var WS_BASE = 'ws://localhost:8000/ws/chat/';
+  var WS_BASE = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/chat/';
   var messagesEl = document.getElementById('messages');
   var inputEl = document.getElementById('input');
   var sendBtn = document.getElementById('sendBtn');
@@ -220,6 +228,9 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Ro
   }
 
   sendBtn.addEventListener('click', function() { send(); });
+
+  // Expose send to global scope for quick action buttons
+  window.send = send;
 
   inputEl.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && !e.shiftKey) {

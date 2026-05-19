@@ -55,3 +55,15 @@ class SearchProductTool(BaseTool):
             success=True,
             data={"products": results, "total_found": len(results)},
         )
+
+    def format_result(self, result: ToolResult) -> str:
+        data = result.data
+        if not data:
+            return "操作成功"
+        products = data.get("products", [])
+        if not products:
+            return "未找到相关商品，请尝试其他关键词。"
+        lines = [f"为您找到 {data.get('total_found', len(products))} 件商品："]
+        for p in products:
+            lines.append(f"  - {p['name']}  ¥{p['price']:.2f}")
+        return "\n".join(lines)
