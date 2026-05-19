@@ -7,7 +7,7 @@ services:
       - "${APP_PORT:-8000}:8000"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - DATABASE_URL=postgresql://commerce:commerce@postgres:5432/commerce_agent
+      - DATABASE_URL=postgresql://commerce:commerce@postgres:5432/open_chat_shop
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:
@@ -23,7 +23,7 @@ services:
     environment:
       POSTGRES_USER: commerce
       POSTGRES_PASSWORD: commerce
-      POSTGRES_DB: commerce_agent
+      POSTGRES_DB: open_chat_shop
     ports:
       - "5432:5432"
     volumes:

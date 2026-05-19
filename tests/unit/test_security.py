@@ -1,4 +1,4 @@
-"""Tests for commerce_agent.core.security.
+"""Tests for open_chat_shop.core.security.
 
 Covers all five components:
 - PromptInjectionDetector
@@ -11,15 +11,15 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.core.exceptions import SecurityError
-from commerce_agent.core.security import (
+from open_chat_shop.core.exceptions import SecurityError
+from open_chat_shop.core.security import (
     ContentSafetyFilter,
     OutputSanitizer,
     PermissionChecker,
     PromptInjectionDetector,
     SecurityGuard,
 )
-from commerce_agent.core.types import UserMessage
+from open_chat_shop.core.types import UserMessage
 
 
 # -- Fixtures ----------------------------------------------------------------

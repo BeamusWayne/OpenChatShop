@@ -3,17 +3,17 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.core.types import (
+from open_chat_shop.core.types import (
     Message,
     GenerateConfig,
     ToolDefinition,
 )
-from commerce_agent.core.provider import (
+from open_chat_shop.core.provider import (
     MockProvider,
     FailingProvider,
     CascadeStrategy,
 )
-from commerce_agent.core.exceptions import ProviderError
+from open_chat_shop.core.exceptions import ProviderError
 
 
 @pytest.fixture
@@ -151,7 +151,7 @@ class TestCascadeStrategy:
         """Provider without tool_calling should receive tools=None."""
         class NoToolProvider(MockProvider):
             def get_capabilities(self):
-                from commerce_agent.core.types import ProviderCapabilities
+                from open_chat_shop.core.types import ProviderCapabilities
                 return ProviderCapabilities(
                     tool_calling=False,
                     streaming=True,

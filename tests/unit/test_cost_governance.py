@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.core.cost_governance import (
+from open_chat_shop.core.cost_governance import (
     AlertLevel,
     BudgetConfig,
     BudgetStatus,

@@ -6,7 +6,7 @@
 
 ## 1. 产品形态
 
-CommerceAgent 以 **Web 为首要交付形态**，通过 Channel Adapter 支持多渠道。
+OpenChatShop 以 **Web 为首要交付形态**，通过 Channel Adapter 支持多渠道。
 
 | 渠道 | 接入方式 | 消息能力 | 优先级 |
 |------|---------|---------|--------|
@@ -33,9 +33,9 @@ CommerceAgent 以 **Web 为首要交付形态**，通过 Channel Adapter 支持�
 ### 3.1 接入方式
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@commerce-agent/web-widget"></script>
+<script src="https://cdn.jsdelivr.net/npm/@open-chat-shop/web-widget"></script>
 <script>
-  CommerceAgent.init({
+  OpenChatShop.init({
     apiUrl: 'https://your-agent-api.com',
     channel: 'web',
     theme: {

@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from commerce_agent.api.app import create_app
+from open_chat_shop.api.app import create_app
 
 
 # ---------------------------------------------------------------------------
@@ -21,7 +21,7 @@ class _StubOrchestrator:
 
     async def handle_message(self, message):
         self.last_message = message
-        from commerce_agent.core.types import AgentMessage
+        from open_chat_shop.core.types import AgentMessage
 
         return AgentMessage(
             message_type="text",

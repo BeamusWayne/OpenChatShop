@@ -1,4 +1,4 @@
-# CommerceAgent
+# OpenChatShop
 
 模型无关的开源电商智能对话系统。通过统一的 LLM Provider 抽象层，一套代码适配 OpenAI、Anthropic、Qwen、DeepSeek、Ollama 等任意大语言模型后端，快速搭建生产级电商客服 Agent。
 
@@ -23,8 +23,8 @@
 ### 安装
 
 ```bash
-git clone https://github.com/your-org/commerce-agent.git
-cd commerce-agent
+git clone https://github.com/your-org/open-chat-shop.git
+cd open-chat-shop
 pip install -e ".[dev]"
 ```
 
@@ -70,7 +70,7 @@ API Key 通过环境变量传入，不硬编码在配置文件中。
 ## 项目结构
 
 ```
-commerce-agent/
+open-chat-shop/
 ├── main.py                     # 入口：组装组件并启动 FastAPI
 ├── run.sh                      # 启动脚本
 ├── pyproject.toml              # 项目依赖（FastAPI, LiteLLM, SQLModel, Redis...）
@@ -81,7 +81,7 @@ commerce-agent/
 │   ├── tool_routing.yaml       # 工具路由规则
 │   ├── security.yaml           # 安全策略
 │   └── scenarios.yaml          # 业务场景 FSM
-├── src/commerce_agent/
+├── src/open_chat_shop/
 │   ├── core/                   # 核心引擎
 │   │   ├── types.py            # 数据结构（Message, Intent, SessionContext...）
 │   │   ├── exceptions.py       # 异常体系
@@ -127,7 +127,7 @@ commerce-agent/
 自定义工具只需继承 `BaseTool` 并实现 `execute` 方法：
 
 ```python
-from commerce_agent.core.tool import BaseTool, ToolResult
+from open_chat_shop.core.tool import BaseTool, ToolResult
 
 class MyCustomTool(BaseTool):
     name = "my_tool"

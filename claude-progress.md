@@ -23,7 +23,7 @@
 
 ### 2026-05-19 Session 2 (21:00-22:00)
 
-**任务：** 分层并行构建 CommerceAgent Phase 1 核心框架
+**任务：** 分层并行构建 OpenChatShop Phase 1 核心框架
 
 **完成内容：**
 - 13/13 功能全部 passing
@@ -46,7 +46,7 @@
 
 ### 2026-05-19 Session 3 (Phase 2)
 
-**任务：** 分层并行构建 CommerceAgent Phase 2 增强功能
+**任务：** 分层并行构建 OpenChatShop Phase 2 增强功能
 
 **完成内容：**
 - 7/7 功能全部 passing
@@ -61,16 +61,16 @@
 | Batch 2 | feat-019 Redis Context, feat-020 语义搜索 | 33 | 直接实现 |
 
 **Phase 2 新增模块：**
-- src/commerce_agent/core/litellm_provider.py — LiteLLM 真实 Provider
-- src/commerce_agent/storage/models.py — SQLModel 业务数据模型 (6 表)
-- src/commerce_agent/storage/database.py — 数据库工具函数
-- src/commerce_agent/storage/redis_context.py — Redis 上下文管理器
-- src/commerce_agent/evaluation/golden_dataset.py — 黄金数据集
-- src/commerce_agent/evaluation/regression.py — 回归测试运行器
-- src/commerce_agent/evaluation/llm_judge.py — LLM 评分器
-- src/commerce_agent/core/scenarios/ — 增强场景 FSM
-- src/commerce_agent/core/cost_governance.py — 成本治理
-- src/commerce_agent/core/semantic_search.py — 语义搜索
+- src/open_chat_shop/core/litellm_provider.py — LiteLLM 真实 Provider
+- src/open_chat_shop/storage/models.py — SQLModel 业务数据模型 (6 表)
+- src/open_chat_shop/storage/database.py — 数据库工具函数
+- src/open_chat_shop/storage/redis_context.py — Redis 上下文管理器
+- src/open_chat_shop/evaluation/golden_dataset.py — 黄金数据集
+- src/open_chat_shop/evaluation/regression.py — 回归测试运行器
+- src/open_chat_shop/evaluation/llm_judge.py — LLM 评分器
+- src/open_chat_shop/core/scenarios/ — 增强场景 FSM
+- src/open_chat_shop/core/cost_governance.py — 成本治理
+- src/open_chat_shop/core/semantic_search.py — 语义搜索
 
 **下一步：**
 - Phase 3: Web Chat Widget (React), OpenTelemetry 集成, Kubernetes Helm chart
@@ -78,7 +78,7 @@
 
 ### 2026-05-19 Session 3 — Phase 3 (continued)
 
-**任务：** 分层并行构建 CommerceAgent Phase 3 生产就绪功能
+**任务：** 分层并行构建 OpenChatShop Phase 3 生产就绪功能
 
 **完成内容：**
 - 7/7 功能全部 passing
@@ -92,13 +92,13 @@
 | Batch 1 | feat-024 Slot Tracker, feat-025 速率限制, feat-026 人工转接, feat-027 DB会话 | 64 | 直接实现 |
 
 **Phase 3 新增模块：**
-- src/commerce_agent/channel/renderers.py — 11 种消息类型渲染器
-- src/commerce_agent/core/config.py — Pydantic 配置校验
-- src/commerce_agent/observability/tracing.py — OpenTelemetry 集成
-- src/commerce_agent/core/slot_tracker.py — 多轮实体追踪
-- src/commerce_agent/core/rate_limiter.py — 滑动窗口速率限制
-- src/commerce_agent/core/handoff.py — 人工转接队列
-- src/commerce_agent/storage/db_context.py — 数据库会话持久化
+- src/open_chat_shop/channel/renderers.py — 11 种消息类型渲染器
+- src/open_chat_shop/core/config.py — Pydantic 配置校验
+- src/open_chat_shop/observability/tracing.py — OpenTelemetry 集成
+- src/open_chat_shop/core/slot_tracker.py — 多轮实体追踪
+- src/open_chat_shop/core/rate_limiter.py — 滑动窗口速率限制
+- src/open_chat_shop/core/handoff.py — 人工转接队列
+- src/open_chat_shop/storage/db_context.py — 数据库会话持久化
 
 **总计：**
 - 27 个功能全部 passing
@@ -107,7 +107,7 @@
 
 ### 2026-05-19 Session 4 — Phase 4
 
-**任务：** 分层并行构建 CommerceAgent Phase 4 生产增强功能
+**任务：** 分层并行构建 OpenChatShop Phase 4 生产增强功能
 
 **完成内容：**
 - 7/7 功能全部 passing
@@ -122,12 +122,12 @@
 
 **Phase 4 新增模块：**
 - tests/integration/test_pipeline.py — 10 个端到端管道集成测试
-- src/commerce_agent/core/tool_response_mapper.py — 8 种工具结果到富消息映射
-- src/commerce_agent/api/streaming.py — SSE + WebSocket 流式响应管道
-- src/commerce_agent/evaluation/golden_dataset.py — 63 个标注对话样本（含攻击样本）
-- src/commerce_agent/channel/miniprogram.py — 微信小程序渠道适配器
-- src/commerce_agent/core/middleware.py — 编排器中间件管道（限流/预算/槽位）
-- src/commerce_agent/storage/alembic/ — Alembic 迁移框架 + 初始 schema
+- src/open_chat_shop/core/tool_response_mapper.py — 8 种工具结果到富消息映射
+- src/open_chat_shop/api/streaming.py — SSE + WebSocket 流式响应管道
+- src/open_chat_shop/evaluation/golden_dataset.py — 63 个标注对话样本（含攻击样本）
+- src/open_chat_shop/channel/miniprogram.py — 微信小程序渠道适配器
+- src/open_chat_shop/core/middleware.py — 编排器中间件管道（限流/预算/槽位）
+- src/open_chat_shop/storage/alembic/ — Alembic 迁移框架 + 初始 schema
 
 **总计：**
 - 34 个功能全部 passing

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.core.types import (
+from open_chat_shop.core.types import (
     CheckResult,
     Intent,
     RoutingRule,
@@ -13,7 +13,7 @@ from commerce_agent.core.types import (
     ToolResult,
     ValidationResult,
 )
-from commerce_agent.core.tool import BaseTool, ToolInjector
+from open_chat_shop.core.tool import BaseTool, ToolInjector
 
 
 # ---------------------------------------------------------------------------

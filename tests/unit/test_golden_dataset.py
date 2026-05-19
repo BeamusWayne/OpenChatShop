@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.evaluation.golden_dataset import (
+from open_chat_shop.evaluation.golden_dataset import (
     BUILT_IN_SAMPLES,
     GoldenSample,
     get_golden_dataset,

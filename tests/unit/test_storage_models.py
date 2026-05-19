@@ -21,13 +21,13 @@ from datetime import datetime
 import pytest
 from sqlmodel import select
 
-from commerce_agent.storage.database import (
+from open_chat_shop.storage.database import (
     create_tables,
     get_engine,
     get_session,
     init_db,
 )
-from commerce_agent.storage.models import (
+from open_chat_shop.storage.models import (
     AuditRecord,
     ConversationLog,
     Order,

@@ -1,5 +1,5 @@
 {
-  "project": "CommerceAgent",
+  "project": "OpenChatShop",
   "_status": "active",
   "last_updated": "2026-05-19",
   "autonomous_config": {
@@ -43,20 +43,20 @@
     {
       "id": "feat-001",
       "title": "项目基础设施",
-      "description": "项目脚手架：pyproject.toml（Python 3.11+, FastAPI, LiteLLM, SQLModel, Redis, pytest）、目录结构（src/commerce_agent/）、配置文件骨架（configs/*.yaml）、.gitignore、Docker Compose 开发环境、harness config.json 更新",
+      "description": "项目脚手架：pyproject.toml（Python 3.11+, FastAPI, LiteLLM, SQLModel, Redis, pytest）、目录结构（src/open_chat_shop/）、配置文件骨架（configs/*.yaml）、.gitignore、Docker Compose 开发环境、harness config.json 更新",
       "status": "passing",
       "priority": 1,
       "depends_on": [],
-      "verification": "pip install -e . 成功，python -c 'import commerce_agent' 不报错，pytest 可发现测试",
+      "verification": "pip install -e . 成功，python -c 'import open_chat_shop' 不报错，pytest 可发现测试",
       "plan_file": "",
-      "evidence": "pip install -e . 成功, import commerce_agent OK, pytest 发现测试, ruff check 通过",
+      "evidence": "pip install -e . 成功, import open_chat_shop OK, pytest 发现测试, ruff check 通过",
       "blocked_reason": "",
       "iteration_count": 1
     },
     {
       "id": "feat-002",
       "title": "核心数据结构与异常体系",
-      "description": "实现 contracts.md §1-2 所有数据结构（Message, Attachment, UserMessage, AgentMessage, Intent, SessionContext, ToolResult, TokenBudget, Action）和异常体系（CommerceAgentError + 6个子异常）",
+      "description": "实现 contracts.md §1-2 所有数据结构（Message, Attachment, UserMessage, AgentMessage, Intent, SessionContext, ToolResult, TokenBudget, Action）和异常体系（OpenChatShopError + 6个子异常）",
       "status": "passing",
       "priority": 2,
       "depends_on": [

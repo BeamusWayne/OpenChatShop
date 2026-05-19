@@ -1,4 +1,4 @@
-"""CommerceAgent entry point — wires all components and starts the server."""
+"""OpenChatShop entry point — wires all components and starts the server."""
 from __future__ import annotations
 
 import logging
@@ -7,18 +7,18 @@ from pathlib import Path
 import uvicorn
 from fastapi.staticfiles import StaticFiles
 
-from commerce_agent.api.app import create_app
-from commerce_agent.core.context import InMemoryContextManager
-from commerce_agent.core.intent import CascadeIntentEngine, RuleBasedMatcher
-from commerce_agent.core.orchestrator import DialogueOrchestrator
-from commerce_agent.core.security import SecurityGuard
-from commerce_agent.core.strategy import RuleBasedStrategy
-from commerce_agent.core.tool import ToolInjector
-from commerce_agent.core.types import RoutingRule
-from commerce_agent.tools.builtin import ALL_TOOLS
+from open_chat_shop.api.app import create_app
+from open_chat_shop.core.context import InMemoryContextManager
+from open_chat_shop.core.intent import CascadeIntentEngine, RuleBasedMatcher
+from open_chat_shop.core.orchestrator import DialogueOrchestrator
+from open_chat_shop.core.security import SecurityGuard
+from open_chat_shop.core.strategy import RuleBasedStrategy
+from open_chat_shop.core.tool import ToolInjector
+from open_chat_shop.core.types import RoutingRule
+from open_chat_shop.tools.builtin import ALL_TOOLS
 
 try:
-    from commerce_agent.core.anthropic_provider import AnthropicProvider
+    from open_chat_shop.core.anthropic_provider import AnthropicProvider
     _LLM_AVAILABLE = True
 except ImportError:
     _LLM_AVAILABLE = False
@@ -112,7 +112,7 @@ def create_main_app():
 
     @app.get("/")
     async def root():
-        return {"message": "CommerceAgent is running", "version": "0.1.0"}
+        return {"message": "OpenChatShop is running", "version": "0.1.0"}
 
     return app
 

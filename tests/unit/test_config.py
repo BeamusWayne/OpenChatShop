@@ -6,7 +6,7 @@ import textwrap
 
 import pytest
 
-from commerce_agent.core.config import (
+from open_chat_shop.core.config import (
     CascadeConfigModel,
     CascadeLevelModel,
     ConfigLoader,

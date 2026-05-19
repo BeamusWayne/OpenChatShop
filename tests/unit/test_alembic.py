@@ -20,7 +20,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = REPO_ROOT / "alembic.ini"
-ALEMBIC_DIR = REPO_ROOT / "src" / "commerce_agent" / "storage" / "alembic"
+ALEMBIC_DIR = REPO_ROOT / "src" / "open_chat_shop" / "storage" / "alembic"
 VERSIONS_DIR = ALEMBIC_DIR / "versions"
 INITIAL_MIGRATION = VERSIONS_DIR / "001_initial_schema.py"
 
@@ -94,21 +94,21 @@ class TestInitialMigration:
 
     def test_migration_importable(self) -> None:
         mod = importlib.import_module(
-            "commerce_agent.storage.alembic.versions.001_initial_schema"
+            "open_chat_shop.storage.alembic.versions.001_initial_schema"
         )
         assert hasattr(mod, "upgrade")
         assert hasattr(mod, "downgrade")
 
     def test_has_upgrade_and_downgrade_functions(self) -> None:
         mod = importlib.import_module(
-            "commerce_agent.storage.alembic.versions.001_initial_schema"
+            "open_chat_shop.storage.alembic.versions.001_initial_schema"
         )
         assert callable(mod.upgrade)
         assert callable(mod.downgrade)
 
     def test_revision_formatted(self) -> None:
         mod = importlib.import_module(
-            "commerce_agent.storage.alembic.versions.001_initial_schema"
+            "open_chat_shop.storage.alembic.versions.001_initial_schema"
         )
         assert isinstance(mod.revision, str)
         assert len(mod.revision) > 0

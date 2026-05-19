@@ -9,9 +9,9 @@ from __future__ import annotations
 import copy
 import pytest
 
-from commerce_agent.core.types import CheckResult, SessionContext, ToolResult
+from open_chat_shop.core.types import CheckResult, SessionContext, ToolResult
 
-from commerce_agent.tools.builtin import (
+from open_chat_shop.tools.builtin import (
     ALL_TOOLS,
     CancelOrderTool,
     CheckRefundEligibilityTool,
@@ -22,7 +22,7 @@ from commerce_agent.tools.builtin import (
     QueryOrderTool,
     SearchProductTool,
 )
-from commerce_agent.tools.builtin import _mock_data
+from open_chat_shop.tools.builtin import _mock_data
 
 
 # ---------------------------------------------------------------------------

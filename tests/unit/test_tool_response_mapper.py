@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.core.tool_response_mapper import ToolResponseMapper
-from commerce_agent.core.types import SessionContext, ToolResult
+from open_chat_shop.core.tool_response_mapper import ToolResponseMapper
+from open_chat_shop.core.types import SessionContext, ToolResult
 
 pytestmark = pytest.mark.unit
 

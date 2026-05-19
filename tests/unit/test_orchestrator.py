@@ -4,18 +4,18 @@ from __future__ import annotations
 import pytest
 from datetime import datetime
 
-from commerce_agent.core.types import (
+from open_chat_shop.core.types import (
     UserMessage, AgentMessage, SessionContext, Intent, Message,
     ToolResult, ToolDefinition, ToolPermission, RoutingRule,
     Action, TokenUsage, LLMResponse,
 )
-from commerce_agent.core.provider import MockProvider
-from commerce_agent.core.context import InMemoryContextManager
-from commerce_agent.core.intent import CascadeIntentEngine, RuleBasedMatcher, IntentInfo
-from commerce_agent.core.security import SecurityGuard
-from commerce_agent.core.strategy import RuleBasedStrategy
-from commerce_agent.core.tool import BaseTool, ToolInjector
-from commerce_agent.core.orchestrator import DialogueOrchestrator
+from open_chat_shop.core.provider import MockProvider
+from open_chat_shop.core.context import InMemoryContextManager
+from open_chat_shop.core.intent import CascadeIntentEngine, RuleBasedMatcher, IntentInfo
+from open_chat_shop.core.security import SecurityGuard
+from open_chat_shop.core.strategy import RuleBasedStrategy
+from open_chat_shop.core.tool import BaseTool, ToolInjector
+from open_chat_shop.core.orchestrator import DialogueOrchestrator
 
 
 class MockQueryOrderTool(BaseTool):

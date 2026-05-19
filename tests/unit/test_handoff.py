@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from datetime import datetime, timedelta
 
-from commerce_agent.core.handoff import (
+from open_chat_shop.core.handoff import (
     AgentStatus,
     HandoffQueue,
     HumanAgent,

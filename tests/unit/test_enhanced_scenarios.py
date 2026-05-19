@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.core.scenario import ScenarioFSM
-from commerce_agent.core.scenarios.order_inquiry import OrderInquiryScenarioFSM
-from commerce_agent.core.scenarios.complaint import ComplaintScenarioFSM
-from commerce_agent.core.types import SessionContext
+from open_chat_shop.core.scenario import ScenarioFSM
+from open_chat_shop.core.scenarios.order_inquiry import OrderInquiryScenarioFSM
+from open_chat_shop.core.scenarios.complaint import ComplaintScenarioFSM
+from open_chat_shop.core.types import SessionContext
 
 
 def _ctx(**overrides) -> SessionContext:

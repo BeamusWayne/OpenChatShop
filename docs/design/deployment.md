@@ -18,7 +18,7 @@ services:
     image: postgres:16-alpine
     ports: ["5432:5432"]
     environment:
-      POSTGRES_DB: commerce_agent
+      POSTGRES_DB: open_chat_shop
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
 
   redis:
@@ -45,7 +45,7 @@ services:
 ## 2. 生产部署（Kubernetes）
 
 ```bash
-helm install commerce-agent ./helm \
+helm install open-chat-shop ./helm \
   --set provider.type=anthropic \
   --set provider.model=claude-sonnet-4-6 \
   --set redis.cluster.enabled=true \

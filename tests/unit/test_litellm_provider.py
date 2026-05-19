@@ -8,13 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from commerce_agent.core.exceptions import ProviderError
-from commerce_agent.core.litellm_provider import (
+from open_chat_shop.core.exceptions import ProviderError
+from open_chat_shop.core.litellm_provider import (
     LiteLLMProvider,
     ProviderConfig,
     ProviderFactory,
 )
-from commerce_agent.core.types import (
+from open_chat_shop.core.types import (
     GenerateConfig,
     LLMChunk,
     LLMResponse,

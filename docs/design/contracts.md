@@ -135,7 +135,7 @@ class ToolResult:
 ### 2.1 基础异常
 
 ```python
-class CommerceAgentError(Exception):
+class OpenChatShopError(Exception):
     """所有模块异常的基类"""
     error_code: str                 # 模块前缀 + 编号，如 "PROV-001"
     message: str
@@ -154,35 +154,35 @@ class CommerceAgentError(Exception):
 ### 2.2 模块异常
 
 ```python
-class SecurityError(CommerceAgentError):
+class SecurityError(OpenChatShopError):
     """安全层异常 — 默认不可恢复"""
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(f"SEC-{hash(message) % 1000:03d}", message, details, recoverable=False)
 
-class ProviderError(CommerceAgentError):
+class ProviderError(OpenChatShopError):
     """LLM Provider 异常"""
     def __init__(self, message: str, provider: str, details: dict | None = None):
         super().__init__(f"PROV-{hash(message) % 1000:03d}", message, details)
         self.provider = provider
 
-class ContextError(CommerceAgentError):
+class ContextError(OpenChatShopError):
     """上下文管理异常"""
     def __init__(self, message: str, session_id: str, details: dict | None = None):
         super().__init__(f"CTX-{hash(message) % 1000:03d}", message, details)
         self.session_id = session_id
 
-class IntentError(CommerceAgentError):
+class IntentError(OpenChatShopError):
     """意图识别异常"""
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(f"INTENT-{hash(message) % 1000:03d}", message, details)
 
-class ToolError(CommerceAgentError):
+class ToolError(OpenChatShopError):
     """工具执行异常"""
     def __init__(self, message: str, tool_name: str, details: dict | None = None):
         super().__init__(f"TOOL-{hash(message) % 1000:03d}", message, details)
         self.tool_name = tool_name
 
-class ChannelError(CommerceAgentError):
+class ChannelError(OpenChatShopError):
     """渠道适配异常"""
     def __init__(self, message: str, channel: str, details: dict | None = None):
         super().__init__(f"CHAN-{hash(message) % 1000:03d}", message, details)
@@ -622,7 +622,7 @@ class Strategy(ABC):
     async def decide(self, intent: Intent, context: SessionContext,
                      tools: list[BaseTool]) -> Action:
         """根据意图和上下文决定下一步动作。
-        Raises: CommerceAgentError 无法决策时
+        Raises: OpenChatShopError 无法决策时
         """
 ```
 

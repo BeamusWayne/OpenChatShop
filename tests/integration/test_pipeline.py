@@ -1,4 +1,4 @@
-"""Integration tests wiring all CommerceAgent modules together.
+"""Integration tests wiring all OpenChatShop modules together.
 
 Uses real module instances (not mocks) to validate the full pipeline:
   SecurityGuard -> InMemoryContextManager -> CascadeIntentEngine -> ToolInjector
@@ -13,20 +13,20 @@ import asyncio
 
 import pytest
 
-from commerce_agent.channel.web import WebAdapter
-from commerce_agent.core.context import InMemoryContextManager
-from commerce_agent.core.intent import CascadeIntentEngine, IntentInfo, RuleBasedMatcher
-from commerce_agent.core.orchestrator import DialogueOrchestrator
-from commerce_agent.core.security import SecurityGuard
-from commerce_agent.core.strategy import RuleBasedStrategy
-from commerce_agent.core.tool import ToolInjector
-from commerce_agent.core.types import (
+from open_chat_shop.channel.web import WebAdapter
+from open_chat_shop.core.context import InMemoryContextManager
+from open_chat_shop.core.intent import CascadeIntentEngine, IntentInfo, RuleBasedMatcher
+from open_chat_shop.core.orchestrator import DialogueOrchestrator
+from open_chat_shop.core.security import SecurityGuard
+from open_chat_shop.core.strategy import RuleBasedStrategy
+from open_chat_shop.core.tool import ToolInjector
+from open_chat_shop.core.types import (
     AgentMessage,
     ChannelMessage,
     RoutingRule,
     UserMessage,
 )
-from commerce_agent.tools.builtin import (
+from open_chat_shop.tools.builtin import (
     HandoffToHumanTool,
     QueryOrderTool,
     SearchProductTool,

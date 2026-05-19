@@ -4,13 +4,13 @@ from __future__ import annotations
 import math
 import pytest
 
-from commerce_agent.core.semantic_search import (
+from open_chat_shop.core.semantic_search import (
     InMemoryVectorStore,
     EmbeddingService,
     SearchResult,
     _cosine_similarity,
 )
-from commerce_agent.core.provider import MockProvider
+from open_chat_shop.core.provider import MockProvider
 
 
 # ===========================================================================

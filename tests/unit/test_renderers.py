@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.channel.renderers import MessageRenderer
-from commerce_agent.core.types import AgentMessage
+from open_chat_shop.channel.renderers import MessageRenderer
+from open_chat_shop.core.types import AgentMessage
 
 pytestmark = pytest.mark.unit
 

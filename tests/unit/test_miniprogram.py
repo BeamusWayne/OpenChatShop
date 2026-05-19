@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.channel.miniprogram import MiniProgramAdapter
-from commerce_agent.core.types import AgentMessage
+from open_chat_shop.channel.miniprogram import MiniProgramAdapter
+from open_chat_shop.core.types import AgentMessage
 
 
 # ---------------------------------------------------------------------------

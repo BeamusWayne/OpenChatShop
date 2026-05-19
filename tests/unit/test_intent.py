@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.core.intent import CascadeIntentEngine, RuleBasedMatcher
-from commerce_agent.core.provider import MockProvider
-from commerce_agent.core.types import (
+from open_chat_shop.core.intent import CascadeIntentEngine, RuleBasedMatcher
+from open_chat_shop.core.provider import MockProvider
+from open_chat_shop.core.types import (
     Intent,
     IntentInfo,
     Message,

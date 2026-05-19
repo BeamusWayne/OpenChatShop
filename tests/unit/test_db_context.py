@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.core.types import Message, SessionContext, AgentMessage
-from commerce_agent.storage.db_context import DatabaseContextManager
+from open_chat_shop.core.types import Message, SessionContext, AgentMessage
+from open_chat_shop.storage.db_context import DatabaseContextManager
 
 
 class TestDatabaseContextManager:

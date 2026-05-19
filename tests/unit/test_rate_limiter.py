@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 import pytest
 
-from commerce_agent.core.rate_limiter import (
+from open_chat_shop.core.rate_limiter import (
     InMemoryRateLimiter,
     RateLimitRule,
     RateLimitResult,

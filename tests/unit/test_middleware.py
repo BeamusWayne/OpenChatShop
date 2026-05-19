@@ -7,17 +7,17 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from commerce_agent.core.cost_governance import BudgetConfig, SessionBudgetManager
-from commerce_agent.core.middleware import (
+from open_chat_shop.core.cost_governance import BudgetConfig, SessionBudgetManager
+from open_chat_shop.core.middleware import (
     BudgetMiddleware,
     Middleware,
     MiddlewarePipeline,
     RateLimitMiddleware,
     SlotTrackingMiddleware,
 )
-from commerce_agent.core.rate_limiter import InMemoryRateLimiter, RateLimitGuard, RateLimitRule
-from commerce_agent.core.slot_tracker import SlotDefinition, SlotTracker
-from commerce_agent.core.types import AgentMessage, SessionContext, UserMessage
+from open_chat_shop.core.rate_limiter import InMemoryRateLimiter, RateLimitGuard, RateLimitRule
+from open_chat_shop.core.slot_tracker import SlotDefinition, SlotTracker
+from open_chat_shop.core.types import AgentMessage, SessionContext, UserMessage
 
 
 # ---------------------------------------------------------------------------

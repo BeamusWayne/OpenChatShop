@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.core.slot_tracker import (
+from open_chat_shop.core.slot_tracker import (
     SlotDefinition,
     SlotTracker,
     SlotStatus,

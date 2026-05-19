@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "commerce-agent"
+name = "open-chat-shop"
 version = "0.1.0"
 description = "Model-agnostic e-commerce intelligent dialogue system"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
-authors = [{ name = "CommerceAgent Contributors" }]
+authors = [{ name = "OpenChatShop Contributors" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Framework :: FastAPI",
@@ -54,7 +54,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/commerce_agent"]
+packages = ["src/open_chat_shop"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -75,7 +75,7 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "RUF"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["commerce_agent"]
+known-first-party = ["open_chat_shop"]
 
 [tool.mypy]
 python_version = "3.11"

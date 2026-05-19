@@ -6,9 +6,9 @@ import json
 import pytest
 import pytest_asyncio
 
-from commerce_agent.api.streaming import StreamEvent, StreamingOrchestrator
-from commerce_agent.core.provider import MockProvider
-from commerce_agent.core.types import AgentMessage, UserMessage
+from open_chat_shop.api.streaming import StreamEvent, StreamingOrchestrator
+from open_chat_shop.core.provider import MockProvider
+from open_chat_shop.core.types import AgentMessage, UserMessage
 
 
 # ---------------------------------------------------------------------------

@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import pytest
 
-from commerce_agent.core.types import (
+from open_chat_shop.core.types import (
     AgentMessage,
     ChannelCapabilities,
     ChannelMessage,
 )
-from commerce_agent.channel.base import ChannelAdapter
-from commerce_agent.channel.web import WebAdapter, WechatAdapter
+from open_chat_shop.channel.base import ChannelAdapter
+from open_chat_shop.channel.web import WebAdapter, WechatAdapter
 
 
 # ---------------------------------------------------------------------------

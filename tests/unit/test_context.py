@@ -16,8 +16,8 @@ import time
 
 import pytest
 
-from commerce_agent.core.context import InMemoryContextManager
-from commerce_agent.core.types import AgentMessage, Message, SessionContext
+from open_chat_shop.core.context import InMemoryContextManager
+from open_chat_shop.core.types import AgentMessage, Message, SessionContext
 
 
 # ---------------------------------------------------------------------------

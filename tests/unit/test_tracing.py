@@ -1,4 +1,4 @@
-"""Tests for commerce_agent.observability.tracing.
+"""Tests for open_chat_shop.observability.tracing.
 
 Uses InMemorySpanExporter to verify span creation, naming, attributes,
 duration recording, and exception handling without a real OTLP collector.
@@ -11,7 +11,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from commerce_agent.observability.tracing import (
+from open_chat_shop.observability.tracing import (
     get_tracer,
     setup_tracing,
     trace_channel_adapt,
@@ -35,7 +35,7 @@ from commerce_agent.observability.tracing import (
 @pytest.fixture(autouse=True)
 def _reset_global_tracer() -> None:
     """Reset the module-level tracer between tests."""
-    import commerce_agent.observability.tracing as mod
+    import open_chat_shop.observability.tracing as mod
 
     mod._tracer = None  # noqa: PLW0602
     yield
@@ -50,7 +50,7 @@ def memory_exporter() -> InMemorySpanExporter:
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
 
-    import commerce_agent.observability.tracing as mod
+    import open_chat_shop.observability.tracing as mod
 
     mod._tracer = provider.get_tracer("test")
     return exporter
@@ -92,7 +92,7 @@ def test_trace_orchestrator_handle(memory_exporter: InMemorySpanExporter) -> Non
     assert len(spans) == 1
     assert spans[0].name == "orchestrator.handle_message"
     assert spans[0].attributes["session_id"] == "sess-001"
-    assert spans[0].attributes["service.name"] == "commerce-agent"
+    assert spans[0].attributes["service.name"] == "open-chat-shop"
 
 
 # ---------------------------------------------------------------------------

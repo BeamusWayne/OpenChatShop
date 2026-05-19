@@ -1,4 +1,4 @@
-"""Tests for commerce_agent.observability.logging.
+"""Tests for open_chat_shop.observability.logging.
 
 Covers:
 - StructuredFormatter: valid JSON output, required fields, extra fields
@@ -14,7 +14,7 @@ import logging
 
 import pytest
 
-from commerce_agent.observability.logging import (
+from open_chat_shop.observability.logging import (
     AuditLogger,
     CostTracker,
     StructuredFormatter,
@@ -137,7 +137,7 @@ def test_audit_logger_logs_tool_execution(capfd: pytest.CaptureFixture[str]) -> 
     # Configure a handler so output goes to stderr (StreamHandler default).
     handler = logging.StreamHandler()
     handler.setFormatter(StructuredFormatter())
-    logger = logging.getLogger("commerce_agent.audit.tool_test")
+    logger = logging.getLogger("open_chat_shop.audit.tool_test")
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
     logger.addHandler(handler)
@@ -162,7 +162,7 @@ def test_audit_logger_logs_security_event(capfd: pytest.CaptureFixture[str]) -> 
     """log_security_event emits a WARNING level structured log."""
     handler = logging.StreamHandler()
     handler.setFormatter(StructuredFormatter())
-    logger = logging.getLogger("commerce_agent.audit.sec_test")
+    logger = logging.getLogger("open_chat_shop.audit.sec_test")
     logger.setLevel(logging.WARNING)
     logger.handlers.clear()
     logger.addHandler(handler)
@@ -276,9 +276,9 @@ def test_sanitize_params_removes_sensitive_keys() -> None:
 
 @pytest.mark.unit
 def test_setup_logging_configures_handler() -> None:
-    """setup_logging attaches a StructuredFormatter handler to the commerce_agent logger."""
+    """setup_logging attaches a StructuredFormatter handler to the open_chat_shop logger."""
     setup_logging(level="DEBUG")
-    root = logging.getLogger("commerce_agent")
+    root = logging.getLogger("open_chat_shop")
     assert root.level == logging.DEBUG
     assert len(root.handlers) == 1
     handler = root.handlers[0]

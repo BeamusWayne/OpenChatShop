@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from commerce_agent.evaluation.golden_dataset import GoldenDataset, GoldenSample
-from commerce_agent.evaluation.regression import RegressionRunner, RegressionResult
-from commerce_agent.evaluation.llm_judge import LLMJudge, JudgeDimension, JudgeResult
-from commerce_agent.core.provider import MockProvider
+from open_chat_shop.evaluation.golden_dataset import GoldenDataset, GoldenSample
+from open_chat_shop.evaluation.regression import RegressionRunner, RegressionResult
+from open_chat_shop.evaluation.llm_judge import LLMJudge, JudgeDimension, JudgeResult
+from open_chat_shop.core.provider import MockProvider
 
 
 # ---------------------------------------------------------------------------

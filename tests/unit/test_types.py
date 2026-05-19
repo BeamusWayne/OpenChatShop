@@ -18,16 +18,16 @@ from datetime import datetime
 
 import pytest
 
-from commerce_agent.core.exceptions import (
+from open_chat_shop.core.exceptions import (
     ChannelError,
-    CommerceAgentError,
+    OpenChatShopError,
     ContextError,
     IntentError,
     ProviderError,
     SecurityError,
     ToolError,
 )
-from commerce_agent.core.types import (
+from open_chat_shop.core.types import (
     Action,
     AgentMessage,
     Attachment,
@@ -445,16 +445,16 @@ class TestAction:
 
 
 @pytest.mark.unit
-class TestCommerceAgentError:
+class TestOpenChatShopError:
     def test_instantiation(self) -> None:
-        err = CommerceAgentError("TEST-001", "something went wrong")
+        err = OpenChatShopError("TEST-001", "something went wrong")
         assert err.error_code == "TEST-001"
         assert err.message == "something went wrong"
         assert err.details == {}
         assert err.recoverable is True
 
     def test_with_details(self) -> None:
-        err = CommerceAgentError(
+        err = OpenChatShopError(
             "TEST-002",
             "failure",
             details={"key": "value"},
@@ -464,7 +464,7 @@ class TestCommerceAgentError:
         assert err.recoverable is False
 
     def test_is_exception(self) -> None:
-        err = CommerceAgentError("X-001", "msg")
+        err = OpenChatShopError("X-001", "msg")
         assert isinstance(err, Exception)
 
 
@@ -481,7 +481,7 @@ class TestSecurityError:
     def test_isinstance_hierarchy(self) -> None:
         err = SecurityError("xss")
         assert isinstance(err, SecurityError)
-        assert isinstance(err, CommerceAgentError)
+        assert isinstance(err, OpenChatShopError)
         assert isinstance(err, Exception)
 
     def test_with_details(self) -> None:
@@ -506,7 +506,7 @@ class TestProviderError:
     def test_isinstance_hierarchy(self) -> None:
         err = ProviderError("fail", provider="ollama")
         assert isinstance(err, ProviderError)
-        assert isinstance(err, CommerceAgentError)
+        assert isinstance(err, OpenChatShopError)
 
 
 @pytest.mark.unit
@@ -522,7 +522,7 @@ class TestContextError:
     def test_isinstance_hierarchy(self) -> None:
         err = ContextError("fail", session_id="s1")
         assert isinstance(err, ContextError)
-        assert isinstance(err, CommerceAgentError)
+        assert isinstance(err, OpenChatShopError)
 
 
 @pytest.mark.unit
@@ -538,7 +538,7 @@ class TestIntentError:
     def test_isinstance_hierarchy(self) -> None:
         err = IntentError("fail")
         assert isinstance(err, IntentError)
-        assert isinstance(err, CommerceAgentError)
+        assert isinstance(err, OpenChatShopError)
 
 
 @pytest.mark.unit
@@ -554,7 +554,7 @@ class TestToolError:
     def test_isinstance_hierarchy(self) -> None:
         err = ToolError("fail", tool_name="search_product")
         assert isinstance(err, ToolError)
-        assert isinstance(err, CommerceAgentError)
+        assert isinstance(err, OpenChatShopError)
 
 
 @pytest.mark.unit
@@ -570,7 +570,7 @@ class TestChannelError:
     def test_isinstance_hierarchy(self) -> None:
         err = ChannelError("fail", channel="web")
         assert isinstance(err, ChannelError)
-        assert isinstance(err, CommerceAgentError)
+        assert isinstance(err, OpenChatShopError)
 
 
 @pytest.mark.unit

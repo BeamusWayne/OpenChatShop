@@ -5,8 +5,8 @@ from datetime import datetime
 
 import pytest
 
-from commerce_agent.core.scenario import RefundScenarioFSM, ScenarioFSM
-from commerce_agent.core.types import SessionContext, Transition
+from open_chat_shop.core.scenario import RefundScenarioFSM, ScenarioFSM
+from open_chat_shop.core.types import SessionContext, Transition
 
 
 # ---------------------------------------------------------------------------

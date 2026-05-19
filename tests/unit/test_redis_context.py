@@ -4,13 +4,13 @@ from __future__ import annotations
 import json
 import pytest
 
-from commerce_agent.core.types import Message, SessionContext, AgentMessage
-from commerce_agent.storage.redis_context import (
+from open_chat_shop.core.types import Message, SessionContext, AgentMessage
+from open_chat_shop.storage.redis_context import (
     RedisContextManager,
     _serialize_context,
     _deserialize_context,
 )
-from commerce_agent.core.exceptions import ContextError
+from open_chat_shop.core.exceptions import ContextError
 
 
 def _make_ctx(**overrides) -> SessionContext:
