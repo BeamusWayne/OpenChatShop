@@ -1,16 +1,12 @@
-import { ConfigProvider } from 'antd';
-import { StyleProvider } from '@ant-design/cssinjs';
-import useGlassTheme from './theme/glassTheme';
+import { ConfigProvider, theme } from 'antd';
 import ChatWindow from './components/ChatWindow';
 
 export default function App() {
-  const configProps = useGlassTheme();
+  const configProps = { theme: { algorithm: theme.defaultAlgorithm } };
 
   return (
-    <StyleProvider layer>
-      <ConfigProvider {...configProps}>
-        <ChatWindow />
-      </ConfigProvider>
-    </StyleProvider>
+    <ConfigProvider {...configProps}>
+      <ChatWindow />
+    </ConfigProvider>
   );
 }
