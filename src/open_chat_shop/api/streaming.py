@@ -88,7 +88,7 @@ class StreamingOrchestrator:
             logger.exception("Streaming error", extra={"session_id": message.session_id})
             yield StreamEvent(
                 type="error",
-                data={"message": str(exc)},
+                data={"message": "处理消息时出错，请稍后重试"},
             )
 
     async def _stream_llm(

@@ -133,7 +133,7 @@ class TestStreamingOrchestrator:
         # typing, error
         assert len(events) == 2
         assert events[1].type == "error"
-        assert "boom" in events[1].data["message"]
+        assert "出错" in events[1].data["message"]
 
     async def test_done_contains_full_metadata(self) -> None:
         orch = StreamingOrchestrator(
