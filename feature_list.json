@@ -209,14 +209,14 @@
       "id": "feat-012",
       "title": "可观测性与日志",
       "description": "结构化日志（含 trace_id/span_id）、OpenTelemetry 集成、审计日志、成本追踪",
-      "status": "in_progress",
+      "status": "passing",
       "priority": 8,
       "depends_on": [
         "feat-002"
       ],
       "verification": "日志包含所有必需字段，trace span 命名符合规范",
       "plan_file": "",
-      "evidence": "Agent working on structured logging, audit, cost tracker",
+      "evidence": "14 tests: StructuredFormatter JSON logs, AuditLogger tool/security events, CostTracker per-model costs",
       "blocked_reason": "",
       "iteration_count": 1
     },
