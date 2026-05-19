@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from open_chat_shop.core.context import ContextManager
@@ -63,7 +63,7 @@ class DatabaseContextManager(ContextManager):
 
         # For simplicity with SQLModel sync API in async context,
         # store sessions in-memory and periodically flush
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return SessionContext(
             session_id=session_id,
             user_id=None,
@@ -125,7 +125,7 @@ class DatabaseContextManager(ContextManager):
             token_usage=context.token_usage,
             user_role=context.user_role,
             created_at=context.created_at,
-            last_active_at=datetime.utcnow(),
+            last_active_at=datetime.now(timezone.utc),
         )
 
     def get_token_budget(self, context: SessionContext) -> TokenBudget:

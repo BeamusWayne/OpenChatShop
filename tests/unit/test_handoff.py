@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from open_chat_shop.core.handoff import (
     AgentStatus,
@@ -188,7 +188,7 @@ class TestTransferQueue:
     def test_check_timeouts(self):
         queue = HandoffQueue(timeout_seconds=0)  # Instant timeout
         req = _make_request()
-        req.queued_at = datetime.utcnow() - timedelta(seconds=10)
+        req.queued_at = datetime.now(timezone.utc) - timedelta(seconds=10)
         queue.enqueue(req)
         timed_out = queue.check_timeouts()
         assert len(timed_out) == 1

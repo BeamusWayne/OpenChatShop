@@ -6,7 +6,7 @@ Implements contracts.md S8: ContextManager ABC and InMemoryContextManager.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from open_chat_shop.core.types import (
@@ -62,7 +62,7 @@ class InMemoryContextManager(ContextManager):
     async def load(self, session_id: str) -> SessionContext:
         """Load or create a session context."""
         if session_id not in self._sessions:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             self._sessions[session_id] = SessionContext(
                 session_id=session_id,
                 user_id=None,
@@ -93,7 +93,7 @@ class InMemoryContextManager(ContextManager):
             token_usage=context.token_usage,
             user_role=context.user_role,
             created_at=context.created_at,
-            last_active_at=datetime.utcnow(),
+            last_active_at=datetime.now(timezone.utc),
         )
         self._sessions[context.session_id] = updated
 
@@ -129,7 +129,7 @@ class InMemoryContextManager(ContextManager):
             token_usage=context.token_usage,
             user_role=context.user_role,
             created_at=context.created_at,
-            last_active_at=datetime.utcnow(),
+            last_active_at=datetime.now(timezone.utc),
         )
 
     def get_token_budget(self, context: SessionContext) -> TokenBudget:

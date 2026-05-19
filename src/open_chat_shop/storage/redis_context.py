@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from open_chat_shop.core.context import ContextManager
@@ -100,7 +100,7 @@ class RedisContextManager(ContextManager):
         try:
             data = await self._redis.hgetall(key)
             if not data:
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
                 ctx = SessionContext(
                     session_id=session_id,
                     user_id=None,
@@ -140,7 +140,7 @@ class RedisContextManager(ContextManager):
             token_usage=context.token_usage,
             user_role=context.user_role,
             created_at=context.created_at,
-            last_active_at=datetime.utcnow(),
+            last_active_at=datetime.now(timezone.utc),
         )
         key = self._key(context.session_id)
         await self._save_to_redis(key, updated)
@@ -181,7 +181,7 @@ class RedisContextManager(ContextManager):
             token_usage=context.token_usage,
             user_role=context.user_role,
             created_at=context.created_at,
-            last_active_at=datetime.utcnow(),
+            last_active_at=datetime.now(timezone.utc),
         )
 
     def get_token_budget(self, context: SessionContext) -> TokenBudget:

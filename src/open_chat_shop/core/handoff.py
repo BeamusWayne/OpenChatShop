@@ -6,7 +6,7 @@ session assignment, queue tracking, and timeout escalation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 import asyncio
@@ -127,7 +127,7 @@ class HandoffQueue:
 
         request.status = TransferStatus.ASSIGNED
         request.assigned_agent_id = agent.agent_id
-        request.assigned_at = datetime.utcnow()
+        request.assigned_at = datetime.now(timezone.utc)
 
         self._active_transfers[request.session_id] = request
         # Remove from queue if present
@@ -146,7 +146,7 @@ class HandoffQueue:
             return
 
         transfer.status = TransferStatus.COMPLETED
-        transfer.completed_at = datetime.utcnow()
+        transfer.completed_at = datetime.now(timezone.utc)
 
         agent = self._agents.get(transfer.assigned_agent_id or "")
         if agent:
@@ -179,7 +179,7 @@ class HandoffQueue:
 
     def check_timeouts(self) -> list[TransferRequest]:
         """Check for timed-out queued requests. Returns timed-out list."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         timed_out = []
         remaining = []
         for req in self._queue:
