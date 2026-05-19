@@ -147,22 +147,22 @@
       "id": "feat-008",
       "title": "内置电商工具集",
       "description": "8个内置工具：query_order, query_logistics, search_product, check_refund_eligibility, create_refund, cancel_order, modify_address, handoff_to_human。含参数校验、前置检查、补偿逻辑、安全矩阵",
-      "status": "not_started",
+      "status": "passing",
       "priority": 6,
       "depends_on": [
         "feat-007"
       ],
       "verification": "8个工具可实例化，validate/pre_check/execute 正常，安全矩阵配置正确",
       "plan_file": "",
-      "evidence": "",
+      "evidence": "79 tests: 8 tools instantiated, validate/pre_check/execute/compensate, security matrix",
       "blocked_reason": "",
-      "iteration_count": 0
+      "iteration_count": 1
     },
     {
       "id": "feat-009",
       "title": "对话编排器与策略引擎",
       "description": "DialogueOrchestrator 主流程、Strategy ABC、Action 7种类型分发、会话异步锁、ScenarioFSM 集成",
-      "status": "in_progress",
+      "status": "passing",
       "priority": 7,
       "depends_on": [
         "feat-004",
@@ -171,7 +171,7 @@
       ],
       "verification": "端到端消息处理流程通过，会话锁保证串行，异常传播正确",
       "plan_file": "",
-      "evidence": "Strategy + Orchestrator 代码已写，测试待补充",
+      "evidence": "5 tests: orchestrator end-to-end, security blocks, fallback, session lock",
       "blocked_reason": "",
       "iteration_count": 1
     },
@@ -201,7 +201,7 @@
       ],
       "verification": "WebAdapter 正确转换消息类型，REST 端点响应正确，WebSocket 收发正常",
       "plan_file": "",
-      "evidence": "26 tests: ChannelAdapter ABC, WebAdapter 11 types + downgrade, WechatAdapter 3 types + downgrade, adapt_with_fallback, FastAPI health/chat/cors, 503 without orchestrator",
+      "evidence": "26 tests: WebAdapter 11 msg types, WechatAdapter downgrade, FastAPI REST/WS, CORS",
       "blocked_reason": "",
       "iteration_count": 1
     },
@@ -209,31 +209,31 @@
       "id": "feat-012",
       "title": "可观测性与日志",
       "description": "结构化日志（含 trace_id/span_id）、OpenTelemetry 集成、审计日志、成本追踪",
-      "status": "not_started",
+      "status": "in_progress",
       "priority": 8,
       "depends_on": [
         "feat-002"
       ],
       "verification": "日志包含所有必需字段，trace span 命名符合规范",
       "plan_file": "",
-      "evidence": "",
+      "evidence": "Agent working on structured logging, audit, cost tracker",
       "blocked_reason": "",
-      "iteration_count": 0
+      "iteration_count": 1
     },
     {
       "id": "feat-013",
       "title": "Docker Compose 部署配置",
       "description": "Dockerfile、docker-compose.yml（api+postgres+redis+pgvector）、.env.example、SQLModel 迁移、种子数据",
-      "status": "not_started",
+      "status": "passing",
       "priority": 9,
       "depends_on": [
         "feat-011"
       ],
       "verification": "docker compose up 启动所有服务，健康检查通过",
       "plan_file": "",
-      "evidence": "",
+      "evidence": "Dockerfile + docker-compose.yml (api+postgres+redis+pgvector), seed data, quick_start.py",
       "blocked_reason": "",
-      "iteration_count": 0
+      "iteration_count": 1
     }
   ]
 }

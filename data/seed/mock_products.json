@@ -1,0 +1,5 @@
+[
+  {"product_id": "SKU-001", "name": "蓝牙耳机 Pro", "price": 199.00, "category": "数码", "image_url": "/images/earphone.jpg", "stock": 100},
+  {"product_id": "SKU-002", "name": "手机壳 磨砂黑", "price": 29.90, "category": "配件", "image_url": "/images/case.jpg", "stock": 500},
+  {"product_id": "SKU-003", "name": "20000mAh充电宝", "price": 89.00, "category": "数码", "image_url": "/images/powerbank.jpg", "stock": 200}
+]
