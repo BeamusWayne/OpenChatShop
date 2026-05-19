@@ -44,6 +44,7 @@ DEFAULT_RULES: list[tuple[str, str, float]] = [
     ("modify_address", r"修改?地址|换地址|地址改|改[一一下]?地址", 1.0),
     ("handoff_to_human", r"转人工|人工客服|真人|客服|转接|human|agent", 1.0),
     ("greeting", r"你好|您好|hi|hello|嗨|hey", 0.8),
+    ("thanks", r"谢谢|感谢|多谢|thanks|thank you|thx", 0.8),
 ]
 
 

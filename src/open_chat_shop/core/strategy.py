@@ -75,6 +75,15 @@ class RuleBasedStrategy(Strategy):
                 },
             )
 
+        if intent.name == "thanks":
+            return Action(
+                type="reply",
+                payload={
+                    "content": "不客气！如果还有其他问题，随时可以问我。",
+                    "message_type": "text",
+                },
+            )
+
         if tools:
             tool = tools[0]
             params = dict(intent.entities)
