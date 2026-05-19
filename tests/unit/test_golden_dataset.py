@@ -1,0 +1,180 @@
+"""Tests for built-in golden dataset — structure, coverage, filtering."""
+from __future__ import annotations
+
+import pytest
+
+from commerce_agent.evaluation.golden_dataset import (
+    BUILT_IN_SAMPLES,
+    GoldenSample,
+    get_golden_dataset,
+)
+
+ALL_INTENTS = {
+    "query_order",
+    "query_logistics",
+    "search_product",
+    "check_refund_eligibility",
+    "create_refund",
+    "cancel_order",
+    "modify_address",
+    "handoff_to_human",
+}
+
+ALL_SCENARIO_TYPES = {"normal", "edge", "attack"}
+
+
+@pytest.fixture
+def dataset() -> list[GoldenSample]:
+    return BUILT_IN_SAMPLES
+
+
+# ---------------------------------------------------------------------------
+# Structure and size
+# ---------------------------------------------------------------------------
+
+
+class TestGoldenDatasetStructure:
+    """Verify dataset size and per-sample structure."""
+
+    @pytest.mark.unit
+    def test_dataset_has_50_plus_samples(self, dataset: list[GoldenSample]) -> None:
+        assert len(dataset) >= 50
+
+    @pytest.mark.unit
+    def test_all_8_intents_covered(self, dataset: list[GoldenSample]) -> None:
+        intents = {s.expected_intent for s in dataset}
+        assert ALL_INTENTS <= intents, (
+            f"Missing intents: {ALL_INTENTS - intents}"
+        )
+
+    @pytest.mark.unit
+    def test_all_3_scenario_types_covered(self, dataset: list[GoldenSample]) -> None:
+        types = {s.scenario_type for s in dataset}
+        assert ALL_SCENARIO_TYPES <= types, (
+            f"Missing scenario types: {ALL_SCENARIO_TYPES - types}"
+        )
+
+    @pytest.mark.unit
+    def test_each_intent_has_at_least_5_samples(
+        self, dataset: list[GoldenSample]
+    ) -> None:
+        counts: dict[str, int] = {}
+        for s in dataset:
+            counts[s.expected_intent] = counts.get(s.expected_intent, 0) + 1
+        for intent in ALL_INTENTS:
+            assert counts.get(intent, 0) >= 5, (
+                f"Intent '{intent}' has only {counts.get(intent, 0)} samples (need >= 5)"
+            )
+
+    @pytest.mark.unit
+    def test_sample_structure_completeness(self, dataset: list[GoldenSample]) -> None:
+        for sample in dataset:
+            assert isinstance(sample.sample_id, str) and sample.sample_id != ""
+            assert isinstance(sample.scenario, str) and sample.scenario != ""
+            assert isinstance(sample.intent, str) and sample.intent != ""
+            assert isinstance(sample.expected_intent, str) and sample.expected_intent != ""
+            assert isinstance(sample.expected_response_contains, list)
+            assert isinstance(sample.expected_tool_calls, list)
+            assert len(sample.expected_tool_calls) > 0
+            assert sample.risk_level in {"low", "medium", "high"}
+            assert sample.scenario_type in {"normal", "edge", "attack"}
+
+
+# ---------------------------------------------------------------------------
+# Uniqueness
+# ---------------------------------------------------------------------------
+
+
+class TestGoldenDatasetUniqueness:
+    """Verify no duplicate IDs or duplicate inputs."""
+
+    @pytest.mark.unit
+    def test_no_duplicate_sample_ids(self, dataset: list[GoldenSample]) -> None:
+        ids = [s.sample_id for s in dataset]
+        assert len(ids) == len(set(ids)), f"Duplicate IDs: {_find_dupes(ids)}"
+
+    @pytest.mark.unit
+    def test_no_duplicate_inputs(self, dataset: list[GoldenSample]) -> None:
+        inputs = [s.user_input for s in dataset]
+        dupes = _find_dupes(inputs)
+        assert len(inputs) == len(set(inputs)), (
+            f"Duplicate user_input values: {dupes}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Filtering via GoldenDataset
+# ---------------------------------------------------------------------------
+
+
+class TestGoldenDatasetFiltering:
+    """Verify get_by_intent, get_by_scenario_type, and get_golden_dataset."""
+
+    @pytest.mark.unit
+    def test_get_by_intent_returns_correct_samples(self) -> None:
+        ds = get_golden_dataset()
+        results = ds.get_by_intent("search_product")
+        assert len(results) >= 7
+        assert all(s.expected_intent == "search_product" for s in results)
+
+    @pytest.mark.unit
+    def test_get_by_intent_returns_empty_for_unknown(self) -> None:
+        ds = get_golden_dataset()
+        results = ds.get_by_intent("nonexistent_intent")
+        assert results == []
+
+    @pytest.mark.unit
+    def test_get_by_scenario_type_normal(self) -> None:
+        ds = get_golden_dataset()
+        results = ds.get_by_scenario_type("normal")
+        assert len(results) >= 30
+        assert all(s.scenario_type == "normal" for s in results)
+
+    @pytest.mark.unit
+    def test_get_by_scenario_type_edge(self) -> None:
+        ds = get_golden_dataset()
+        results = ds.get_by_scenario_type("edge")
+        assert len(results) >= 5
+        assert all(s.scenario_type == "edge" for s in results)
+
+    @pytest.mark.unit
+    def test_get_by_scenario_type_attack(self) -> None:
+        ds = get_golden_dataset()
+        results = ds.get_by_scenario_type("attack")
+        assert len(results) >= 8
+        assert all(s.scenario_type == "attack" for s in results)
+
+    @pytest.mark.unit
+    def test_get_golden_dataset_returns_valid(self) -> None:
+        ds = get_golden_dataset()
+        errors = ds.validate()
+        assert errors == [], f"Validation errors: {errors}"
+
+    @pytest.mark.unit
+    def test_get_golden_dataset_len_matches_built_in(self) -> None:
+        ds = get_golden_dataset()
+        assert len(ds) == len(BUILT_IN_SAMPLES)
+
+    @pytest.mark.unit
+    def test_attack_samples_have_high_risk(self, dataset: list[GoldenSample]) -> None:
+        for s in dataset:
+            if s.scenario_type == "attack":
+                assert s.risk_level == "high", (
+                    f"Attack sample {s.sample_id} should have risk_level='high'"
+                )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _find_dupes(items: list[str]) -> list[str]:
+    """Return items that appear more than once."""
+    seen: set[str] = set()
+    dupes: set[str] = set()
+    for item in items:
+        if item in seen:
+            dupes.add(item)
+        seen.add(item)
+    return sorted(dupes)

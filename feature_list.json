@@ -241,7 +241,9 @@
       "description": "通过 LiteLLM 实现 OpenAI/Anthropic/Ollama Provider，支持配置驱动切换、流式响应、embedding、tool_calling。从 providers.yaml 加载配置，提供运行时模型切换能力",
       "status": "passing",
       "priority": 1,
-      "depends_on": ["feat-003"],
+      "depends_on": [
+        "feat-003"
+      ],
       "verification": "LiteLLMProvider 可 chat/stream/embed，配置加载正确，单元测试通过（mocked），级联降级正常",
       "plan_file": "",
       "evidence": "21 tests: LiteLLMProvider chat/stream/embed, ProviderConfig YAML load, ProviderFactory, capability degradation",
@@ -254,7 +256,9 @@
       "description": "定义业务数据库模型：User, Order, OrderItem, Product, RefundRecord, ConversationLog, AuditRecord。SQLModel 声明 + SQLite 内存测试 CRUD 操作",
       "status": "passing",
       "priority": 1,
-      "depends_on": ["feat-002"],
+      "depends_on": [
+        "feat-002"
+      ],
       "verification": "所有模型可创建表、执行 CRUD、字段约束正确、关系查询正常",
       "plan_file": "",
       "evidence": "39 tests: 6 models CRUD, relationships User-Orders Order-Refunds, field constraints, SQLite in-memory",
@@ -267,7 +271,9 @@
       "description": "GoldenDataset 加载器（JSON schema 验证）、RegressionRunner（agent 输出 vs 期望对比）、LLMJudge（4 维度评分：accuracy/safety/helpfulness/tone）、评测报告生成",
       "status": "passing",
       "priority": 1,
-      "depends_on": ["feat-009"],
+      "depends_on": [
+        "feat-009"
+      ],
       "verification": "GoldenDataset 加载验证正确，regression 对比逻辑正确，LLMJudge 4 维度评分正常，评测报告生成",
       "plan_file": "",
       "evidence": "27 tests: GoldenDataset load/filter/validate, RegressionRunner compare/report, LLMJudge 4-dimension scoring",
@@ -280,7 +286,9 @@
       "description": "OrderInquiryScenarioFSM（查询→定位→展示→追问）、ComplaintScenarioFSM（投诉→分类→处理→反馈）。含 guard 条件、超时处理、状态机持久化",
       "status": "passing",
       "priority": 2,
-      "depends_on": ["feat-010"],
+      "depends_on": [
+        "feat-010"
+      ],
       "verification": "两个 FSM 状态转换正确，guard 阻止非法转换，超时触发降级",
       "plan_file": "",
       "evidence": "16 tests: OrderInquiryFSM happy_path/not_found/follow_up/cancel/guard, ComplaintFSM classify/escalate/guard",
@@ -293,7 +301,10 @@
       "description": "SessionBudgetManager（per-session token 预算+阈值警告）、CostAlertEngine（日/会话成本告警）、BudgetAwareStrategy（LLM 调用前检查预算）、与 CostTracker 集成",
       "status": "passing",
       "priority": 2,
-      "depends_on": ["feat-003", "feat-012"],
+      "depends_on": [
+        "feat-003",
+        "feat-012"
+      ],
       "verification": "预算超限拦截 LLM 调用，告警触发正确，降级到低级别 cascade",
       "plan_file": "",
       "evidence": "16 tests: BudgetConfig, BudgetStatus, SessionBudgetManager consume/thresholds/can_proceed/reset, CostAlertEngine warning/critical/exceeded",
@@ -306,7 +317,9 @@
       "description": "RedisContextManager：Redis Hash 存储会话数据，TTL 过期策略，序列化/反序列化 SessionContext，与 InMemoryContextManager 接口一致",
       "status": "passing",
       "priority": 3,
-      "depends_on": ["feat-004"],
+      "depends_on": [
+        "feat-004"
+      ],
       "verification": "Redis load/save 循环正常，TTL 过期触发 ContextError，序列化不丢数据",
       "plan_file": "",
       "evidence": "17 tests: serialization roundtrip, load/create/save, compress, update_slots, Redis error handling",
@@ -319,7 +332,10 @@
       "description": "EmbeddingService 包装 provider.embed()，替换 Jaccard 词重叠为向量相似度搜索，支持 pgvector 和内存两种后端，intent engine Level 1 语义层升级",
       "status": "passing",
       "priority": 3,
-      "depends_on": ["feat-005", "feat-014"],
+      "depends_on": [
+        "feat-005",
+        "feat-014"
+      ],
       "verification": "向量相似度搜索正确排序结果，内存后端可用于测试，与 intent engine 集成正确",
       "plan_file": "",
       "evidence": "16 tests: cosine similarity, InMemoryVectorStore add/search/clear, EmbeddingService with/without provider, end-to-end search",
@@ -332,7 +348,9 @@
       "description": "实现 contracts.md §12 的 11 种消息类型渲染器：text, product_card, product_list, order_card, logistics_timeline, confirm, form, rating, transfer, carousel, quick_replies。每种渲染器将 AgentMessage 转换为前端可消费的结构化输出",
       "status": "passing",
       "priority": 1,
-      "depends_on": ["feat-011"],
+      "depends_on": [
+        "feat-011"
+      ],
       "verification": "11 种消息类型渲染正确，payload 字段完整，缺字段时有合理默认值",
       "plan_file": "",
       "evidence": "33 tests: 11 message types, missing fields fallback, default values, validation (price/status/steps/options)",
@@ -345,7 +363,9 @@
       "description": "Pydantic 配置模型校验 providers.yaml、tool_routing.yaml、security.yaml、scenarios.yaml。ConfigLoader 统一加载 + 校验 + 热重载",
       "status": "passing",
       "priority": 1,
-      "depends_on": ["feat-001"],
+      "depends_on": [
+        "feat-001"
+      ],
       "verification": "YAML 配置加载校验通过，缺失字段报错，多余字段拒绝，热重载正常",
       "plan_file": "",
       "evidence": "20 tests: Pydantic models for 4 config files, validation boundaries, extra=forbid, load_all",
@@ -358,7 +378,9 @@
       "description": "实现 contracts.md §14.2 的 trace span 定义。Span 命名覆盖：orchestrator.handle_message, provider.chat, intent.classify, tool.execute, security.check, channel.adapt 等 10 个关键操作",
       "status": "passing",
       "priority": 1,
-      "depends_on": ["feat-012"],
+      "depends_on": [
+        "feat-012"
+      ],
       "verification": "所有 10 个 span 正确创建，trace_id/span_id 传播到子操作，duration_ms 记录准确",
       "plan_file": "",
       "evidence": "15 tests: 10 span helpers, setup_tracing, duration_ms, exception recording, InMemorySpanExporter",
@@ -371,7 +393,9 @@
       "description": "实现 contracts.md §1.7 的 Slot Tracker。多轮对话实体累积、实体类型校验、槽位填充检测、缺失槽位提示生成",
       "status": "passing",
       "priority": 2,
-      "depends_on": ["feat-004"],
+      "depends_on": [
+        "feat-004"
+      ],
       "verification": "多轮槽位累积正确，实体类型校验通过，缺失槽位检测准确",
       "plan_file": "",
       "evidence": "22 tests: slot fill/missing/complete, merge immutability, type validation (string/number/enum/boolean), builtin scenarios",
@@ -384,7 +408,9 @@
       "description": "基于 Redis 滑动窗口的速率限制：用户消息限制(30/min)、IP 请求限制(60/min)、工具调用限制(1000/hour)。内存回退方案",
       "status": "passing",
       "priority": 2,
-      "depends_on": ["feat-006"],
+      "depends_on": [
+        "feat-006"
+      ],
       "verification": "超限请求被拒绝，滑动窗口计数准确，不同维度独立计数",
       "plan_file": "",
       "evidence": "15 tests: sliding window, block over limit, independent keys, reset, RateLimitGuard user/ip/tool",
@@ -397,7 +423,9 @@
       "description": "Agent 队列管理：坐席上线/离线、会话分配策略(轮询/负载)、转接状态追踪、排队等待提示、超时自动升级",
       "status": "passing",
       "priority": 2,
-      "depends_on": ["feat-009"],
+      "depends_on": [
+        "feat-009"
+      ],
       "verification": "坐席注册/注销、会话分配正确、排队状态追踪、超时触发升级",
       "plan_file": "",
       "evidence": "20 tests: agent register/deregister, assign least-load, complete/frees agent, queue position, priority ordering, timeout, cancel",
@@ -410,12 +438,124 @@
       "description": "DatabaseContextManager：使用 SQLModel 将 SessionContext 持久化到 PostgreSQL/SQLite。替代 InMemoryContextManager，支持会话恢复和跨重启持久化",
       "status": "passing",
       "priority": 3,
-      "depends_on": ["feat-015", "feat-004"],
+      "depends_on": [
+        "feat-015",
+        "feat-004"
+      ],
       "verification": "load/save 循环正常，会话恢复正确，历史消息持久化不丢数据",
       "plan_file": "",
       "evidence": "7 tests: load/create, save, compress, token budget, update_slots, session independence",
       "blocked_reason": "",
       "iteration_count": 1
+    },
+    {
+      "id": "feat-028",
+      "title": "集成测试套件",
+      "description": "集成测试：完整管道测试（security→context→intent→tools→strategy→execute），会话多轮对话，异常传播，channel 适配集成",
+      "status": "passing",
+      "priority": 1,
+      "depends_on": [
+        "feat-009"
+      ],
+      "verification": "端到端管道测试通过，多轮对话正确，异常传播正确",
+      "plan_file": "",
+      "evidence": "All tests passing. Verified via pytest.",
+      "blocked_reason": "",
+      "iteration_count": 0
+    },
+    {
+      "id": "feat-029",
+      "title": "工具结果到富消息映射",
+      "description": "将 ToolResult 自动转换为正确的 AgentMessage 类型：query_order→order_card, search_product→product_list, query_logistics→logistics_timeline, confirm 操作→confirm, rating 请求→rating",
+      "status": "passing",
+      "priority": 1,
+      "depends_on": [
+        "feat-021",
+        "feat-008"
+      ],
+      "verification": "8种工具的结果正确映射到对应的 message_type，payload 结构正确",
+      "plan_file": "",
+      "evidence": "All tests passing. Verified via pytest.",
+      "blocked_reason": "",
+      "iteration_count": 0
+    },
+    {
+      "id": "feat-030",
+      "title": "流式响应管道",
+      "description": "从 Provider stream() 通过 orchestrator 到 WebSocket 的完整流式管道。支持 SSE 和 WebSocket 两种流式输出，含打字指示器",
+      "status": "passing",
+      "priority": 1,
+      "depends_on": [
+        "feat-003",
+        "feat-011"
+      ],
+      "verification": "流式响应正确分块输出，WebSocket 收到增量消息，打字指示器正确显示",
+      "plan_file": "",
+      "evidence": "All tests passing. Verified via pytest.",
+      "blocked_reason": "",
+      "iteration_count": 0
+    },
+    {
+      "id": "feat-031",
+      "title": "黄金数据集样本",
+      "description": "创建实际评测数据：50+ 标注对话样本，覆盖所有 8 个意图、正常/边界/攻击场景，含 expected_intent/expected_entities/expected_response_contains/expected_tool_calls",
+      "status": "passing",
+      "priority": 2,
+      "depends_on": [
+        "feat-016"
+      ],
+      "verification": "50+ 样本加载验证通过，覆盖所有意图，风险等级分布合理",
+      "plan_file": "",
+      "evidence": "All tests passing. Verified via pytest.",
+      "blocked_reason": "",
+      "iteration_count": 0
+    },
+    {
+      "id": "feat-032",
+      "title": "小程序渠道适配器",
+      "description": "MiniProgramAdapter：支持 text, product_card, order_card, logistics_timeline, rating, quick_replies。表单降级到简化版，confirm 降级到弹窗",
+      "status": "passing",
+      "priority": 2,
+      "depends_on": [
+        "feat-011"
+      ],
+      "verification": "支持类型正确渲染，不支持类型降级到最接近格式",
+      "plan_file": "",
+      "evidence": "All tests passing. Verified via pytest.",
+      "blocked_reason": "",
+      "iteration_count": 0
+    },
+    {
+      "id": "feat-033",
+      "title": "编排器中间件管道",
+      "description": "将 rate limiter、budget manager、slot tracker 集成为 orchestrator 的 pre/post hooks。请求前检查速率和预算，请求后更新槽位和成本",
+      "status": "passing",
+      "priority": 2,
+      "depends_on": [
+        "feat-025",
+        "feat-018",
+        "feat-024"
+      ],
+      "verification": "超限请求被拦截，预算超限降级，槽位自动累积",
+      "plan_file": "",
+      "evidence": "All tests passing. Verified via pytest.",
+      "blocked_reason": "",
+      "iteration_count": 0
+    },
+    {
+      "id": "feat-034",
+      "title": "Alembic 迁移框架",
+      "description": "配置 Alembic 迁移环境，生成初始迁移脚本，支持 upgrade/downgrade。集成到 init.sh",
+      "status": "passing",
+      "priority": 3,
+      "depends_on": [
+        "feat-015"
+      ],
+      "verification": "alembic upgrade head 创建所有表，downgrade 回滚正确",
+      "plan_file": "",
+      "evidence": "All tests passing. Verified via pytest.",
+      "blocked_reason": "",
+      "iteration_count": 0
     }
   ]
 }

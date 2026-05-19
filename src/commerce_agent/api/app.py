@@ -4,13 +4,15 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from commerce_agent.core.types import AgentMessage, UserMessage
 from commerce_agent.core.orchestrator import DialogueOrchestrator
 from commerce_agent.channel.web import WebAdapter
+from commerce_agent.api.streaming import StreamEvent, StreamingOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +106,38 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
         )
 
     # ------------------------------------------------------------------
-    # WebSocket chat
+    # SSE streaming chat
+    # ------------------------------------------------------------------
+
+    @app.get("/api/v1/chat/stream")
+    async def chat_stream(
+        session_id: str = Query(...),
+        content: str = Query(...),
+        channel: str = Query("web"),
+        user_id: Optional[str] = Query(None),
+    ) -> StreamingResponse:
+        if _orchestrator is None:
+            raise HTTPException(status_code=503, detail="Service not configured")
+
+        msg = UserMessage(
+            session_id=session_id,
+            content=content,
+            channel=channel,
+            user_id=user_id,
+        )
+        streaming = StreamingOrchestrator(_orchestrator)
+
+        async def event_generator():
+            async for event in streaming.handle_streaming(msg):
+                yield event.to_sse()
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+        )
+
+    # ------------------------------------------------------------------
+    # WebSocket chat (streaming)
     # ------------------------------------------------------------------
 
     @app.websocket("/ws/chat/{session_id}")
@@ -122,9 +155,9 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
                     content=data,
                     channel="web",
                 )
-                response: AgentMessage = await _orchestrator.handle_message(msg)
-                channel_msg = web_adapter.adapt_with_fallback(response)
-                await websocket.send_json(channel_msg.payload)
+                streaming = StreamingOrchestrator(_orchestrator)
+                async for event in streaming.handle_streaming(msg):
+                    await websocket.send_text(event.to_json())
         except WebSocketDisconnect:
             logger.info(
                 "WebSocket disconnected",
