@@ -1,0 +1,12 @@
+# Scenario FSM Configuration
+
+scenarios:
+  - name: refund
+    timeout_seconds: 300
+    initial_state: initiated
+    states: [initiated, confirmed, processing, completed, cancelled]
+
+  - name: order_inquiry
+    timeout_seconds: 180
+    initial_state: idle
+    states: [idle, order_found, detail_shown, completed]

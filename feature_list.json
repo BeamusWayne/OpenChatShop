@@ -1,0 +1,239 @@
+{
+  "project": "CommerceAgent",
+  "_status": "active",
+  "last_updated": "2026-05-19",
+  "autonomous_config": {
+    "enabled": true,
+    "max_iterations_per_feature": 5,
+    "max_consecutive_blocked": 2,
+    "stop_on_budget_remaining_percent": 20,
+    "loop_detection_threshold": 0.8,
+    "auto_commit_on_passing": true,
+    "auto_commit_wip": true,
+    "escalation_notify": "terminal"
+  },
+  "rules": {
+    "single_active_feature": true,
+    "passing_requires_evidence": true,
+    "do_not_skip_verification": true,
+    "plan_before_code": true,
+    "review_before_passing": true,
+    "infra_first": true
+  },
+  "status_legend": {
+    "not_started": "功能还没开始做。",
+    "in_progress": "这个功能是当前唯一正在进行的任务。",
+    "blocked": "因为已记录的阻塞问题，当前无法继续推进。",
+    "passing": "要求的验证已经通过，并且证据已经记录。"
+  },
+  "feature_template": {
+    "id": "feat-NNN",
+    "title": "功能标题",
+    "description": "功能的详细描述，包含预期行为和边界",
+    "status": "not_started",
+    "priority": 1,
+    "depends_on": [],
+    "verification": "验证标准：什么条件下算通过",
+    "plan_file": "",
+    "evidence": "",
+    "blocked_reason": "",
+    "iteration_count": 0
+  },
+  "features": [
+    {
+      "id": "feat-001",
+      "title": "项目基础设施",
+      "description": "项目脚手架：pyproject.toml（Python 3.11+, FastAPI, LiteLLM, SQLModel, Redis, pytest）、目录结构（src/commerce_agent/）、配置文件骨架（configs/*.yaml）、.gitignore、Docker Compose 开发环境、harness config.json 更新",
+      "status": "passing",
+      "priority": 1,
+      "depends_on": [],
+      "verification": "pip install -e . 成功，python -c 'import commerce_agent' 不报错，pytest 可发现测试",
+      "plan_file": "",
+      "evidence": "pip install -e . 成功, import commerce_agent OK, pytest 发现测试, ruff check 通过",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-002",
+      "title": "核心数据结构与异常体系",
+      "description": "实现 contracts.md §1-2 所有数据结构（Message, Attachment, UserMessage, AgentMessage, Intent, SessionContext, ToolResult, TokenBudget, Action）和异常体系（CommerceAgentError + 6个子异常）",
+      "status": "passing",
+      "priority": 2,
+      "depends_on": [
+        "feat-001"
+      ],
+      "verification": "所有 dataclass 可实例化，异常体系正确继承，错误码前缀正确，单元测试覆盖",
+      "plan_file": "",
+      "evidence": "36 tests: 所有 dataclass 实例化, 异常体系继承, 错误码前缀 SEC/PROV/CTX/INTENT/TOOL/CHAN 正确",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-003",
+      "title": "LLM Provider 抽象层",
+      "description": "LLMProvider ABC（chat/stream/embed）、ToolDefinition、GenerateConfig、LLMResponse、基于 LiteLLM 的 OpenAI/Anthropic/Ollama Provider、级联策略和降级逻辑",
+      "status": "passing",
+      "priority": 3,
+      "depends_on": [
+        "feat-002"
+      ],
+      "verification": "Provider ABC 接口完整，MockProvider 可 chat/stream/embed，级联降级测试通过",
+      "plan_file": "",
+      "evidence": "14 tests: MockProvider chat/stream/embed, FailingProvider 级联降级, CascadeStrategy 3级回退",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-004",
+      "title": "上下文管理器",
+      "description": "ContextManager ABC：load/save/compress/update_slots/get_token_budget。滑动窗口+LLM摘要压缩，Token预算分配（20%/50%/20%/10%），实体槽位追踪，InMemoryContextManager 实现",
+      "status": "passing",
+      "priority": 4,
+      "depends_on": [
+        "feat-003"
+      ],
+      "verification": "load/save 循环正常，compress 在超预算时触发，token 预算计算准确，槽位合并不丢数据",
+      "plan_file": "",
+      "evidence": "12 tests: load/save 循环, compress 滑动窗口, token 预算 20/50/20/10, 槽位合并不可变",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-005",
+      "title": "意图识别引擎",
+      "description": "IntentEngine 三级级联：规则+语义(>=0.85) → 通用LLM(>=0.7) → 高精度LLM(>=0.5)，上下文消歧，fallback 兜底",
+      "status": "passing",
+      "priority": 4,
+      "depends_on": [
+        "feat-003"
+      ],
+      "verification": "三级级联按顺序触发，置信度阈值过滤正确，fallback 兜底正常",
+      "plan_file": "",
+      "evidence": "Tests passing: 3级级联规则/语义/LLM, 置信度阈值, fallback 兜底",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-006",
+      "title": "安全防护层",
+      "description": "四层防护：Prompt注入检测(规则引擎)、内容安全过滤(PII+敏感词)、工具调用权限校验(RBAC)、输出脱敏。JWT/API Key 认证",
+      "status": "passing",
+      "priority": 4,
+      "depends_on": [
+        "feat-002"
+      ],
+      "verification": "注入攻击被拦截，PII 被遮蔽，RBAC 权限校验正确，安全内容正常通过",
+      "plan_file": "",
+      "evidence": "Tests passing: 注入检测, PII遮蔽, RBAC权限, 输出脱敏, 4层防护链",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-007",
+      "title": "工具系统核心",
+      "description": "BaseTool ABC、ToolInjector（4层过滤：意图匹配→场景过滤→权限过滤→数量截断）、RoutingRule 配置、工具注册表",
+      "status": "passing",
+      "priority": 5,
+      "depends_on": [
+        "feat-005"
+      ],
+      "verification": "工具注入根据意图动态筛选，4层过滤逻辑正确，参数校验基于 JSON Schema",
+      "plan_file": "",
+      "evidence": "Tests passing: BaseTool ABC, ToolInjector 4层过滤, JSON Schema校验",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-008",
+      "title": "内置电商工具集",
+      "description": "8个内置工具：query_order, query_logistics, search_product, check_refund_eligibility, create_refund, cancel_order, modify_address, handoff_to_human。含参数校验、前置检查、补偿逻辑、安全矩阵",
+      "status": "not_started",
+      "priority": 6,
+      "depends_on": [
+        "feat-007"
+      ],
+      "verification": "8个工具可实例化，validate/pre_check/execute 正常，安全矩阵配置正确",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0
+    },
+    {
+      "id": "feat-009",
+      "title": "对话编排器与策略引擎",
+      "description": "DialogueOrchestrator 主流程、Strategy ABC、Action 7种类型分发、会话异步锁、ScenarioFSM 集成",
+      "status": "in_progress",
+      "priority": 7,
+      "depends_on": [
+        "feat-004",
+        "feat-005",
+        "feat-007"
+      ],
+      "verification": "端到端消息处理流程通过，会话锁保证串行，异常传播正确",
+      "plan_file": "",
+      "evidence": "Strategy + Orchestrator 代码已写，测试待补充",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-010",
+      "title": "Scenario FSM 框架",
+      "description": "ScenarioFSM ABC、Transition（guard/action）、超时处理、退款场景 FSM 示例",
+      "status": "passing",
+      "priority": 7,
+      "depends_on": [
+        "feat-002"
+      ],
+      "verification": "FSM 状态转换正确，guard 阻止非法转换，退款场景覆盖完整生命周期",
+      "plan_file": "",
+      "evidence": "26 tests: FSM 状态转换, guard, 退款场景完整生命周期",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-011",
+      "title": "Channel Adapter 与 API 层",
+      "description": "ChannelAdapter ABC + WebAdapter（11种消息类型+自动降级）、FastAPI REST+WebSocket、CORS、请求验证",
+      "status": "not_started",
+      "priority": 8,
+      "depends_on": [
+        "feat-009"
+      ],
+      "verification": "WebAdapter 正确转换消息类型，REST 端点响应正确，WebSocket 收发正常",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0
+    },
+    {
+      "id": "feat-012",
+      "title": "可观测性与日志",
+      "description": "结构化日志（含 trace_id/span_id）、OpenTelemetry 集成、审计日志、成本追踪",
+      "status": "not_started",
+      "priority": 8,
+      "depends_on": [
+        "feat-002"
+      ],
+      "verification": "日志包含所有必需字段，trace span 命名符合规范",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0
+    },
+    {
+      "id": "feat-013",
+      "title": "Docker Compose 部署配置",
+      "description": "Dockerfile、docker-compose.yml（api+postgres+redis+pgvector）、.env.example、SQLModel 迁移、种子数据",
+      "status": "not_started",
+      "priority": 9,
+      "depends_on": [
+        "feat-011"
+      ],
+      "verification": "docker compose up 启动所有服务，健康检查通过",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0
+    }
+  ]
+}

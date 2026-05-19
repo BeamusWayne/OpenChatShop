@@ -1,0 +1,24 @@
+# Security Configuration
+# See docs/design/security.md for details
+
+injection_detection:
+  enabled: true
+  max_input_length: 2000
+
+content_safety:
+  enabled: true
+  pii_masking: true
+
+auth:
+  jwt_secret_env: JWT_SECRET_KEY
+  jwt_expiry_seconds: 3600
+  api_key_header: X-API-Key
+
+rbac:
+  roles:
+    - name: customer
+      tools: ["query_order", "query_logistics", "search_product", "check_refund_eligibility", "create_refund", "cancel_order", "modify_address", "handoff_to_human"]
+    - name: agent
+      tools: ["*"]
+    - name: admin
+      tools: ["*"]

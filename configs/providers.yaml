@@ -1,0 +1,20 @@
+# LLM Provider Configuration
+# See docs/design/contracts.md §13.1 for schema
+
+providers:
+  - name: openai
+    type: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    max_context_tokens: 128000
+    capabilities:
+      tool_calling: true
+      streaming: true
+      vision: true
+
+cascade:
+  levels:
+    - provider: openai
+      confidence_threshold: 0.7
+      timeout_seconds: 10
+  fallback_provider: openai

@@ -1,0 +1,41 @@
+# harness
+.harness/
+.claude/settings.local.json
+
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Environment variables
+.env
+.env.local
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# OS
+.DS_Store
+
+# Docker
+docker-compose.override.yml
+
+# Data
+data/*.db

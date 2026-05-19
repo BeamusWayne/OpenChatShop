@@ -1,0 +1,29 @@
+# Tool Routing Configuration
+# See docs/design/contracts.md §13.2 for schema
+
+max_tools_per_turn: 5
+
+rules:
+  - intent_patterns: ["query_order", "query_*"]
+    tools: ["query_order", "query_logistics"]
+    priority: 10
+
+  - intent_patterns: ["search_product", "recommend_*"]
+    tools: ["search_product"]
+    priority: 10
+
+  - intent_patterns: ["request_refund", "check_refund"]
+    tools: ["check_refund_eligibility", "create_refund"]
+    priority: 10
+
+  - intent_patterns: ["cancel_order"]
+    tools: ["cancel_order"]
+    priority: 10
+
+  - intent_patterns: ["modify_address"]
+    tools: ["modify_address"]
+    priority: 10
+
+  - intent_patterns: ["*"]
+    tools: ["handoff_to_human"]
+    priority: 0
