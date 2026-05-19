@@ -325,6 +325,97 @@
       "evidence": "16 tests: cosine similarity, InMemoryVectorStore add/search/clear, EmbeddingService with/without provider, end-to-end search",
       "blocked_reason": "",
       "iteration_count": 1
+    },
+    {
+      "id": "feat-021",
+      "title": "富消息渲染器",
+      "description": "实现 contracts.md §12 的 11 种消息类型渲染器：text, product_card, product_list, order_card, logistics_timeline, confirm, form, rating, transfer, carousel, quick_replies。每种渲染器将 AgentMessage 转换为前端可消费的结构化输出",
+      "status": "passing",
+      "priority": 1,
+      "depends_on": ["feat-011"],
+      "verification": "11 种消息类型渲染正确，payload 字段完整，缺字段时有合理默认值",
+      "plan_file": "",
+      "evidence": "33 tests: 11 message types, missing fields fallback, default values, validation (price/status/steps/options)",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-022",
+      "title": "配置校验与加载",
+      "description": "Pydantic 配置模型校验 providers.yaml、tool_routing.yaml、security.yaml、scenarios.yaml。ConfigLoader 统一加载 + 校验 + 热重载",
+      "status": "passing",
+      "priority": 1,
+      "depends_on": ["feat-001"],
+      "verification": "YAML 配置加载校验通过，缺失字段报错，多余字段拒绝，热重载正常",
+      "plan_file": "",
+      "evidence": "20 tests: Pydantic models for 4 config files, validation boundaries, extra=forbid, load_all",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-023",
+      "title": "OpenTelemetry 集成",
+      "description": "实现 contracts.md §14.2 的 trace span 定义。Span 命名覆盖：orchestrator.handle_message, provider.chat, intent.classify, tool.execute, security.check, channel.adapt 等 10 个关键操作",
+      "status": "passing",
+      "priority": 1,
+      "depends_on": ["feat-012"],
+      "verification": "所有 10 个 span 正确创建，trace_id/span_id 传播到子操作，duration_ms 记录准确",
+      "plan_file": "",
+      "evidence": "15 tests: 10 span helpers, setup_tracing, duration_ms, exception recording, InMemorySpanExporter",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-024",
+      "title": "Slot Tracker 实体追踪",
+      "description": "实现 contracts.md §1.7 的 Slot Tracker。多轮对话实体累积、实体类型校验、槽位填充检测、缺失槽位提示生成",
+      "status": "passing",
+      "priority": 2,
+      "depends_on": ["feat-004"],
+      "verification": "多轮槽位累积正确，实体类型校验通过，缺失槽位检测准确",
+      "plan_file": "",
+      "evidence": "22 tests: slot fill/missing/complete, merge immutability, type validation (string/number/enum/boolean), builtin scenarios",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-025",
+      "title": "速率限制",
+      "description": "基于 Redis 滑动窗口的速率限制：用户消息限制(30/min)、IP 请求限制(60/min)、工具调用限制(1000/hour)。内存回退方案",
+      "status": "passing",
+      "priority": 2,
+      "depends_on": ["feat-006"],
+      "verification": "超限请求被拒绝，滑动窗口计数准确，不同维度独立计数",
+      "plan_file": "",
+      "evidence": "15 tests: sliding window, block over limit, independent keys, reset, RateLimitGuard user/ip/tool",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-026",
+      "title": "人工转接队列",
+      "description": "Agent 队列管理：坐席上线/离线、会话分配策略(轮询/负载)、转接状态追踪、排队等待提示、超时自动升级",
+      "status": "passing",
+      "priority": 2,
+      "depends_on": ["feat-009"],
+      "verification": "坐席注册/注销、会话分配正确、排队状态追踪、超时触发升级",
+      "plan_file": "",
+      "evidence": "20 tests: agent register/deregister, assign least-load, complete/frees agent, queue position, priority ordering, timeout, cancel",
+      "blocked_reason": "",
+      "iteration_count": 1
+    },
+    {
+      "id": "feat-027",
+      "title": "数据库会话持久化",
+      "description": "DatabaseContextManager：使用 SQLModel 将 SessionContext 持久化到 PostgreSQL/SQLite。替代 InMemoryContextManager，支持会话恢复和跨重启持久化",
+      "status": "passing",
+      "priority": 3,
+      "depends_on": ["feat-015", "feat-004"],
+      "verification": "load/save 循环正常，会话恢复正确，历史消息持久化不丢数据",
+      "plan_file": "",
+      "evidence": "7 tests: load/create, save, compress, token budget, update_slots, session independence",
+      "blocked_reason": "",
+      "iteration_count": 1
     }
   ]
 }
