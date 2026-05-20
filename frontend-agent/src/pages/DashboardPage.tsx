@@ -56,7 +56,7 @@ interface DashboardContentProps {
 }
 
 function DashboardContent({ agentInfo, panelVisible, onLogout }: DashboardContentProps) {
-  const agent = useAgent(agentInfo.agent_id);
+  const agent = useAgent(agentInfo.agent_id, agentInfo.name, agentInfo.department);
 
   const selectedSession = agent.activeSessions.find(
     (s) => s.session_id === agent.selectedSessionId,
@@ -88,7 +88,7 @@ function DashboardContent({ agentInfo, panelVisible, onLogout }: DashboardConten
             <AgentChat
               sessionId={agent.selectedSessionId}
               messages={agent.messages[agent.selectedSessionId] ?? []}
-              onSendMessage={(content) => agent.sendMessage(agent.selectedSessionId, content)}
+              onSendMessage={(content) => agent.sendMessage(agent.selectedSessionId!, content)}
             />
           ) : (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

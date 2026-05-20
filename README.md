@@ -67,7 +67,7 @@ npm install
 npm run dev
 ```
 
-访问 http://localhost:5173/ ，输入坐席名称即可进入三栏管理界面。
+访问 http://localhost:5174/ ，输入坐席名称即可进入三栏管理界面。
 
 坐席后台功能：
 - 排队列表实时更新（WebSocket 推送）
@@ -75,6 +75,7 @@ npm run dev
 - 双向实时聊天
 - 客户信息面板
 - 结束服务
+- 后端重启后自动重连并注册（无需重新登录）
 
 ### 配置 LLM Provider（可选）
 
@@ -270,7 +271,16 @@ locust -f locustfile.py --host=http://localhost:8000
 
 ## 富消息渲染
 
-前端根据后端返回的 `messageType` 自动渲染对应的富消息卡片：
+前端根据消息角色（`role`）和 `messageType` 渲染不同样式：
+
+| 角色 | 头像 | 样式 | 来源 |
+|------|------|------|------|
+| `assistant` | 机器人（橙色） | 白底边框气泡 | AI 回复 |
+| `agent` | 客服（蓝色）+ 客服名称 | 蓝底气泡 | 人工客服回复 |
+| `system` | 无头像 | 居中灰底 | 系统通知 |
+| `user` | 用户（主题色） | 主题色气泡 | 用户消息 |
+
+根据后端返回的 `messageType` 自动渲染对应的富消息卡片：
 
 | messageType | 组件 | 触发场景 |
 |-------------|------|---------|
@@ -302,6 +312,26 @@ AI: [转接状态] 正在为您转接... 排队第 2 位，预计等待 3 分钟
 
 ## 人工转接
 
+### 会话模式状态机
+
+系统通过 `SessionMode` 状态机管理 AI 与人工客服的切换：
+
+```
+AI_MODE ──(用户请求转人工)──→ TRANSFER_PENDING ──(坐席接入)──→ HUMAN_MODE
+   ↑                                                            │
+   └────────────────────(坐席结束服务)──────────────────────────┘
+```
+
+- **AI_MODE**：智能助手处理所有消息，客户可使用快捷操作
+- **TRANSFER_PENDING**：AI 静默，显示排队位置和预计等待
+- **HUMAN_MODE**：AI 完全静默，客户消息直接转发给坐席，前端切换为人工客服 UI
+
+客户端根据 mode 切换：
+- Header：机器人头像/转接中/客服头像
+- 快捷操作：AI 模式显示，人工模式隐藏
+- 消息气泡：AI 消息用机器人图标（橙色），客服消息用客服图标（蓝色）+ 客服名称
+- 输入框：placeholder 从"输入消息"变为"发送给客服"
+
 ### 端到端流程
 
 ```
@@ -330,6 +360,8 @@ AI: [转接状态] 正在为您转接... 排队第 2 位，预计等待 3 分钟
 - `queue_state` — 连接后发送当前队列
 - `new_request` — 新客户排队
 - `request_assigned` — 会话已分配
+- `session_history` — 坐席接入时推送 AI 对话历史
+- `customer_message` — 客户发来的消息（HUMAN_MODE 下）
 - `transfer_completed` — 会话已结束
 
 客户端发送事件：
@@ -478,9 +510,11 @@ registry.register("my_channel", MyChannelAdapter())
 
 ```
 frontend/                    客户聊天界面（React + Ant Design）
+├── src/hooks/
+│   └── useChat.ts          聊天 hook + sessionMode 状态机
 ├── src/components/
-│   ├── ChatWindow.tsx       聊天主窗口
-│   ├── MessageBubble.tsx    消息气泡（条件渲染富消息）
+│   ├── ChatWindow.tsx       聊天主窗口（按 mode 切换 UI）
+│   ├── MessageBubble.tsx    消息气泡（AI/客服/系统三种样式）
 │   └── rich/                富消息组件
 │       ├── OrderCard.tsx    订单卡片
 │       ├── LogisticsTimeline.tsx  物流时间线
@@ -488,6 +522,8 @@ frontend/                    客户聊天界面（React + Ant Design）
 │       └── TransferStatus.tsx  转接状态
 
 frontend-agent/              坐席管理后台（独立 React 应用）
+├── src/hooks/
+│   └── useAgent.ts          Agent WebSocket + REST API hook
 ├── src/pages/
 │   ├── LoginPage.tsx        坐席注册
 │   └── DashboardPage.tsx    三栏管理界面

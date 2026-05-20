@@ -22,7 +22,7 @@ interface UseAgentReturn {
   refreshActive: () => Promise<void>;
 }
 
-export function useAgent(agentId: string): UseAgentReturn {
+export function useAgent(agentId: string, agentName = '', agentDepartment = 'general'): UseAgentReturn {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -62,7 +62,8 @@ export function useAgent(agentId: string): UseAgentReturn {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/agent/${agentId}`);
+    const params = new URLSearchParams({ name: agentName, department: agentDepartment });
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/agent/${agentId}?${params}`);
 
     ws.onopen = () => {
       setConnected(true);
@@ -100,27 +101,31 @@ export function useAgent(agentId: string): UseAgentReturn {
               };
               setActiveSessions((prev) => [...prev, newActive]);
               setSelectedSessionId((prev) => prev ?? sessionId);
-
-              // Fetch chat history for auto-assigned sessions
-              fetch(`/api/v1/agent/history/${sessionId}`)
-                .then((res) => (res.ok ? res.json() : { messages: [] }))
-                .then((data) => {
-                  const history: ChatMessage[] = (data.messages ?? []).map(
-                    (m: { role: string; content: string; message_type?: string; payload?: Record<string, unknown>; timestamp?: string }) => ({
-                      id: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                      role: mapHistoryRole(m.role),
-                      content: m.content,
-                      messageType: m.message_type === 'transfer' ? 'transfer_status' : m.message_type,
-                      payload: m.payload,
-                      timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-                    }),
-                  );
-                  setMessages((prev) => ({
-                    ...prev,
-                    [sessionId]: [...history, ...(prev[sessionId] ?? [])],
-                  }));
-                })
-                .catch(() => {});
+            }
+            break;
+          }
+          case 'session_history': {
+            const sid = msg.data?.session_id as string | undefined;
+            const rawMessages = msg.data?.messages as Array<{
+              role: string;
+              content: string;
+              message_type?: string;
+              payload?: Record<string, unknown>;
+              timestamp?: string;
+            }> | undefined;
+            if (sid && rawMessages && rawMessages.length > 0) {
+              const history: ChatMessage[] = rawMessages.map((m) => ({
+                id: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                role: mapHistoryRole(m.role),
+                content: m.content,
+                messageType: m.message_type === 'transfer' ? 'transfer_status' : m.message_type,
+                payload: m.payload,
+                timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+              }));
+              setMessages((prev) => ({
+                ...prev,
+                [sid]: [...history, ...(prev[sid] ?? [])],
+              }));
             }
             break;
           }
@@ -188,7 +193,7 @@ export function useAgent(agentId: string): UseAgentReturn {
     };
 
     wsRef.current = ws;
-  }, [agentId]);
+  }, [agentId, agentName, agentDepartment]);
 
   useEffect(() => {
     connect();

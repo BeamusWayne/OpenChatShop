@@ -1,12 +1,15 @@
+export type SessionMode = 'ai_mode' | 'transfer_pending' | 'human_mode';
+
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'agent';
   content: string;
   timestamp: number;
   suggestions?: string[];
   messageType?: string;
   payload?: Record<string, unknown>;
   streaming?: boolean;
+  agentName?: string;
 }
 
 export interface StreamEvent {

@@ -154,6 +154,7 @@ def create_app(
     _agent_sockets: dict[str, WebSocket] = {}
     _customer_sockets: dict[str, WebSocket] = {}
     _session_messages: dict[str, list[dict]] = {}
+    _session_modes: dict[str, SessionMode] = {}
 
     # ------------------------------------------------------------------
     # Health
@@ -234,6 +235,12 @@ def create_app(
             raise HTTPException(status_code=503, detail="Service not configured")
 
         # Session mode guard: reject when in human service mode
+        _s_mode = _session_modes.get(request.session_id)
+        if _s_mode == SessionMode.HUMAN_MODE:
+            raise HTTPException(
+                status_code=423,
+                detail="Session in human service mode",
+            )
         if _context_manager is not None:
             ctx = _context_manager.get(request.session_id)
             if ctx is not None and ctx.mode == SessionMode.HUMAN_MODE:
@@ -276,6 +283,12 @@ def create_app(
             raise HTTPException(status_code=503, detail="Service not configured")
 
         # Session mode guard
+        _s_mode = _session_modes.get(session_id)
+        if _s_mode == SessionMode.HUMAN_MODE:
+            raise HTTPException(
+                status_code=423,
+                detail="Session in human service mode",
+            )
         if _context_manager is not None:
             ctx = _context_manager.get(session_id)
             if ctx is not None and ctx.mode == SessionMode.HUMAN_MODE:
@@ -345,34 +358,43 @@ def create_app(
                     continue
 
                 # If session has active human transfer, forward to agent
+                # Check context_manager first, then fall back to _session_modes
+                _mode = None
+                _agent_id = None
                 if _context_manager is not None:
                     ctx = _context_manager.get(session_id)
-                    if ctx is not None and ctx.mode == SessionMode.HUMAN_MODE:
-                        agent_ws = _agent_sockets.get(ctx.human_agent_id or "")
-                        if agent_ws:
-                            await agent_ws.send_text(json.dumps({
-                                "type": "customer_message",
-                                "data": {
-                                    "session_id": session_id,
-                                    "content": data,
-                                },
-                            }, ensure_ascii=False))
-                        _session_messages.setdefault(session_id, []).append({
-                            "role": "user",
-                            "content": data,
-                        })
-                        continue
+                    if ctx is not None:
+                        _mode = ctx.mode
+                        _agent_id = ctx.human_agent_id
+                if _mode is None:
+                    _mode = _session_modes.get(session_id)
 
-                    if ctx is not None and ctx.mode == SessionMode.TRANSFER_PENDING:
-                        _session_messages.setdefault(session_id, []).append({
-                            "role": "user",
-                            "content": data,
-                        })
-                        await websocket.send_text(json.dumps({
-                            "type": "transfer_status",
-                            "data": {"status": "waiting"},
+                if _mode == SessionMode.HUMAN_MODE:
+                    agent_ws = _agent_sockets.get(_agent_id or "")
+                    if agent_ws:
+                        await agent_ws.send_text(json.dumps({
+                            "type": "customer_message",
+                            "data": {
+                                "session_id": session_id,
+                                "content": data,
+                            },
                         }, ensure_ascii=False))
-                        continue
+                    _session_messages.setdefault(session_id, []).append({
+                        "role": "user",
+                        "content": data,
+                    })
+                    continue
+
+                if _mode == SessionMode.TRANSFER_PENDING:
+                    _session_messages.setdefault(session_id, []).append({
+                        "role": "user",
+                        "content": data,
+                    })
+                    await websocket.send_text(json.dumps({
+                        "type": "transfer_status",
+                        "data": {"status": "waiting"},
+                    }, ensure_ascii=False))
+                    continue
 
                 # Record user message
                 _session_messages.setdefault(session_id, []).append({
@@ -470,6 +492,7 @@ def create_app(
 
         def _on_assign_cb(request, agent) -> None:
             # Update session context to HUMAN_MODE
+            _session_modes[request.session_id] = SessionMode.HUMAN_MODE
             if _context_manager is not None:
                 ctx = _context_manager.get(request.session_id)
                 if ctx is not None:
@@ -516,6 +539,7 @@ def create_app(
 
         def _on_complete_cb(transfer) -> None:
             # Reset session context to AI_MODE
+            _session_modes[transfer.session_id] = SessionMode.AI_MODE
             if _context_manager is not None:
                 ctx = _context_manager.get(transfer.session_id)
                 if ctx is not None:
@@ -543,9 +567,25 @@ def create_app(
         _handoff_queue._on_complete.append(_on_complete_cb)
 
     @app.websocket("/ws/agent/{agent_id}")
-    async def agent_websocket(websocket: WebSocket, agent_id: str) -> None:
+    async def agent_websocket(
+        websocket: WebSocket,
+        agent_id: str,
+        name: str = Query(""),
+        department: str = Query("general"),
+    ) -> None:
         await websocket.accept()
         _agent_sockets[agent_id] = websocket
+
+        # Auto-register agent if backend restarted and lost registration
+        if _handoff_queue is not None and agent_id not in _handoff_queue._agents:
+            from open_chat_shop.core.handoff import HumanAgent
+            agent = HumanAgent(
+                agent_id=agent_id,
+                name=name or f"坐席{agent_id[-4:]}",
+                department=department,
+            )
+            _handoff_queue.register_agent(agent)
+            logger.info("Auto-registered agent %s on WS connect", agent_id)
 
         # Send current queue state on connect
         if _handoff_queue is not None:

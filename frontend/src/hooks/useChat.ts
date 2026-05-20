@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatMessage, ConnectionState, StreamEvent } from '../types/chat';
+import type { ChatMessage, ConnectionState, SessionMode, StreamEvent } from '../types/chat';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat/${crypto.randomUUID()}`;
 const RECONNECT_DELAY = 3000;
@@ -11,6 +11,7 @@ export function useChat() {
     reconnecting: false,
   });
   const [isTyping, setIsTyping] = useState(false);
+  const [sessionMode, setSessionMode] = useState<SessionMode>('ai_mode');
   const wsRef = useRef<WebSocket | null>(null);
   const streamingIdRef = useRef<string | null>(null);
 
@@ -104,8 +105,9 @@ export function useChat() {
         case 'agent_message': {
           setIsTyping(false);
           addMessage({
-            role: 'assistant',
-            content: `[人工客服] ${evt.data.content ?? ''}`,
+            role: 'agent',
+            content: evt.data.content ?? '',
+            agentName: evt.data.agent_name,
           });
           break;
         }
@@ -114,8 +116,9 @@ export function useChat() {
           setIsTyping(false);
           const status = evt.data.status ?? 'waiting';
           if (status === 'connected') {
+            setSessionMode('human_mode');
             addMessage({
-              role: 'assistant',
+              role: 'system',
               content: `客服 ${evt.data.agent_name ?? ''} 已为您服务`,
               messageType: 'transfer',
               payload: {
@@ -124,8 +127,9 @@ export function useChat() {
               },
             });
           } else {
+            setSessionMode('transfer_pending');
             addMessage({
-              role: 'assistant',
+              role: 'system',
               content: '正在为您转接人工客服，请稍候...',
               messageType: 'transfer',
               payload: {
@@ -139,6 +143,7 @@ export function useChat() {
 
         case 'transfer_ended': {
           setIsTyping(false);
+          setSessionMode('ai_mode');
           addMessage({
             role: 'system',
             content: evt.data.message ?? '人工服务已结束，已回到智能助手模式。',
@@ -183,5 +188,5 @@ export function useChat() {
 
   const clearMessages = useCallback(() => setMessages([]), []);
 
-  return { messages, connection, isTyping, sendMessage, clearMessages };
+  return { messages, connection, isTyping, sessionMode, sendMessage, clearMessages };
 }

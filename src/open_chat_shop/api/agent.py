@@ -135,6 +135,21 @@ def create_agent_router(
 
     @router.post("/accept/{session_id}")
     async def accept_session(session_id: str) -> dict[str, Any]:
+        # Check if already assigned (idempotent for auto-assigned sessions)
+        existing = handoff_queue.get_active_transfer(session_id)
+        if existing is not None and existing.assigned_agent_id:
+            agent = handoff_queue._agents.get(existing.assigned_agent_id)
+            return {
+                "status": "already_assigned",
+                "session_id": session_id,
+                "agent_id": existing.assigned_agent_id,
+                "agent_name": agent.name if agent else "客服",
+                "context": {
+                    "messages": session_messages.get(session_id, []) if session_messages else [],
+                    "transfer_reason": existing.reason,
+                },
+            }
+
         request = None
         for r in handoff_queue._queue:
             if r.session_id == session_id:
@@ -149,17 +164,16 @@ def create_agent_router(
 
         # Set session context to HUMAN_MODE
         if context_manager is not None:
-            import asyncio
             ctx = await context_manager.load(session_id)
             ctx.mode = SessionMode.HUMAN_MODE
             ctx.human_agent_id = agent.agent_id
+            await context_manager.save(ctx)
 
         # Build context payload for the agent
         context_data: dict[str, Any] = {}
         if session_messages is not None:
             context_data["messages"] = session_messages.get(session_id, [])
         if context_manager is not None:
-            import asyncio
             ctx = await context_manager.load(session_id)
             context_data["intents"] = list({
                 m.get("intent", "") for m in session_messages.get(session_id, [])

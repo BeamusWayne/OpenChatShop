@@ -1,4 +1,4 @@
-import { Card, Tag, Descriptions, theme } from 'antd';
+import { Card, Tag, Descriptions } from 'antd';
 import { ShoppingOutlined } from '@ant-design/icons';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -30,7 +30,6 @@ interface Props {
 }
 
 export default function OrderCard({ payload }: Props) {
-  const { token } = theme.useToken();
 
   const status = payload.status ?? '';
   const statusLabel = STATUS_LABELS[status] ?? status;
