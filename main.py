@@ -376,10 +376,40 @@ def build_orchestrator() -> DialogueOrchestrator:
     return orchestrator
 
 
+def _check_auth_config() -> None:
+    """Refuse to start in production without authentication.
+
+    When DEV_MODE is not set and neither JWT_SECRET_KEY nor API_KEY is
+    configured, the server will exit with an error message explaining how
+    to fix it.
+    """
+    dev_mode = os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes")
+    jwt_secret = os.environ.get("JWT_SECRET_KEY", "")
+    api_key = os.environ.get("API_KEY", "")
+
+    if dev_mode:
+        logger.warning(
+            "DEV_MODE is enabled — authentication checks are skipped. "
+            "Never use this in production."
+        )
+        return
+
+    if not jwt_secret and not api_key:
+        logger.error(
+            "FATAL: No authentication configured. Set one of:\n"
+            "  JWT_SECRET_KEY=<random-secret>   (recommended)\n"
+            "  API_KEY=<your-key>               (simple auth)\n"
+            "Or set DEV_MODE=true for local development."
+        )
+        raise SystemExit(1)
+
+
 def create_main_app():
     """Build the app with orchestrator wired in and static files mounted."""
     from contextlib import asynccontextmanager
     import time
+
+    _check_auth_config()
 
     orchestrator = build_orchestrator()
 

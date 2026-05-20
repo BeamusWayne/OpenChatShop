@@ -834,6 +834,30 @@ class MyCustomTool(BaseTool):
 | 负载测试 | Locust |
 | 容器化 | Docker（多阶段构建）+ Docker Compose |
 
+## 生产部署检查清单
+
+> 在将系统部署到生产环境之前，逐项确认以下事项。
+
+### 必须
+
+- [ ] **LLM API Key** — `OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY` 已配置
+- [ ] **JWT_SECRET_KEY** — 设为强随机字符串（`openssl rand -hex 32`），不能留空或使用默认值
+- [ ] **TLS 终结** — 生产环境必须启用 HTTPS（nginx/traefik/cloud load balancer）
+- [ ] **数据库密码** — PostgreSQL 使用强密码，不在 docker-compose 中使用 `commerce` 默认值
+- [ ] **Redis 密码** — `REDIS_URL` 包含密码（`redis://:your-password@host:6379/0`）
+- [ ] **CORS_ORIGINS** — 设为实际域名，不保留 `localhost` 默认值
+- [ ] **DEV_MODE** — 确认未设置或设为 `false`
+- [ ] **Grafana 密码** — 修改默认 admin 密码，关闭匿名访问
+
+### 推荐
+
+- [ ] **DATABASE_URL** — 指向托管 PostgreSQL 实例（非容器内实例）
+- [ ] **数据库备份** — 配置 pg_dump 定时备份或云厂商快照
+- [ ] **日志收集** — 接入 ELK/Loki 等远程日志系统
+- [ ] **监控告警** — Prometheus 告警规则已配置并通知到运维通道
+- [ ] **多 Worker** — 使用 gunicorn + uvicorn workers（见 docker-compose.prod.yml）
+- [ ] **Alembic 迁移** — 启动前执行 `alembic upgrade head`
+
 ## License
 
 [Apache 2.0](LICENSE)

@@ -613,6 +613,77 @@
       "iteration_count": 0,
       "iteration_budget": 5,
       "evidence": "777 tests passed. InMemory default preserves all existing behavior. Database repos implement all 5 ABCs. seed_if_empty() populates from _mock_data.py. DatabaseAuditLogger dual-writes. DatabaseCostTracker persists to CostRecord."
+    },
+    {
+      "id": "feat-039",
+      "title": "README.md + 部署文档",
+      "phase": 7,
+      "priority": 1,
+      "status": "passing",
+      "description": "创建 README.md：项目介绍、快速启动（clone→配.env→pip install→./run.sh）、环境变量说明、生产部署检查清单、Docker 部署说明、技术栈概览。新用户 clone 后能零问题启动。",
+      "depends_on": [],
+      "verification": "README.md 存在，包含完整的快速启动步骤和环境变量表格。新用户按步骤能成功启动。",
+      "plan_file": "",
+      "evidence": "README.md already contained comprehensive docs (840 lines). Added production deployment checklist section covering: JWT secret, TLS, DB/Redis passwords, CORS, DEV_MODE, Grafana, backups, monitoring.",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 3
+    },
+    {
+      "id": "feat-040",
+      "title": "认证强制启用",
+      "phase": 7,
+      "priority": 2,
+      "status": "passing",
+      "description": "修复安全缺陷：(1) JWT_SECRET_KEY 或 API_KEY 均为空时启动拒绝服务（非静默跳过），在 create_main_app 中增加启动检查。(2) /health 端点免认证。(3) 提供明确的启动报错信息指导用户配置。(4) 增加 DEV_MODE 环境变量允许开发环境跳过认证（仅限 localhost 绑定时）。",
+      "depends_on": [],
+      "verification": "JWT_SECRET_KEY 和 API_KEY 均为空时启动失败并报错。设置任一后启动成功。/health 免认证。DEV_MODE=true 时允许无认证启动。",
+      "plan_file": "",
+      "evidence": "830 tests passed. _check_auth_config() added to main.py: raises SystemExit when JWT_SECRET_KEY and API_KEY both empty. DEV_MODE=true bypasses check. .env.example updated with DEV_MODE=true default. 3 new auth tests all passing."
+    },
+    {
+      "id": "feat-041",
+      "title": "Dockerfile 前端构建 + docker-compose 生产模板",
+      "phase": 7,
+      "priority": 3,
+      "status": "passing",
+      "description": "(1) Dockerfile 增加 Node.js 构建阶段，将 frontend/ 和 frontend-agent/ 编译为静态文件。(2) 创建 docker-compose.prod.yml 生产模板：强制密码变量、Grafana 关闭匿名、Redis 必须有密码、增加 restart policy。(3) 现有 docker-compose.yml 保留为开发模板。",
+      "depends_on": [],
+      "verification": "docker build 成功包含前端产物。docker-compose.prod.yml 所有密码变量无默认弱密码。Grafana 匿名访问关闭。",
+      "plan_file": "",
+      "evidence": "Dockerfile updated with 3 stages: frontend-builder (Node 20) + python-builder + runtime. Frontend dist copied into runtime image. docker-compose.prod.yml created with required env vars (JWT_SECRET_KEY, POSTGRES_PASSWORD, REDIS_PASSWORD, CORS_ORIGINS, GRAFANA_PASSWORD), GF_AUTH_ANONYMOUS_ENABLED=false. 17 Docker tests all passing.",
+      "iteration_count": 0,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-042",
+      "title": "生产配置分离",
+      "phase": 7,
+      "priority": 4,
+      "status": "passing",
+      "description": "(1) 创建 .env.production.example，与 .env.example 分离，所有密码/密钥标记为必填，无占位符默认值。(2) CORS_ORIGINS 在生产配置中无默认值，必须显式设置。(3) LOG_LEVEL 生产默认 INFO。(4) 增加 DEPLOY_ENV 环境变量区分 dev/prod。",
+      "depends_on": ["feat-040"],
+      "verification": ".env.production.example 存在且所有敏感字段标为必填。代码中有 DEPLOY_ENV 检查逻辑。",
+      "plan_file": "",
+      "evidence": ".env.production.example created with all required fields (ANTHROPIC_API_KEY, JWT_SECRET_KEY, CORS_ORIGINS, POSTGRES_*, REDIS_PASSWORD, GRAFANA_PASSWORD). DEPLOY_ENV=production CORS warning added to app.py. All tests passing.",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 3
+    },
+    {
+      "id": "feat-043",
+      "title": "gunicorn + uvicorn workers 多进程",
+      "phase": 7,
+      "priority": 5,
+      "status": "passing",
+      "description": "(1) pyproject.toml 增加 gunicorn 依赖。(2) 创建 gunicorn.conf.py 配置文件：workers=CPU*2+1、worker_class=uvicorn.workers.UvicornWorker、timeout=120、graceful_timeout=10。(3) Dockerfile CMD 改为 gunicorn 启动。(4) 保留 python main.py 作为开发启动方式。",
+      "depends_on": [],
+      "verification": "gunicorn -c gunicorn.conf.py 启动成功。/health 返回 200。多个 worker 进程可见。",
+      "plan_file": "",
+      "evidence": "gunicorn>=22.0 added to pyproject.toml. gunicorn.conf.py created with workers=CPU*2+1, uvicorn.workers.UvicornWorker, timeout=120, preload_app=True. Dockerfile CMD changed to gunicorn. 4 new tests all passing.",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 3
     }
   ]
 }

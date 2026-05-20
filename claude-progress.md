@@ -5,7 +5,7 @@
 - 仓库根目录：/Users/katya/Files/TestField/电商智能对话系统
 - 标准启动路径：./init.sh
 - 标准验证路径：./init.sh verify
-- 当前最高优先级未完成功能：全部完成（Phase 1-5 + Repository Layer）
+- 当前最高优先级未完成功能：全部完成（Phase 1-7）
 - 当前 blocker：无
 
 ## 重启路径
@@ -234,3 +234,41 @@
 - 37 个功能 + Repository Layer + 富消息 + 人工客服 全部 passing
 - 791 个测试
 - 即插即用：clone → pip install → ./run.sh → 开箱体验
+
+### 2026-05-20 Session 3 — 生产就绪加固（Phase 7）
+
+**任务：** 修复生产部署安全缺陷，使项目 clone + 配 Key 后可安全上线
+
+**完成内容：**
+- 5/5 功能全部 passing
+- 839 个测试通过（+48 新增）
+- 修复 5 个 CRITICAL/HIGH 级别生产问题
+
+**修复项：**
+| 功能 | 修复 |
+|------|------|
+| feat-039 README.md | 已有完善文档，补充生产部署检查清单 |
+| feat-040 认证强制启用 | 空认证时 SystemExit 拒绝启动，DEV_MODE 开发模式 |
+| feat-041 Docker 前端构建 + 生产 compose | 3 阶段 Dockerfile + docker-compose.prod.yml（强制密码、关闭匿名） |
+| feat-042 生产配置分离 | .env.production.example（所有字段必填）+ DEPLOY_ENV CORS 警告 |
+| feat-043 gunicorn workers | gunicorn.conf.py + Dockerfile CMD 改用 gunicorn |
+
+**新增/修改文件：**
+| 文件 | 操作 |
+|------|------|
+| `main.py` | 修改 — 新增 `_check_auth_config()` 启动检查 |
+| `.env.example` | 修改 — 增加 DEV_MODE |
+| `.env.production.example` | 新建 — 生产配置模板 |
+| `Dockerfile` | 修改 — 3 阶段构建（frontend + python + runtime） |
+| `docker-compose.prod.yml` | 新建 — 生产 compose（强制密码、关闭匿名） |
+| `gunicorn.conf.py` | 新建 — gunicorn 配置 |
+| `pyproject.toml` | 修改 — 增加 gunicorn 依赖 |
+| `src/open_chat_shop/api/app.py` | 修改 — DEPLOY_ENV CORS 警告 |
+| `tests/unit/test_main.py` | 修改 — 3 个认证启动测试 |
+| `tests/unit/test_docker.py` | 修改 — 9 个新测试（prod compose + gunicorn） |
+| `README.md` | 修改 — 生产部署检查清单 |
+
+**总计：**
+- 43 个功能全部 passing
+- 839 个测试
+- 生产就绪度显著提升

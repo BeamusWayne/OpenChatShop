@@ -118,6 +118,13 @@ def create_app(
         "CORS_ORIGINS",
         "http://localhost:3000,http://localhost:8000",
     ).split(",")
+
+    deploy_env = os.environ.get("DEPLOY_ENV", "development")
+    if deploy_env == "production" and cors_origins == ["http://localhost:3000,http://localhost:8000"]:
+        logger.warning(
+            "CORS_ORIGINS not set in production — using localhost defaults. "
+            "Set CORS_ORIGINS to your actual domain(s)."
+        )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
@@ -340,17 +347,8 @@ def create_app(
                 # If session has active human transfer, forward to agent
                 if _context_manager is not None:
                     ctx = _context_manager.get(session_id)
-                    logger.info(
-                        "WS mode check: session=%s ctx=%s mode=%s",
-                        session_id, ctx is not None,
-                        ctx.mode if ctx else "N/A",
-                    )
                     if ctx is not None and ctx.mode == SessionMode.HUMAN_MODE:
                         agent_ws = _agent_sockets.get(ctx.human_agent_id or "")
-                        logger.info(
-                            "HUMAN_MODE forward: agent_id=%s ws_found=%s",
-                            ctx.human_agent_id, agent_ws is not None,
-                        )
                         if agent_ws:
                             await agent_ws.send_text(json.dumps({
                                 "type": "customer_message",
@@ -474,20 +472,12 @@ def create_app(
             # Update session context to HUMAN_MODE
             if _context_manager is not None:
                 ctx = _context_manager.get(request.session_id)
-                logger.info(
-                    "on_assign: session=%s ctx_found=%s",
-                    request.session_id, ctx is not None,
-                )
                 if ctx is not None:
                     ctx.mode = SessionMode.HUMAN_MODE
                     ctx.human_agent_id = agent.agent_id
 
             # Notify customer about agent assignment
             cust_ws = _customer_sockets.get(request.session_id)
-            logger.info(
-                "on_assign notify customer: session=%s cust_ws=%s",
-                request.session_id, cust_ws is not None,
-            )
             if cust_ws is not None:
                 try:
                     import asyncio as _aio
@@ -496,6 +486,23 @@ def create_app(
                         "data": {
                             "status": "connected",
                             "agent_name": agent.name,
+                        },
+                    }, ensure_ascii=False)))
+                except Exception:
+                    pass
+
+            # Send the accumulated session history to the assigned agent
+            # directly so they have context even if history fetch races
+            agent_ws = _agent_sockets.get(agent.agent_id)
+            if agent_ws is not None:
+                history = _session_messages.get(request.session_id, [])
+                try:
+                    import asyncio as _aio
+                    _aio.get_event_loop().create_task(agent_ws.send_text(json.dumps({
+                        "type": "session_history",
+                        "data": {
+                            "session_id": request.session_id,
+                            "messages": history,
                         },
                     }, ensure_ascii=False)))
                 except Exception:
