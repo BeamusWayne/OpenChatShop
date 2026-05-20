@@ -4,7 +4,7 @@ from __future__ import annotations
 import importlib.metadata
 import logging
 import os
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 import asyncio
@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from open_chat_shop.api.auth import AuthMiddleware
-from open_chat_shop.core.types import AgentMessage, UserMessage
+from open_chat_shop.core.types import AgentMessage, UserMessage, SessionMode
 from open_chat_shop.core.orchestrator import DialogueOrchestrator
 from open_chat_shop.channel.registry import default_registry
 from open_chat_shop.api.streaming import StreamEvent, StreamingOrchestrator
@@ -59,16 +59,23 @@ class HealthResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
+def create_app(
+    orchestrator: DialogueOrchestrator | None = None,
+    lifespan: Callable | None = None,
+) -> FastAPI:
     """Build and return a configured FastAPI application.
 
     *orchestrator* may be ``None`` — in that case chat endpoints return 503,
     but /health still works.
+
+    *lifespan* is an optional async context manager for startup/shutdown hooks,
+    as supported by FastAPI's ``lifespan`` parameter.
     """
     app = FastAPI(
         title="OpenChatShop API",
         version=_VERSION,
         description="E-commerce intelligent dialogue system",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -113,6 +120,15 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
         if _orchestrator is None:
             raise HTTPException(status_code=503, detail="Service not configured")
 
+        # Session mode guard: reject when in human service mode
+        if _context_manager is not None:
+            ctx = _context_manager.get(request.session_id)
+            if ctx is not None and ctx.mode == SessionMode.HUMAN_MODE:
+                raise HTTPException(
+                    status_code=423,
+                    detail="Session in human service mode",
+                )
+
         msg = UserMessage(
             session_id=request.session_id,
             content=request.content,
@@ -145,6 +161,15 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
     ) -> StreamingResponse:
         if _orchestrator is None:
             raise HTTPException(status_code=503, detail="Service not configured")
+
+        # Session mode guard
+        if _context_manager is not None:
+            ctx = _context_manager.get(session_id)
+            if ctx is not None and ctx.mode == SessionMode.HUMAN_MODE:
+                raise HTTPException(
+                    status_code=423,
+                    detail="Session in human service mode",
+                )
 
         msg = UserMessage(
             session_id=session_id,
@@ -207,11 +232,10 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
                     continue
 
                 # If session has active human transfer, forward to agent
-                if _handoff_queue is not None:
-                    transfer = _handoff_queue.get_active_transfer(session_id)
-                    if transfer is not None:
-                        assigned_agent_id = transfer.assigned_agent_id
-                        agent_ws = _agent_sockets.get(assigned_agent_id) if assigned_agent_id else None
+                if _context_manager is not None:
+                    ctx = _context_manager.get(session_id)
+                    if ctx is not None and ctx.mode == SessionMode.HUMAN_MODE:
+                        agent_ws = _agent_sockets.get(ctx.human_agent_id or "")
                         if agent_ws:
                             await agent_ws.send_text(json.dumps({
                                 "type": "customer_message",
@@ -220,11 +244,23 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
                                     "content": data,
                                 },
                             }, ensure_ascii=False))
-                            _session_messages.setdefault(session_id, []).append({
-                                "role": "user",
-                                "content": data,
-                            })
-                            continue
+                        _session_messages.setdefault(session_id, []).append({
+                            "role": "user",
+                            "content": data,
+                        })
+                        # Also forward to customer for echo
+                        continue
+
+                    if ctx is not None and ctx.mode == SessionMode.TRANSFER_PENDING:
+                        _session_messages.setdefault(session_id, []).append({
+                            "role": "user",
+                            "content": data,
+                        })
+                        await websocket.send_text(json.dumps({
+                            "type": "transfer_status",
+                            "data": {"status": "waiting"},
+                        }, ensure_ascii=False))
+                        continue
 
                 # Record user message
                 _session_messages.setdefault(session_id, []).append({
@@ -321,6 +357,28 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
             })
 
         def _on_assign_cb(request, agent) -> None:
+            # Update session context to HUMAN_MODE
+            if _context_manager is not None:
+                ctx = _context_manager.get(request.session_id)
+                if ctx is not None:
+                    ctx.mode = SessionMode.HUMAN_MODE
+                    ctx.human_agent_id = agent.agent_id
+
+            # Notify customer about agent assignment
+            cust_ws = _customer_sockets.get(request.session_id)
+            if cust_ws is not None:
+                try:
+                    import asyncio as _aio
+                    _aio.get_event_loop().create_task(cust_ws.send_text(json.dumps({
+                        "type": "transfer_status",
+                        "data": {
+                            "status": "connected",
+                            "agent_name": agent.name,
+                        },
+                    }, ensure_ascii=False)))
+                except Exception:
+                    pass
+
             _notify_agents("request_assigned", {
                 "session_id": request.session_id,
                 "agent_id": agent.agent_id,
@@ -328,6 +386,25 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
             })
 
         def _on_complete_cb(transfer) -> None:
+            # Reset session context to AI_MODE
+            if _context_manager is not None:
+                ctx = _context_manager.get(transfer.session_id)
+                if ctx is not None:
+                    ctx.mode = SessionMode.AI_MODE
+                    ctx.human_agent_id = None
+
+            # Notify customer that human service ended
+            cust_ws = _customer_sockets.get(transfer.session_id)
+            if cust_ws is not None:
+                try:
+                    import asyncio as _aio
+                    _aio.get_event_loop().create_task(cust_ws.send_text(json.dumps({
+                        "type": "transfer_ended",
+                        "data": {"message": "人工服务已结束，已回到智能助手模式。"},
+                    }, ensure_ascii=False)))
+                except Exception:
+                    pass
+
             _notify_agents("transfer_completed", {
                 "session_id": transfer.session_id,
             })

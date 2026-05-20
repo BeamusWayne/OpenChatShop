@@ -352,8 +352,25 @@ def build_orchestrator() -> DialogueOrchestrator:
 
 def create_main_app():
     """Build the app with orchestrator wired in and static files mounted."""
+    from contextlib import asynccontextmanager
+    import time
+
     orchestrator = build_orchestrator()
-    app = create_app(orchestrator)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        app.state.start_time = time.monotonic()
+        app.state.orchestrator = orchestrator
+        logger.info("OpenChatShop starting up")
+        yield
+        logger.info("OpenChatShop shutting down")
+        if hasattr(app.state, 'redis_client') and app.state.redis_client:
+            await app.state.redis_client.aclose()
+        if hasattr(app.state, 'db_engine') and app.state.db_engine:
+            app.state.db_engine.dispose()
+        logger.info("OpenChatShop shutdown complete")
+
+    app = create_app(orchestrator, lifespan=lifespan)
 
     # Serve React frontend (built) if available, fall back to static/
     frontend_dist = Path(__file__).parent / "frontend" / "dist"
@@ -370,4 +387,4 @@ app = create_main_app()
 if __name__ == "__main__":
     host = os.environ.get("APP_HOST", "0.0.0.0")
     port = int(os.environ.get("APP_PORT", "8000"))
-    uvicorn.run("main:app", host=host, port=port, reload=True)
+    uvicorn.run(app, host=host, port=port, timeout_graceful_shutdown=10)
