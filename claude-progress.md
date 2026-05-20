@@ -198,3 +198,39 @@
 - 777 个测试
 - 零配置：`./run.sh` → 内存模式，行为不变
 - 生产配置：设 `DATABASE_URL` → 自动建表 + seed + 数据持久化
+
+### 2026-05-20 Session 2 — 富消息渲染 + 人工客服后台
+
+**任务：** 实现前端富消息卡片渲染，构建人工客服坐席后台（后端 API + WebSocket + 独立前端）
+
+**完成内容：**
+- 6 步全部完成，791 个测试通过（+14 新增）
+- 前端按 messageType 条件渲染 4 种富消息卡片
+- 后端 Agent REST API（7 个端点）+ Agent WebSocket（实时通知）
+- HandoffQueue 回调机制 + 自动分配逻辑
+- 独立坐席管理前端（frontend-agent/）
+- 即插即用修复：run.sh 自动构建前端，main.py 优先服务 frontend/dist/
+
+**新增/修改文件：**
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `frontend/src/components/rich/OrderCard.tsx` | 新建 | 订单卡片组件 |
+| `frontend/src/components/rich/LogisticsTimeline.tsx` | 新建 | 物流时间线组件 |
+| `frontend/src/components/rich/ProductGrid.tsx` | 新建 | 商品网格组件 |
+| `frontend/src/components/rich/TransferStatus.tsx` | 新建 | 转接状态组件 |
+| `frontend/src/components/MessageBubble.tsx` | 修改 | 条件渲染富消息 |
+| `src/open_chat_shop/api/agent.py` | 新建 | Agent REST API |
+| `src/open_chat_shop/api/app.py` | 修改 | Agent WebSocket + 通知回调 |
+| `src/open_chat_shop/core/handoff.py` | 修改 | 回调 + try_auto_assign |
+| `src/open_chat_shop/core/orchestrator.py` | 修改 | 转接 handler 接入真实 queue |
+| `src/open_chat_shop/core/tool_response_mapper.py` | 修改 | 物流数据 shape 修复 |
+| `frontend-agent/` | 新建 | 独立坐席管理前端 |
+| `tests/unit/test_agent_api.py` | 新建 | 14 个 Agent API 测试 |
+| `run.sh` | 修改 | 自动构建 React 前端 |
+| `main.py` | 修改 | 优先服务 frontend/dist/ |
+
+**总计：**
+- 37 个功能 + Repository Layer + 富消息 + 人工客服 全部 passing
+- 791 个测试
+- 即插即用：clone → pip install → ./run.sh → 开箱体验

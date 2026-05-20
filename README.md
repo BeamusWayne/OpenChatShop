@@ -7,6 +7,8 @@
 - **模型无关** — Provider 抽象层解耦 LLM 依赖，YAML 配置切换模型，无需改代码
 - **三级意图级联** — 规则匹配 → 语义检索 → LLM 分类，按置信度逐级升级
 - **可插拔工具系统** — 8 个内置电商工具（订单/物流/商品/退款/转人工），自定义工具只需继承 `BaseTool`
+- **富消息渲染** — 订单卡片、物流时间线、商品网格、转接状态 4 种富消息组件，前端按 `messageType` 自动渲染
+- **人工客服后台** — 独立坐席管理界面，三栏布局（会话列表/聊天/客户信息），WebSocket 实时通知，自动分配
 - **四层安全防护** — Prompt 注入检测、内容安全过滤、RBAC 权限校验、输出脱敏
 - **业务状态机** — 售前咨询/售后处理/退款流程独立 FSM，可编排组合
 - **多渠道适配** — Web、微信公众号、微信小程序统一接口，按渠道自动路由，11 种富消息类型渲染
@@ -18,8 +20,7 @@
 ### 环境要求
 
 - Python 3.11+
-- Redis（可选，用于会话持久化）
-- PostgreSQL + pgvector（可选，用于向量检索）
+- Node.js 18+（可选，用于前端富消息渲染和人工客服后台）
 
 ### 安装
 
@@ -39,11 +40,37 @@ pip install -e .
 ```
 
 > 无需任何配置即可体验完整对话功能。系统内置规则引擎处理订单查询、商品搜索、物流追踪、退款、转人工等场景。
+>
+> 如果已安装 Node.js，`./run.sh` 会自动构建前端（首次较慢），提供富消息卡片渲染。
+> 未安装 Node.js 时，使用内置的纯文本聊天界面，功能不受影响。
 
 服务启动后访问：
 - 聊天界面: http://localhost:8000/
 - API 文档: http://localhost:8000/docs
 - 健康检查: http://localhost:8000/health
+
+### 启动人工客服后台
+
+人工客服后台是独立的前端应用，需要 Node.js：
+
+```bash
+# 先启动后端（新终端）
+./run.sh
+
+# 启动坐席后台
+cd frontend-agent
+npm install
+npm run dev
+```
+
+访问 http://localhost:5173/ ，输入坐席名称即可进入三栏管理界面。
+
+坐席后台功能：
+- 排队列表实时更新（WebSocket 推送）
+- 一键接入客户会话
+- 双向实时聊天
+- 客户信息面板
+- 结束服务
 
 ### 配置 LLM Provider（可选）
 
@@ -91,6 +118,74 @@ DATABASE_URL=sqlite:///data/shop.db        # SQLite（最简单）
 # 完整部署（api + redis + postgres）
 docker compose up
 ```
+
+## 富消息渲染
+
+前端根据后端返回的 `messageType` 自动渲染对应的富消息卡片：
+
+| messageType | 组件 | 触发场景 |
+|-------------|------|---------|
+| `order_card` | OrderCard | 查询订单 → 订单号、商品、金额、状态标签 |
+| `logistics_timeline` | LogisticsTimeline | 物流查询 → 物流商、运单号、轨迹时间线 |
+| `product_list` | ProductGrid | 搜索商品 → 商品卡片网格（图片、名称、价格） |
+| `transfer` | TransferStatus | 转人工 → 排队位置、预计等待、坐席接入通知 |
+
+示例对话：
+
+```
+用户: "查询订单 ORD-001"
+AI: [订单卡片] ORD-001 | 无线鼠标+扩展坞 | ¥228 | 已发货
+
+用户: "物流查询"
+AI: [物流时间线] 顺丰速运 SF1234567890
+     ● 已发货 (05-15 14:30)
+     ● 运输中 (05-16 08:00)
+     ○ 派送中
+
+用户: "搜索手机"
+AI: [商品网格] 手机 ¥4999 | 蓝牙音箱 ¥199 | ...
+
+用户: "转人工"
+AI: [转接状态] 正在为您转接... 排队第 2 位，预计等待 3 分钟
+```
+
+> 富消息需要 React 前端（需 Node.js 构建）。未安装 Node.js 时，所有消息以纯文本呈现。
+
+## 人工转接
+
+### 端到端流程
+
+```
+客户: "转人工" → 后端排队 → 自动分配空闲坐席 → 双方 WebSocket 实时通信
+                                           ↓ 无空闲坐席
+                                    显示排队位置 + 预计等待
+```
+
+### Agent API
+
+| 端点 | 方法 | 用途 |
+|------|------|------|
+| `/api/v1/agent/register` | POST | 坐席注册 |
+| `/api/v1/agent/agents` | GET | 在线坐席列表 |
+| `/api/v1/agent/{id}/status` | PUT | 更新坐席状态 |
+| `/api/v1/agent/queue` | GET | 排队列表 |
+| `/api/v1/agent/active` | GET | 进行中的会话 |
+| `/api/v1/agent/accept/{session_id}` | POST | 接入排队会话 |
+| `/api/v1/agent/complete/{session_id}` | POST | 结束人工服务 |
+
+### Agent WebSocket
+
+`ws://localhost:8000/ws/agent/{agent_id}`
+
+服务端推送事件：
+- `queue_state` — 连接后发送当前队列
+- `new_request` — 新客户排队
+- `request_assigned` — 会话已分配
+- `transfer_completed` — 会话已结束
+
+客户端发送事件：
+- `agent_message` — 坐席回复客户
+- `heartbeat` — 心跳保活
 
 ## 多渠道接入
 
@@ -197,6 +292,7 @@ registry.register("my_channel", MyChannelAdapter())
 ├──────────────────────────────────────────────────────────┤
 │                      API 层 (FastAPI)                      │
 │     REST / SSE 流式 / WebSocket / 微信 Webhook             │
+│     Agent REST API / Agent WebSocket                       │
 ├──────────────────────────────────────────────────────────┤
 │                    对话编排层 (Orchestrator)                 │
 │  Security → Context → Intent → Tool → Strategy → Action   │
@@ -221,6 +317,29 @@ registry.register("my_channel", MyChannelAdapter())
 │  SQLModel DB │  审计日志(DB)  │  成本治理                    │
 │  向量检索    │  CostTracker(DB)│  预算管控                   │
 └──────────────────────────────────────────────────────────┘
+```
+
+### 前端架构
+
+```
+frontend/                    客户聊天界面（React + Ant Design）
+├── src/components/
+│   ├── ChatWindow.tsx       聊天主窗口
+│   ├── MessageBubble.tsx    消息气泡（条件渲染富消息）
+│   └── rich/                富消息组件
+│       ├── OrderCard.tsx    订单卡片
+│       ├── LogisticsTimeline.tsx  物流时间线
+│       ├── ProductGrid.tsx  商品网格
+│       └── TransferStatus.tsx  转接状态
+
+frontend-agent/              坐席管理后台（独立 React 应用）
+├── src/pages/
+│   ├── LoginPage.tsx        坐席注册
+│   └── DashboardPage.tsx    三栏管理界面
+├── src/components/
+│   ├── ConversationList.tsx 排队/进行中/已结束
+│   ├── AgentChat.tsx        坐席聊天窗口
+│   └── CustomerPanel.tsx    客户信息面板
 ```
 
 ### 数据流
@@ -397,7 +516,7 @@ python -m open_chat_shop.evaluation judge
 ```
 open-chat-shop/
 ├── main.py                     # 入口：组装组件并启动 FastAPI
-├── run.sh                      # 启动脚本
+├── run.sh                      # 启动脚本（自动构建前端）
 ├── pyproject.toml              # 项目依赖（FastAPI, LiteLLM, SQLModel, Redis...）
 ├── Dockerfile
 ├── docker-compose.yml          # api + redis + postgres
@@ -407,6 +526,15 @@ open-chat-shop/
 │   ├── security.yaml           # 安全策略
 │   ├── scenarios.yaml          # 业务场景 FSM
 │   └── channels.yaml           # 渠道配置
+├── frontend/                   # 客户聊天前端（React + Ant Design）
+│   ├── src/components/         #   ChatWindow, MessageBubble
+│   ├── src/components/rich/    #   4 种富消息组件
+│   └── dist/                   #   构建产物（.gitignore，./run.sh 自动构建）
+├── frontend-agent/             # 坐席管理后台（独立 React 应用）
+│   ├── src/pages/              #   LoginPage, DashboardPage
+│   ├── src/components/         #   ConversationList, AgentChat, CustomerPanel
+│   └── src/components/rich/    #   复用富消息组件
+├── static/                     # 纯文本聊天 UI（Node.js 不可用时的后备）
 ├── src/open_chat_shop/
 │   ├── core/                   # 核心引擎
 │   │   ├── types.py            # 数据结构（Message, Intent, SessionContext...）
@@ -425,10 +553,15 @@ open-chat-shop/
 │   │   ├── cost_governance.py  # 成本治理
 │   │   ├── rate_limiter.py     # 速率限制
 │   │   ├── middleware.py       # 编排器中间件
-│   │   └── handoff.py          # 人工转接队列
+│   │   ├── handoff.py          # 人工转接队列（自动分配 + 回调通知）
+│   │   └── tool_response_mapper.py  # 工具结果 → 富消息映射
 │   ├── tools/builtin/          # 8 个内置电商工具（构造器注入 Repository）
 │   ├── channel/                # 多渠道适配 + Registry + 富消息渲染
 │   ├── api/                    # REST + WebSocket + 流式响应 + 微信 Webhook
+│   │   ├── app.py              #   主应用（含 Agent WebSocket）
+│   │   ├── agent.py            #   Agent REST API（7 个端点）
+│   │   ├── streaming.py        #   SSE + WebSocket 流式响应
+│   │   └── wechat.py           #   微信 Webhook
 │   ├── storage/                # 会话持久化 + 数据模型 + Repository 层
 │   │   ├── repositories/       # Repository ABC + InMemory + Database + Seed
 │   │   ├── models.py           # SQLModel 数据模型（8 表）
@@ -436,8 +569,7 @@ open-chat-shop/
 │   │   └── alembic/            # 数据库迁移
 │   ├── evaluation/             # 评测框架（黄金数据集/回归/LLM-as-Judge）
 │   └── observability/          # 日志/链路追踪 + DatabaseAuditLogger + DatabaseCostTracker
-├── tests/                      # 40+ 个测试文件（777 个测试用例）
-├── static/                     # 前端聊天组件
+├── tests/                      # 40+ 个测试文件（791 个测试用例）
 └── docs/                       # 设计文档
 ```
 
@@ -520,6 +652,7 @@ class MyCustomTool(BaseTool):
 | 向量检索 | pgvector / 内存 |
 | 会话存储 | Redis / 内存 / 数据库 |
 | 可观测 | OpenTelemetry + structlog |
+| 前端 | React 19 + Ant Design 6 + Vite 8 |
 | 容器化 | Docker + Docker Compose |
 
 ## License

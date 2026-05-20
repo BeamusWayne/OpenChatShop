@@ -355,9 +355,12 @@ def create_main_app():
     orchestrator = build_orchestrator()
     app = create_app(orchestrator)
 
+    # Serve React frontend (built) if available, fall back to static/
+    frontend_dist = Path(__file__).parent / "frontend" / "dist"
     static_dir = Path(__file__).parent / "static"
-    if static_dir.is_dir():
-        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+    serve_dir = frontend_dist if frontend_dist.is_dir() else static_dir
+    if serve_dir.is_dir():
+        app.mount("/", StaticFiles(directory=str(serve_dir), html=True), name="static")
 
     return app
 
