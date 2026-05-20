@@ -23,49 +23,51 @@
 ### 安装
 
 ```bash
-git clone https://github.com/your-org/open-chat-shop.git
-cd open-chat-shop
-pip install -e ".[dev]"
+git clone https://github.com/BeamusWayne/OpenChatShop.git
+cd OpenChatShop
+python3 -m venv .venv
+source .venv/bin/activate    # Windows: .venv\Scripts\activate
+pip install -e .
 ```
 
 ### 启动服务
 
 ```bash
-# 最简启动（内存模式，无需外部依赖）
+# 最简启动（内存模式 + 纯规则引擎，无需 API Key）
 ./run.sh
-
-# 或 Docker Compose（api + redis + postgres）
-docker compose up
 ```
+
+> 无需任何配置即可体验完整对话功能。系统内置规则引擎处理订单查询、商品搜索、物流追踪、退款、转人工等场景。
 
 服务启动后访问：
-- API: http://localhost:8000
 - 聊天界面: http://localhost:8000/
 - API 文档: http://localhost:8000/docs
+- 健康检查: http://localhost:8000/health
 
-### 配置 LLM Provider
+### 配置 LLM Provider（可选）
 
-编辑 `configs/providers.yaml`：
+默认使用规则引擎，无需 LLM。如需接入大模型提升智能度：
 
-```yaml
-providers:
-  primary:
-    type: anthropic
-    model: claude-sonnet-4-6
-    api_key: ${ANTHROPIC_API_KEY}
-
-  fallback:
-    type: openai
-    model: gpt-4.1
-    api_key: ${OPENAI_API_KEY}
-
-  local:
-    type: ollama
-    model: qwen2.5:14b
-    base_url: http://localhost:11434
+```bash
+cp .env.example .env
+# 编辑 .env，填入你的 API Key
 ```
 
-API Key 通过环境变量传入，不硬编码在配置文件中。
+支持的环境变量：
+
+| 变量 | 说明 | 必填 |
+|------|------|------|
+| `ANTHROPIC_API_KEY` | Anthropic / 智谱 GLM API Key | 接入 LLM 时必填 |
+| `ANTHROPIC_BASE_URL` | 自定义 API 端点（默认 Anthropic 官方） | 否 |
+| `GLM_MODEL` | 模型名称（默认 glm-5.1） | 否 |
+| `OPENAI_API_KEY` | OpenAI API Key | 否 |
+
+### Docker Compose
+
+```bash
+# 完整部署（api + redis + postgres）
+docker compose up
+```
 
 ## 项目结构
 
