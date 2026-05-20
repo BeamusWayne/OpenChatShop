@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re as _re
+from contextlib import nullcontext as _nullcontext
 from typing import Any
 
 from open_chat_shop.core.types import (
@@ -21,6 +22,21 @@ from open_chat_shop.core.exceptions import (
     OpenChatShopError,
 )
 from open_chat_shop.core.intent import _extract_entities
+from open_chat_shop.core.tool_response_mapper import ToolResponseMapper
+
+# Tracing — safe no-op if opentelemetry is not installed
+try:
+    from open_chat_shop.observability.tracing import (
+        trace_orchestrator_handle,
+        trace_security_check,
+        trace_context_load,
+        trace_intent_classify,
+        trace_tool_inject,
+        trace_tool_execute,
+    )
+    _TRACING_AVAILABLE = True
+except ImportError:
+    _TRACING_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +58,13 @@ class DialogueOrchestrator:
         self._tool_injector = tool_injector
         self._strategy = strategy
         self._provider: Any = None
+        self._audit_logger: Any = None
+        self._cost_tracker: Any = None
         self._session_locks: dict[str, asyncio.Lock] = {}
+        self._tool_response_mapper: ToolResponseMapper | None = None
+        self._scenarios: dict[str, Any] = {}
+        self._handoff_queue: Any = None
+        self._middleware_pipeline: Any = None
 
     def set_provider(self, provider: Any) -> None:
         """Inject an LLM provider for natural language response generation.
@@ -53,6 +75,39 @@ class DialogueOrchestrator:
         """
         self._provider = provider
 
+    def set_audit_logger(self, audit_logger: Any) -> None:
+        """Inject an audit logger for recording tool executions."""
+        self._audit_logger = audit_logger
+
+    def set_cost_tracker(self, cost_tracker: Any) -> None:
+        """Inject a cost tracker for recording LLM token usage."""
+        self._cost_tracker = cost_tracker
+
+    def set_tool_response_mapper(self, mapper: ToolResponseMapper | None) -> None:
+        """Inject a ToolResponseMapper for rich tool-result messages.
+
+        When set, tool results are mapped to the correct AgentMessage type
+        (order_card, logistics_timeline, etc.) instead of plain text.
+        """
+        self._tool_response_mapper = mapper
+
+    def set_scenarios(self, scenarios: dict[str, Any]) -> None:
+        """Register scenario FSMs keyed by scenario name."""
+        self._scenarios = scenarios
+
+    def set_handoff_queue(self, queue: Any) -> None:
+        """Inject a HandoffQueue for human-agent transfer tracking."""
+        self._handoff_queue = queue
+
+    def set_middleware_pipeline(self, pipeline: Any) -> None:
+        """Inject a MiddlewarePipeline for rate limiting, budget, and slot tracking.
+
+        When set, the pipeline wraps core message processing so that
+        pre/post hooks run before and after intent classification + tool
+        execution.  Pass None to disable middleware.
+        """
+        self._middleware_pipeline = pipeline
+
     async def handle_message(self, message: UserMessage) -> AgentMessage:
         """Process user message, return agent reply.
         Same session_id processed serially via async lock.
@@ -62,21 +117,48 @@ class DialogueOrchestrator:
             return await self._handle_internal(message)
 
     async def _handle_internal(self, message: UserMessage) -> AgentMessage:
-        # 1. Security check
-        try:
-            self._security.check_input(message)
-        except SecurityError as e:
-            logger.warning("Security check blocked message", extra={
-                "session_id": message.session_id, "error": e.message,
-            })
-            return self._error_response("您的消息包含不当内容，请修改后重试。")
+        outer_span = _nullcontext()
+        if _TRACING_AVAILABLE:
+            outer_span = trace_orchestrator_handle(message.session_id)
 
-        # 2. Load context
-        try:
-            context = await self._context_manager.load(message.session_id, channel=message.channel)
-        except ContextError:
-            return self._error_response("会话已过期，请重新开始。")
+        with outer_span:
+            # 1. Security check
+            sec_span = _nullcontext()
+            if _TRACING_AVAILABLE:
+                sec_span = trace_security_check()
+            with sec_span:
+                try:
+                    self._security.check_input(message)
+                except SecurityError as e:
+                    logger.warning("Security check blocked message", extra={
+                        "session_id": message.session_id, "error": e.message,
+                    })
+                    return self._error_response("您的消息包含不当内容，请修改后重试。")
 
+            # 2. Load context
+            ctx_span = _nullcontext()
+            if _TRACING_AVAILABLE:
+                ctx_span = trace_context_load(message.session_id)
+            with ctx_span:
+                try:
+                    context = await self._context_manager.load(message.session_id, channel=message.channel)
+                except ContextError:
+                    return self._error_response("会话已过期，请重新开始。")
+
+            # If middleware pipeline is configured, wrap core processing with it.
+            if self._middleware_pipeline is not None:
+                async def core_handler(msg: UserMessage) -> AgentMessage:
+                    return await self._core_handle(msg, context)
+                return await self._middleware_pipeline.handle(message, context, core_handler)
+
+            return await self._core_handle(message, context)
+
+    async def _core_handle(
+        self,
+        message: UserMessage,
+        context: SessionContext,
+    ) -> AgentMessage:
+        """Core processing: pending check, intent, tools, strategy, execution."""
         # 2.5 Check if user is answering a previous clarification
         pending_action = context.slots.get("_pending_action")
         if pending_action is not None:
@@ -105,10 +187,18 @@ class DialogueOrchestrator:
                     return pending_response
 
         # 3. Intent recognition
-        intent = await self._intent_engine.classify(message, context)
+        intent_span = _nullcontext()
+        if _TRACING_AVAILABLE:
+            intent_span = trace_intent_classify(source="cascade")
+        with intent_span:
+            intent = await self._intent_engine.classify(message, context)
 
         # 4. Dynamic tool injection
-        tools = await self._tool_injector.inject(intent, context)
+        inject_span = _nullcontext()
+        if _TRACING_AVAILABLE:
+            inject_span = trace_tool_inject(intent.name)
+        with inject_span:
+            tools = await self._tool_injector.inject(intent, context)
 
         # 5. Strategy decision
         action = await self._strategy.decide(intent, context, tools)
@@ -271,13 +361,30 @@ class DialogueOrchestrator:
                 )
 
             case "transfer":
+                if self._handoff_queue is not None:
+                    try:
+                        from open_chat_shop.core.handoff import TransferRequest
+                        request = TransferRequest(
+                            request_id=f"tr-{context.session_id}",
+                            session_id=context.session_id,
+                            user_id=context.user_id,
+                            reason=action.payload.get("reason", "handoff"),
+                            department=action.payload.get("department", "general"),
+                        )
+                        position = self._handoff_queue.enqueue(request)
+                        msg = f"正在为您转接人工客服，当前排队位置：第{position}位，请耐心等待。"
+                    except Exception:
+                        logger.warning("HandoffQueue enqueue failed, using fallback message")
+                        msg = "正在为您转接人工客服..."
+                else:
+                    msg = "正在为您转接人工客服..."
                 llm_msg = await self._llm_enhance(action, context)
                 if llm_msg is not None:
                     return llm_msg
                 return AgentMessage(
                     message_type="transfer",
                     payload=action.payload,
-                    text_fallback="正在为您转接人工客服...",
+                    text_fallback=msg,
                 )
 
             case "end":
@@ -291,13 +398,34 @@ class DialogueOrchestrator:
                 )
 
             case "switch_scenario":
+                scenario_name = action.payload.get("scenario", "")
+                scenario = self._scenarios.get(scenario_name)
+                if scenario is not None:
+                    initial_state = scenario.get_initial_state()
+                    context.fsm_state = initial_state
+                    context.current_scenario = scenario_name
+                    # Try LLM enhancement for the scenario entry prompt
+                    llm_msg = await self._llm_enhance(action, context)
+                    fallback = f"已进入{scenario_name}流程，请按提示操作。"
+                    if llm_msg is not None:
+                        return AgentMessage(
+                            message_type="text",
+                            payload={"content": llm_msg.text_fallback},
+                            text_fallback=llm_msg.text_fallback or fallback,
+                        )
+                    return AgentMessage(
+                        message_type="text",
+                        payload={"content": fallback},
+                        text_fallback=fallback,
+                    )
+                # No scenario registered, fall back to LLM or plain text
                 llm_msg = await self._llm_enhance(action, context)
                 if llm_msg is not None:
                     return llm_msg
                 return AgentMessage(
                     message_type="text",
-                    payload={"content": f"切换到场景: {action.payload.get('scenario', '')}"},
-                    text_fallback=f"切换到场景: {action.payload.get('scenario', '')}",
+                    payload={"content": f"切换到场景: {scenario_name}"},
+                    text_fallback=f"切换到场景: {scenario_name}",
                 )
 
             case _:
@@ -340,20 +468,59 @@ class DialogueOrchestrator:
             )
 
         # Execute with compensation on failure
-        try:
-            result = await tool.execute(params, context)
-        except ToolError:
-            await tool.compensate(params, context)
-            return AgentMessage(
-                message_type="text",
-                payload={"content": "操作暂时无法完成，请稍后重试"},
-                text_fallback="操作暂时无法完成，请稍后重试",
+        exec_span = _nullcontext()
+        if _TRACING_AVAILABLE:
+            exec_span = trace_tool_execute(tool_name)
+        with exec_span:
+            try:
+                result = await tool.execute(params, context)
+            except ToolError:
+                await tool.compensate(params, context)
+                if self._audit_logger is not None:
+                    self._audit_logger.log_tool_execution(
+                        tool_name=tool_name,
+                        user_id=None,
+                        session_id=context.session_id,
+                        params=params,
+                        result="failure",
+                    )
+                return AgentMessage(
+                    message_type="text",
+                    payload={"content": "操作暂时无法完成，请稍后重试"},
+                    text_fallback="操作暂时无法完成，请稍后重试",
+                )
+
+        # Audit log for tool execution result
+        if self._audit_logger is not None:
+            self._audit_logger.log_tool_execution(
+                tool_name=tool_name,
+                user_id=None,
+                session_id=context.session_id,
+                params=params,
+                result="success" if result.success else "failure",
             )
 
         # Build response from tool result
         if result.success:
             formatted = tool.format_result(result)
-            # Try to enhance tool result with LLM
+            # Use mapper for rich message types when available
+            if self._tool_response_mapper is not None:
+                mapped = self._tool_response_mapper.map(tool.name, result, context)
+                if mapped is not None:
+                    # Optionally enhance text_fallback with LLM
+                    enhanced = await self._llm_enhance_tool_result(
+                        formatted, result.data, context,
+                    )
+                    if enhanced:
+                        mapped = AgentMessage(
+                            message_type=mapped.message_type,
+                            payload=mapped.payload,
+                            text_fallback=enhanced,
+                            suggestions=mapped.suggestions,
+                            requires_confirmation=mapped.requires_confirmation,
+                        )
+                    return mapped
+            # Fallback to original text behavior
             enhanced = await self._llm_enhance_tool_result(
                 formatted, result.data, context,
             )
@@ -425,6 +592,10 @@ class DialogueOrchestrator:
         except Exception:
             logger.warning("LLM enhancement failed, falling back to template")
             return None
+
+        # Track LLM cost (token counts unavailable at this layer)
+        if self._cost_tracker is not None:
+            self._cost_tracker.record(model="unknown", prompt_tokens=0, completion_tokens=0)
 
         return AgentMessage(
             message_type=action.payload.get("message_type", "text"),

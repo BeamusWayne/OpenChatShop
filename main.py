@@ -2,20 +2,38 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from fastapi.staticfiles import StaticFiles
 
 from open_chat_shop.api.app import create_app
 from open_chat_shop.core.context import InMemoryContextManager
+from open_chat_shop.core.handoff import HandoffQueue
 from open_chat_shop.core.intent import CascadeIntentEngine, RuleBasedMatcher
 from open_chat_shop.core.orchestrator import DialogueOrchestrator
+from open_chat_shop.core.scenario import RefundScenarioFSM
+from open_chat_shop.core.scenarios.complaint import ComplaintScenarioFSM
+from open_chat_shop.core.scenarios.order_inquiry import OrderInquiryScenarioFSM
 from open_chat_shop.core.security import SecurityGuard
 from open_chat_shop.core.strategy import RuleBasedStrategy
 from open_chat_shop.core.tool import ToolInjector
+from open_chat_shop.core.tool_response_mapper import ToolResponseMapper
 from open_chat_shop.core.types import IntentInfo, RoutingRule
+from open_chat_shop.observability.logging import setup_logging
 from open_chat_shop.tools.builtin import ALL_TOOLS
+
+from open_chat_shop.core.middleware import (
+    MiddlewarePipeline,
+    RateLimitMiddleware,
+    BudgetMiddleware,
+    SlotTrackingMiddleware,
+)
+from open_chat_shop.core.rate_limiter import InMemoryRateLimiter, RateLimitGuard
+from open_chat_shop.core.cost_governance import SessionBudgetManager, BudgetConfig
+from open_chat_shop.core.slot_tracker import create_builtin_tracker
 
 try:
     from open_chat_shop.core.anthropic_provider import AnthropicProvider
@@ -23,11 +41,16 @@ try:
 except ImportError:
     _LLM_AVAILABLE = False
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+# Structured logging (replaces basicConfig)
+setup_logging(level="INFO")
 logger = logging.getLogger(__name__)
+
+# OpenTelemetry tracing — safe no-op if packages are missing
+try:
+    from open_chat_shop.observability.tracing import setup_tracing
+    setup_tracing(service_name="open-chat-shop")
+except Exception:
+    logger.warning("OpenTelemetry tracing not available, continuing without tracing")
 
 # Default intent rules — keyword patterns for each of the 8 builtin intents.
 DEFAULT_RULES: list[tuple[str, str, float]] = [
@@ -53,12 +76,68 @@ def _register_default_rules(matcher: RuleBasedMatcher) -> None:
         matcher.add_rule(intent_name, pattern, weight)
 
 
+def _build_context_manager() -> Any:
+    """Select context manager based on environment variables.
+
+    Priority: DATABASE_URL > REDIS_URL > InMemoryContextManager.
+    Falls back gracefully when the chosen backend is unavailable.
+    """
+    _database_url = os.environ.get("DATABASE_URL", "")
+    _redis_url = os.environ.get("REDIS_URL", "")
+
+    if _database_url:
+        try:
+            from open_chat_shop.storage.db_context import DatabaseContextManager
+            context_manager = DatabaseContextManager(_database_url)
+            safe_url = _database_url.split("@")[-1] if "@" in _database_url else "sqlite"
+            logger.info("Using database context manager (%s)", safe_url)
+            return context_manager
+        except Exception as e:
+            logger.warning("Database context manager failed, falling back to memory: %s", e)
+
+    if _redis_url:
+        try:
+            import redis.asyncio as aioredis
+            from open_chat_shop.storage.redis_context import RedisContextManager
+            redis_client = aioredis.from_url(_redis_url)
+            context_manager = RedisContextManager(redis_client)
+            logger.info("Using Redis context manager")
+            return context_manager
+        except Exception as e:
+            logger.warning("Redis context manager failed, falling back to memory: %s", e)
+
+    logger.info("Using in-memory context manager")
+    return InMemoryContextManager()
+
+
+def _build_provider() -> Any:
+    """Try Anthropic provider first, then LiteLLM, then return None."""
+    if _LLM_AVAILABLE:
+        try:
+            provider = AnthropicProvider()
+            logger.info("LLM provider (Anthropic/GLM) connected")
+            return provider
+        except Exception as e:
+            logger.warning("Anthropic provider unavailable: %s", e)
+
+    try:
+        from open_chat_shop.core.litellm_provider import LiteLLMProvider
+        provider = LiteLLMProvider(model="gpt-4o-mini")
+        logger.info("LLM provider (LiteLLM) connected")
+        return provider
+    except Exception as e:
+        logger.warning("LiteLLM provider unavailable, using rules only: %s", e)
+
+    return None
+
+
 def build_orchestrator() -> DialogueOrchestrator:
     """Construct the full component pipeline and return a DialogueOrchestrator."""
     security_config: dict = {"rbac": {}}
     security_guard = SecurityGuard(security_config)
 
-    context_manager = InMemoryContextManager()
+    # Task 1: Smart storage selection based on environment
+    context_manager = _build_context_manager()
 
     rule_matcher = RuleBasedMatcher()
     _register_default_rules(rule_matcher)
@@ -81,14 +160,24 @@ def build_orchestrator() -> DialogueOrchestrator:
     for info in INTENT_DEFINITIONS:
         intent_engine.register_intent(info)
 
-    # Wire LLM provider for Level 3 intent classification
-    if _LLM_AVAILABLE:
-        try:
-            provider = AnthropicProvider()
-            intent_engine.set_provider(provider)
-            logger.info("LLM provider (Anthropic/GLM) connected")
-        except Exception as e:
-            logger.warning("LLM provider unavailable, using rules only: %s", e)
+    # Task 3: Load intent samples for Level-2 semantic matching
+    try:
+        from open_chat_shop.evaluation.golden_dataset import BUILT_IN_SAMPLES
+        # add_samples() is async but purely synchronous internally (dict append),
+        # so we populate the internal dict directly during startup.
+        for sample in BUILT_IN_SAMPLES:
+            intent_name = sample.expected_intent
+            if intent_name not in intent_engine._samples:
+                intent_engine._samples[intent_name] = []
+            intent_engine._samples[intent_name].append(sample.user_input)
+        logger.info("Loaded %d intent samples for semantic matching", len(BUILT_IN_SAMPLES))
+    except Exception as e:
+        logger.warning("Could not load intent samples: %s", e)
+
+    # Task 2: Wire LLM provider (Anthropic -> LiteLLM fallback)
+    provider = _build_provider()
+    if provider is not None:
+        intent_engine.set_provider(provider)
 
     # Instantiate tools and build registry + routing rules
     tool_registry = {}
@@ -122,11 +211,46 @@ def build_orchestrator() -> DialogueOrchestrator:
         strategy=strategy,
     )
 
-    if _LLM_AVAILABLE:
+    if provider is not None:
         try:
-            orchestrator.set_provider(provider)  # same provider instance used for intent
+            orchestrator.set_provider(provider)
         except Exception:
             pass
+
+    # Wire observability: audit logger and cost tracker
+    try:
+        from open_chat_shop.observability.logging import AuditLogger, CostTracker
+        orchestrator.set_audit_logger(AuditLogger())
+        orchestrator.set_cost_tracker(CostTracker())
+    except Exception:
+        logger.warning("Observability wiring failed, continuing without audit/cost tracking")
+
+    # Wire ToolResponseMapper for rich tool-result messages
+    orchestrator.set_tool_response_mapper(ToolResponseMapper())
+
+    # Wire scenario FSMs for multi-turn business dialogue flows
+    scenarios = {
+        "refund": RefundScenarioFSM(),
+        "complaint": ComplaintScenarioFSM(),
+        "order_inquiry": OrderInquiryScenarioFSM(),
+    }
+    orchestrator.set_scenarios(scenarios)
+
+    # Wire HandoffQueue for human-agent transfer tracking
+    handoff_queue = HandoffQueue()
+    orchestrator.set_handoff_queue(handoff_queue)
+
+    # Wire middleware pipeline: rate limiting -> budget enforcement -> slot tracking
+    rate_limiter = InMemoryRateLimiter()
+    rate_guard = RateLimitGuard(rate_limiter)
+    budget_manager = SessionBudgetManager(BudgetConfig(max_tokens=100_000))
+    slot_tracker = create_builtin_tracker()
+
+    pipeline = MiddlewarePipeline()
+    pipeline.add(RateLimitMiddleware(rate_guard))
+    pipeline.add(BudgetMiddleware(budget_manager))
+    pipeline.add(SlotTrackingMiddleware(slot_tracker))
+    orchestrator.set_middleware_pipeline(pipeline)
 
     return orchestrator
 

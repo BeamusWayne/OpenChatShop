@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
+import os
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -10,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from open_chat_shop.api.auth import AuthMiddleware
 from open_chat_shop.core.types import AgentMessage, UserMessage
 from open_chat_shop.core.orchestrator import DialogueOrchestrator
 from open_chat_shop.channel.registry import default_registry
@@ -72,6 +74,15 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+
+    # Auth middleware (reads JWT_SECRET_KEY and optionally API_KEY from env)
+    jwt_secret = os.environ.get("JWT_SECRET_KEY", "")
+    api_key = os.environ.get("API_KEY", "")
+    app.add_middleware(
+        AuthMiddleware,
+        jwt_secret=jwt_secret or None,
+        api_key=api_key or None,
     )
 
     _registry = default_registry()

@@ -18,6 +18,8 @@ ALL_INTENTS = {
     "cancel_order",
     "modify_address",
     "handoff_to_human",
+    "greeting",
+    "thanks",
 }
 
 ALL_SCENARIO_TYPES = {"normal", "edge", "attack"}
@@ -41,7 +43,7 @@ class TestGoldenDatasetStructure:
         assert len(dataset) >= 50
 
     @pytest.mark.unit
-    def test_all_8_intents_covered(self, dataset: list[GoldenSample]) -> None:
+    def test_all_10_intents_covered(self, dataset: list[GoldenSample]) -> None:
         intents = {s.expected_intent for s in dataset}
         assert ALL_INTENTS <= intents, (
             f"Missing intents: {ALL_INTENTS - intents}"
@@ -114,7 +116,7 @@ class TestGoldenDatasetFiltering:
     def test_get_by_intent_returns_correct_samples(self) -> None:
         ds = get_golden_dataset()
         results = ds.get_by_intent("search_product")
-        assert len(results) >= 7
+        assert len(results) >= 40
         assert all(s.expected_intent == "search_product" for s in results)
 
     @pytest.mark.unit
@@ -127,7 +129,7 @@ class TestGoldenDatasetFiltering:
     def test_get_by_scenario_type_normal(self) -> None:
         ds = get_golden_dataset()
         results = ds.get_by_scenario_type("normal")
-        assert len(results) >= 30
+        assert len(results) >= 400
         assert all(s.scenario_type == "normal" for s in results)
 
     @pytest.mark.unit

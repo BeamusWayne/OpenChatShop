@@ -10,7 +10,7 @@
 - **四层安全防护** — Prompt 注入检测、内容安全过滤、RBAC 权限校验、输出脱敏
 - **业务状态机** — 售前咨询/售后处理/退款流程独立 FSM，可编排组合
 - **多渠道适配** — Web、微信公众号、微信小程序统一接口，按渠道自动路由，11 种富消息类型渲染
-- **生产就绪** — 速率限制、成本治理、会话持久化、OpenTelemetry 链路追踪、Docker Compose 一键部署
+- **生产就绪** — JWT/API Key 认证、速率限制、成本治理、会话持久化、OpenTelemetry 链路追踪、Docker Compose 一键部署
 
 ## 快速开始
 
@@ -68,6 +68,7 @@ cp .env.example .env
 | `WECHAT_MINIPROGRAM_APP_ID` | 微信小程序 AppID | 接入小程序时必填 |
 | `WECHAT_MINIPROGRAM_APP_SECRET` | 微信小程序 AppSecret | 接入小程序时必填 |
 | `WECHAT_MINIPROGRAM_TOKEN` | 微信小程序 Token | 接入小程序时必填 |
+| `API_KEY` | 静态 API Key（与 JWT 二选一） | 否 |
 
 ### Docker Compose
 
@@ -169,6 +170,208 @@ registry.register("my_channel", MyChannelAdapter())
 
 渠道相关配置在 `configs/channels.yaml`，可控制每个渠道的启用状态和消息长度限制。
 
+## 系统架构
+
+### 分层架构
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                      渠道层 (Channel)                      │
+│  WebAdapter  ·  WechatAdapter  ·  MiniProgramAdapter      │
+│            ChannelRegistry · 自动路由 · 降级兜底            │
+├──────────────────────────────────────────────────────────┤
+│                      API 层 (FastAPI)                      │
+│     REST / SSE 流式 / WebSocket / 微信 Webhook             │
+├──────────────────────────────────────────────────────────┤
+│                    对话编排层 (Orchestrator)                 │
+│  Security → Context → Intent → Tool → Strategy → Action   │
+├──────────┬──────────┬──────────┬──────────────────────────┤
+│ 安全防护  │ 意图引擎  │ 工具系统  │ 对话策略                  │
+│ 注入检测  │ 规则匹配  │ 动态注入  │ 状态机 FSM                │
+│ PII 脱敏  │ 语义检索  │ 生命周期  │ 槽位追踪                  │
+│ RBAC 权限 │ LLM 分类  │ 补偿回滚  │ 人工转接                  │
+├──────────┴──────────┴──────────┴──────────────────────────┤
+│                 LLM Provider 抽象层                        │
+│  Anthropic · OpenAI · Qwen · DeepSeek · Ollama            │
+│  CascadeStrategy · LiteLLM · 级联降级                      │
+├──────────────────────────────────────────────────────────┤
+│                  基础设施层 (Infrastructure)                 │
+│  会话存储    │  可观测性      │  治理                        │
+│  内存/Redis  │  链路追踪      │  速率限制                    │
+│  SQLModel DB │  审计日志      │  成本治理                    │
+│  向量检索    │  CostTracker   │  预算管控                    │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 数据流
+
+一条用户消息从接收到回复经过以下完整链路：
+
+```
+用户消息 "ORD-001 物流到哪了"
+│
+├─ 1. API 接入
+│     POST /api/v1/chat {channel: "wechat", content: "ORD-001 物流到哪了"}
+│     → ChannelRegistry.get_adapter("wechat")
+│     → 构建 UserMessage(session_id, content, channel)
+│
+├─ 2. 安全检查
+│     SecurityGuard.check_input()
+│     ├─ PromptInjectionDetector → 正则 + 启发式检测注入攻击
+│     ├─ ContentSafetyFilter → PII 脱敏（身份证/手机号/银行卡）
+│     └─ PermissionChecker → RBAC 权限校验
+│
+├─ 3. 上下文加载
+│     ContextManager.load(session_id, channel)
+│     → 加载历史会话 SessionContext（history, slots, fsm_state）
+│     → Token 预算分配：20% 系统 / 50% 历史 / 20% 工具 / 10% 槽位
+│
+├─ 4. 意图识别（三级级联）
+│     CascadeIntentEngine.classify()
+│     ├─ Level 1: RuleBasedMatcher → 正则加权匹配（置信度 ≥ 0.85 直接返回）
+│     ├─ Level 2: 语义检索 → Jaccard 词重叠（置信度 ≥ 0.70）
+│     ├─ Level 3: LLM 分类 → 大模型判断（置信度 ≥ 0.50）
+│     └─ Fallback: 未识别意图
+│     → 结果: Intent(name="query_logistics", confidence=0.92)
+│     → 实体提取: {order_id: "ORD-001"}
+│
+├─ 5. 工具注入
+│     ToolInjector.inject(intent, context)
+│     ├─ 意图匹配: intent_patterns glob 匹配
+│     ├─ 场景过滤: 当前 FSM 状态限制可用工具
+│     ├─ 权限过滤: user_role vs required_roles
+│     └─ 数量截断: max_tools_per_turn
+│     → 结果: [query_logistics]
+│
+├─ 6. 策略决策
+│     RuleBasedStrategy.decide(intent, context, tools)
+│     → 检查参数完整性 → 缺失则 clarify
+│     → 检查需确认操作 → confirm
+│     → 结果: Action(type="tool_call", tool="query_logistics", params={order_id: "ORD-001"})
+│
+├─ 7. 工具执行
+│     BaseTool 生命周期:
+│     validate(params) → pre_check → execute → format_result
+│     失败时: compensate() 回滚
+│     → 结果: ToolResult(logistics=顺丰速运, 3个轨迹点)
+│
+├─ 8. 响应构建
+│     ToolResponseMapper → 构建 AgentMessage(message_type="logistics_timeline")
+│     LLM Enhancement (可选) → 自然语言润色
+│
+├─ 9. 渠道适配
+│     WechatAdapter.adapt_with_fallback()
+│     → "logistics_timeline" 不在 wechat 支持列表 → downgrade 为纯文本
+│     → ChannelMessage(channel="wechat", content_type="text")
+│
+└─ 10. 上下文保存
+      ContextManager.save(context, response)
+      → 更新 history, slots, token_usage, last_active_at
+```
+
+### 工具生命周期
+
+每个工具的执行遵循严格的保证-补偿模式：
+
+```
+┌─────────┐    ┌───────────┐    ┌─────────┐    ┌──────────────┐    ┌──────────────┐
+│ validate │───→│ pre_check │───→│ execute │───→│ format_result │───→│ LLM enhance  │
+│ JSON模式 │    │ 业务前置   │    │ 核心逻辑 │    │ 人类可读格式   │    │ 自然语言润色  │
+└─────────┘    └───────────┘    └─────────┘    └──────────────┘    └──────────────┘
+     │              │                │
+     │ 失败         │ 失败           │ 失败
+     ▼              ▼                ▼
+  ToolError     ToolError     compensate()
+                                补偿回滚
+```
+
+### 多轮对话状态机
+
+退款、投诉、订单查询等场景各维护独立 FSM，支持状态守卫和条件转换：
+
+```
+退款场景 (RefundScenarioFSM):
+  initiated → confirmed → processing → completed
+                        └→ cancelled
+
+投诉场景 (ComplaintScenarioFSM):
+  idle → received → classified → investigating → resolving → resolved
+                                                    └→ escalated
+
+订单查询 (OrderInquiryScenarioFSM):
+  idle → querying → located → displaying → follow_up → completed
+                                    └→ cancelled
+```
+
+### 数据飞轮
+
+系统通过评测闭环和运营反馈持续自我改进。所有环节已接线到生产代码：
+
+```
+                    ┌─────────────────────────────┐
+                    │         生产对话数据           │
+                    │  StructuredFormatter (JSON)   │
+                    │  AuditLogger + CostTracker    │
+                    └──────────┬──────────────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              ▼                ▼                 ▼
+     ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+     │  黄金数据集    │  │  LLM Judge   │  │  回归测试     │
+     │ GoldenDataset │  │  自动质量评分  │  │ Regression   │
+     │  500 标注样本  │  │  准确/安全    │  │  意图/实体    │
+     │  覆盖 10 意图  │  │  有用/语气    │  │  工具/关键词  │
+     └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+            │                 │                  │
+            └────────┬────────┘                  │
+                     ▼                           │
+              ┌──────────────┐                   │
+              │  质量报告      │◄──────────────────┘
+              │  按意图/场景   │
+              │  维度评分      │
+              └──────┬───────┘
+                     │
+            ┌────────┴────────┐
+            ▼                  ▼
+     ┌──────────────┐  ┌──────────────┐
+     │  优化意图规则  │  │  补充训练样本  │
+     │  正则/权重调优 │  │ add_samples() │
+     └──────┬───────┘  └──────┬───────┘
+            │                  │
+            └────────┬─────────┘
+                     ▼
+              ┌──────────────┐
+              │  下一轮发布    │
+              │  质量提升      │
+              └──────────────┘
+```
+
+**飞轮各环节（均已接线到 main.py）：**
+
+| 环节 | 组件 | 状态 | 作用 |
+|------|------|------|------|
+| 数据采集 | `StructuredFormatter` + `AuditLogger` | 运行中 | JSON 结构化日志，记录意图/实体/工具调用/Token消耗 |
+| 成本追踪 | `CostTracker` | 运行中 | 每次 LLM 调用后记录模型和 Token 用量 |
+| 链路追踪 | OpenTelemetry (10 span) | 运行中 | security/context/intent/tool 各环节独立 trace |
+| 黄金数据集 | `GoldenDataset` (500 样本) | 已加载 | 启动时注入 Level-2 语义匹配引擎 |
+| 回归测试 | `python -m evaluation regression` | CLI 可用 | CI 中运行，≥80% 通过 exit 0 |
+| LLM Judge | `python -m evaluation judge` | CLI 可用 | 4 维度评分（准确/安全/有用/语气），1-5 分 |
+| 样本补充 | `IntentEngine.add_samples()` | 代码就绪 | 运营可调用接口动态补充样本 |
+| 规则调优 | `RuleBasedMatcher.add_rule()` | 代码就绪 | 可动态调整正则权重 |
+
+**评测 CLI：**
+
+```bash
+# 列出黄金数据集样本
+python -m open_chat_shop.evaluation list
+
+# 运行回归测试（CI 友好，≥80% 通过 exit 0）
+python -m open_chat_shop.evaluation regression
+
+# LLM Judge 质量评分
+python -m open_chat_shop.evaluation judge
+```
+
 ## 项目结构
 
 ```
@@ -209,7 +412,7 @@ open-chat-shop/
 │   ├── storage/                # 会话持久化（内存/Redis/数据库）
 │   ├── evaluation/             # 评测框架（黄金数据集/回归/LLM-as-Judge）
 │   └── observability/          # 日志/链路追踪
-├── tests/                      # 40+ 个测试文件（753 个测试用例）
+├── tests/                      # 40+ 个测试文件（777 个测试用例）
 ├── static/                     # 前端聊天组件
 └── docs/                       # 设计文档
 ```
