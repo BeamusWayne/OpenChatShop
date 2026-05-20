@@ -1,14 +1,13 @@
 """Rate limiting with sliding window algorithm.
 
 Supports per-user, per-IP, and per-tool rate limiting using
-in-memory counters. For production, replace with Redis-backed
-implementation using Sorted Sets.
+in-memory counters or Redis-backed sorted sets with Lua scripts.
 """
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import logging
 
@@ -103,6 +102,109 @@ class InMemoryRateLimiter:
         return len([t for t in requests if t > now - window_seconds])
 
 
+# Lua script for atomic sliding-window rate limiting via Redis Sorted Sets.
+_SLIDING_WINDOW_LUA = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+redis.call('ZREMRANGEBYSCORE', key, '-inf', now - window * 1000)
+local count = redis.call('ZCARD', key)
+if count < limit then
+  redis.call('ZADD', key, now, now .. ':' .. math.random(1000000))
+  redis.call('EXPIRE', key, window)
+  return {1, limit - count - 1}
+else
+  return {0, 0}
+end
+"""
+
+
+class RedisRateLimiter:
+    """Redis-backed sliding window rate limiter using Lua scripts.
+
+    Falls back to allowing all requests when Redis is unavailable,
+    so the system degrades gracefully rather than blocking legitimate
+    traffic due to infrastructure issues.
+    """
+
+    def __init__(self, redis_client: Any) -> None:
+        self._redis = redis_client
+
+    def check_and_consume(self, key: str, rule: RateLimitRule) -> RateLimitResult:
+        """Atomically check and consume using a Lua sliding-window script."""
+        now_ms = int(time.time() * 1000)
+        try:
+            result: list[int] = self._redis.eval(
+                _SLIDING_WINDOW_LUA,
+                1,
+                key,
+                now_ms,
+                rule.window_seconds,
+                rule.max_requests,
+            )
+        except Exception:
+            logger.warning("Redis rate limit check failed, allowing request", exc_info=True)
+            return RateLimitResult(
+                allowed=True,
+                remaining=rule.max_requests,
+                reset_at=time.time() + rule.window_seconds,
+            )
+
+        allowed = bool(result[0])
+        remaining = int(result[1])
+        return RateLimitResult(
+            allowed=allowed,
+            remaining=remaining,
+            reset_at=time.time() + rule.window_seconds,
+            retry_after_seconds=0.0 if allowed else float(rule.window_seconds),
+        )
+
+    def check(self, key: str, rule: RateLimitRule) -> RateLimitResult:
+        """Read-only check — delegates to check_and_consume result projection."""
+        try:
+            count: int = self._redis.zcard(key)
+        except Exception:
+            return RateLimitResult(
+                allowed=True,
+                remaining=rule.max_requests,
+                reset_at=time.time() + rule.window_seconds,
+            )
+        remaining = max(0, rule.max_requests - count - 1)
+        return RateLimitResult(
+            allowed=count < rule.max_requests,
+            remaining=remaining,
+            reset_at=time.time() + rule.window_seconds,
+        )
+
+    def consume(self, key: str) -> None:
+        """Record a request. Used independently of check_and_consume."""
+        now_ms = int(time.time() * 1000)
+        try:
+            self._redis.zadd(key, {f"{now_ms}:{time.time_ns() % 1000000}": now_ms})
+        except Exception:
+            logger.warning("Redis consume failed", exc_info=True)
+
+    def reset(self, key: str | None = None) -> None:
+        """Reset rate limit for a key or all keys."""
+        try:
+            if key is None:
+                # Cannot flush all in Redis context — no-op for safety
+                return
+            self._redis.delete(key)
+        except Exception:
+            logger.warning("Redis reset failed", exc_info=True)
+
+    def get_usage(self, key: str, window_seconds: int) -> int:
+        """Get current request count for a key within a window."""
+        now_ms = int(time.time() * 1000)
+        try:
+            self._redis.zremrangebyscore(key, "-inf", now_ms - window_seconds * 1000)
+            return self._redis.zcard(key)
+        except Exception:
+            return 0
+
+
 # Pre-defined rate limit rules
 DEFAULT_RULES = {
     "user_messages": RateLimitRule(
@@ -130,8 +232,12 @@ class RateLimitGuard:
         self,
         limiter: InMemoryRateLimiter | None = None,
         rules: dict[str, RateLimitRule] | None = None,
+        redis_client: Any | None = None,
     ) -> None:
-        self._limiter = limiter or InMemoryRateLimiter()
+        if redis_client is not None:
+            self._limiter = RedisRateLimiter(redis_client)
+        else:
+            self._limiter = limiter or InMemoryRateLimiter()
         self._rules = rules or DEFAULT_RULES
 
     def check_user(self, user_id: str) -> RateLimitResult:
