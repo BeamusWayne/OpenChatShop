@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import copy
 from typing import Any
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import CheckResult, SessionContext, ToolPermission, ToolResult
-
-from open_chat_shop.tools.builtin._mock_data import ORDERS
-
-# Snapshot of original orders for compensation restore
-_ORDER_SNAPSHOTS: dict[str, dict] = {}
+from open_chat_shop.storage.repositories.abc import OrderRepository
+from open_chat_shop.storage.repositories.memory import InMemoryOrderRepository
 
 
 class ModifyAddressTool(BaseTool):
@@ -36,9 +32,12 @@ class ModifyAddressTool(BaseTool):
         requires_confirmation=True,
     )
 
+    def __init__(self, order_repo: OrderRepository | None = None) -> None:
+        self._order_repo = order_repo or InMemoryOrderRepository()
+
     async def pre_check(self, params: dict, context: SessionContext) -> CheckResult:
         order_id = params["order_id"]
-        order = ORDERS.get(order_id)
+        order = self._order_repo.get(order_id)
         if order is None:
             return CheckResult(passed=False, reason=f"订单 {order_id} 不存在")
         shipped_statuses = ("shipped", "delivered")
@@ -54,7 +53,7 @@ class ModifyAddressTool(BaseTool):
         new_address = params["address"]
         new_phone = params.get("phone")
 
-        order = ORDERS.get(order_id)
+        order = self._order_repo.get(order_id)
         if order is None:
             return ToolResult(success=False, error=f"Order {order_id} not found")
 
@@ -65,13 +64,8 @@ class ModifyAddressTool(BaseTool):
                 error=f"Cannot modify address: order {order_id} has shipped (status: {order['status']})",
             )
 
-        # Save snapshot for compensation
-        _ORDER_SNAPSHOTS[order_id] = copy.deepcopy(order)
-
-        old_address = order["address"]
-        order["address"] = new_address
-        if new_phone is not None:
-            order["phone"] = new_phone
+        self._order_repo.save_snapshot(order_id)
+        _, old_address = self._order_repo.update_address(order_id, new_address, new_phone)
 
         return ToolResult(
             success=True,
@@ -84,10 +78,7 @@ class ModifyAddressTool(BaseTool):
 
     async def compensate(self, params: dict, context: SessionContext) -> None:
         """Restore the order address on failure."""
-        order_id = params["order_id"]
-        snapshot = _ORDER_SNAPSHOTS.pop(order_id, None)
-        if snapshot and order_id in ORDERS:
-            ORDERS[order_id] = snapshot
+        self._order_repo.restore_snapshot(params["order_id"])
 
     def format_result(self, result: ToolResult) -> str:
         data = result.data

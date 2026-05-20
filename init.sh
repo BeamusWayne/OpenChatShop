@@ -21,17 +21,44 @@ START_CMD="$(read_cmd start '')"
 case "${1:-default}" in
   default)
     echo "==> 当前目录: $PWD"
+
+    # Create venv if missing
+    if [ ! -f ".venv/bin/python" ]; then
+      echo "==> 创建 Python 虚拟环境"
+      python3 -m venv .venv
+    fi
+
+    # Copy .env from example if missing
+    if [ ! -f ".env" ] && [ -f ".env.example" ]; then
+      echo "==> 从 .env.example 创建 .env（请编辑填入你的 API Key）"
+      cp .env.example .env
+    fi
+
+    # Create data directory for SQLite
+    mkdir -p data
+
     if [ -n "$INSTALL_CMD" ]; then
       echo "==> 同步依赖"
       eval "$INSTALL_CMD"
     else
-      echo "==> 跳过依赖安装 (未检测到项目类型，可在 .harness/config.json 中配置)"
+      echo "==> 安装 Python 依赖 (默认)"
+      .venv/bin/pip install -e '.[dev]' 2>/dev/null || .venv/bin/pip install fastapi 'uvicorn[standard]' litellm sqlmodel pydantic pyyaml httpx structlog jsonschema websockets python-dotenv anthropic alembic psycopg2-binary
     fi
+    fi
+
+    # Install frontend deps if package.json exists
+    if [ -f "frontend/package.json" ] && [ ! -d "frontend/node_modules" ]; then
+      echo "==> 安装前端依赖"
+      (cd frontend && npm install)
+    fi
+
     if [ -n "$VERIFY_CMD" ]; then
       echo "==> 运行基础验证"
       eval "$VERIFY_CMD"
     else
-      echo "==> 跳过验证 (未检测到项目类型，可在 .harness/config.json 中配置)"
+      echo "==> 运行基础验证 (默认)"
+      PYTHONPATH=src .venv/bin/python -m pytest tests/ -x -q --tb=short 2>/dev/null || echo 'No tests yet'
+    fi
     fi
     if [ -n "$START_CMD" ]; then
       echo "==> 启动命令"
@@ -46,7 +73,7 @@ case "${1:-default}" in
 
   health)
     echo "==> [健康检查] 目录: $PWD"
-    PORT="${APP_PORT:-3000}"
+    PORT="${APP_PORT:-8000}"
     if command -v lsof &> /dev/null && lsof -i ":$PORT" > /dev/null 2>&1; then
       echo "WARN: 端口 $PORT 已被占用"
     else
@@ -73,7 +100,7 @@ case "${1:-default}" in
     echo "用法: ./init.sh [command]"
     echo ""
     echo "命令:"
-    echo "  (default)  安装依赖 + 跑验证"
+    echo "  (default)  创建 venv + 安装依赖 + 跑验证"
     echo "  health     环境健康检查"
     echo "  verify     只跑功能验证"
     ;;

@@ -152,3 +152,106 @@ def _sanitize_params(params: dict) -> dict:
     return {
         k: "***" if k.lower() in sensitive_keys else v for k, v in params.items()
     }
+
+
+class DatabaseAuditLogger:
+    """Audit logger that writes to both Python logging AND the AuditRecord table."""
+
+    def __init__(self, engine: Any, logger_name: str = "audit") -> None:
+        self._engine = engine
+        self._fallback = AuditLogger(logger_name)
+
+    def log_tool_execution(
+        self,
+        tool_name: str,
+        user_id: str | None,
+        session_id: str,
+        params: dict,
+        result: str,
+    ) -> None:
+        self._fallback.log_tool_execution(tool_name, user_id, session_id, params, result)
+        try:
+            from open_chat_shop.storage.database import get_session
+            from open_chat_shop.storage.models import AuditRecord
+            with get_session(self._engine) as session:
+                session.add(AuditRecord(
+                    session_id=session_id,
+                    user_id=user_id,
+                    action_type="tool_call",
+                    action_detail=f"{tool_name} {result}",
+                    risk_level="medium" if result == "failure" else "low",
+                    metadata_json=json.dumps(_sanitize_params(params)),
+                ))
+        except Exception:
+            pass
+
+    def log_security_event(self, event: str, session_id: str | None, details: dict) -> None:
+        self._fallback.log_security_event(event, session_id, details)
+        try:
+            from open_chat_shop.storage.database import get_session
+            from open_chat_shop.storage.models import AuditRecord
+            with get_session(self._engine) as session:
+                session.add(AuditRecord(
+                    session_id=session_id or "",
+                    action_type="security_event",
+                    action_detail=event,
+                    risk_level="high",
+                    metadata_json=json.dumps(details),
+                ))
+        except Exception:
+            pass
+
+
+class DatabaseCostTracker:
+    """Cost tracker that persists to the CostRecord database table."""
+
+    def __init__(self, engine: Any) -> None:
+        self._engine = engine
+        self._usage: list[dict] = []
+
+    def record(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+        costs = CostTracker.COST_TABLE.get(model, CostTracker.DEFAULT_COST)
+        cost = (prompt_tokens / 1000 * costs["input"]) + (
+            completion_tokens / 1000 * costs["output"]
+        )
+        entry = {
+            "model": model,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cost_usd": round(cost, 6),
+        }
+        self._usage.append(entry)
+        try:
+            from open_chat_shop.storage.database import get_session
+            from open_chat_shop.storage.models import CostRecord
+            with get_session(self._engine) as session:
+                session.add(CostRecord(
+                    model=model,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    cost_usd=round(cost, 6),
+                ))
+        except Exception:
+            pass
+        return cost
+
+    def get_summary(self) -> dict:
+        if not self._usage:
+            return {"total_requests": 0, "total_tokens": 0, "total_cost_usd": 0.0}
+        return {
+            "total_requests": len(self._usage),
+            "total_tokens": sum(
+                u["prompt_tokens"] + u["completion_tokens"] for u in self._usage
+            ),
+            "total_cost_usd": round(sum(u["cost_usd"] for u in self._usage), 6),
+            "by_model": {
+                model: {
+                    "requests": len([u for u in self._usage if u["model"] == model]),
+                    "tokens": sum(
+                        u["prompt_tokens"] + u["completion_tokens"]
+                        for u in self._usage if u["model"] == model
+                    ),
+                }
+                for model in {u["model"] for u in self._usage}
+            },
+        }

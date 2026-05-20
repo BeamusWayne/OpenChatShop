@@ -134,7 +134,7 @@ BUILTIN_SCENARIOS: dict[str, list[SlotDefinition]] = {
         SlotDefinition(name="order_id", type="string", required=True,
                        prompt="请问您的订单号是多少？"),
     ],
-    "request_refund": [
+    "create_refund": [
         SlotDefinition(name="order_id", type="string", required=True,
                        prompt="请问您要退款的订单号是多少？"),
         SlotDefinition(name="reason", type="string", required=False,

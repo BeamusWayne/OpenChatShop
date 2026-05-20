@@ -7,6 +7,8 @@ Defines persistent data structures mapped to database tables:
   - RefundRecord: refund requests linked to orders
   - ConversationLog: per-message conversation history
   - AuditRecord: security and compliance audit trail
+  - LogisticsRecord: logistics / shipping tracking
+  - CostRecord: LLM token usage cost tracking
 """
 
 from __future__ import annotations
@@ -138,4 +140,37 @@ class AuditRecord(SQLModel, table=True):
     action_detail: str
     risk_level: str = Field(default="low")  # low / medium / high / critical
     metadata_json: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=_utc_now)
+
+
+# ---------------------------------------------------------------------------
+# LogisticsRecord
+# ---------------------------------------------------------------------------
+
+
+class LogisticsRecord(SQLModel, table=True):
+    """Logistics / shipping tracking record linked to an order."""
+
+    id: str = Field(default_factory=_new_id, primary_key=True)
+    order_id: str = Field(foreign_key="order.id", index=True)
+    carrier: str
+    tracking_number: str
+    timeline_json: str  # JSON-encoded list of timeline entries
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+
+# ---------------------------------------------------------------------------
+# CostRecord
+# ---------------------------------------------------------------------------
+
+
+class CostRecord(SQLModel, table=True):
+    """LLM token usage cost tracking record."""
+
+    id: str = Field(default_factory=_new_id, primary_key=True)
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+    cost_usd: float
     created_at: datetime = Field(default_factory=_utc_now)

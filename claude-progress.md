@@ -5,7 +5,7 @@
 - 仓库根目录：/Users/katya/Files/TestField/电商智能对话系统
 - 标准启动路径：./init.sh
 - 标准验证路径：./init.sh verify
-- 当前最高优先级未完成功能：全部完成（Phase 1 + Phase 2）
+- 当前最高优先级未完成功能：全部完成（Phase 1-5 + Repository Layer）
 - 当前 blocker：无
 
 ## 重启路径
@@ -163,3 +163,38 @@
 - 756 个测试
 - 系统可通过 `./run.sh` 一键启动
 - 浏览器访问 http://localhost:8000 即可使用聊天界面
+
+### 2026-05-20 Session 1 — Repository Layer（数据持久化层）
+
+**任务：** 引入 Repository 层，使工具通过接口访问数据，支持零配置内存模式 + 数据库模式自动切换
+
+**完成内容：**
+- 8 步全部完成，777 个测试通过
+- 新增 5 个 Repository ABC + InMemory + Database 实现 + Seed
+- 8 个内置工具迁移到构造器注入（默认回退 InMemory）
+- DatabaseAuditLogger / DatabaseCostTracker 持久化到数据库
+- main.py 新增 `_build_repositories()`，与 `_build_context_manager()` 平行
+
+**实施步骤：**
+| Step | 内容 | 新建/修改文件 |
+|------|------|-------------|
+| 1 | Repository ABC（5 个接口） | `storage/repositories/abc.py` |
+| 2 | InMemory 实现（包装 _mock_data.py） | `storage/repositories/memory.py` |
+| 3 | 8 个工具迁移到构造器注入 | 8 个 `tools/builtin/*.py` + `__init__.py` |
+| 4 | 补全数据模型 + Alembic 迁移 | `storage/models.py` + `alembic/versions/002_*` |
+| 5 | Database 实现 + Seed | `storage/repositories/database.py` + `seeding.py` |
+| 6 | Wire main.py | `main.py`（`_build_repositories()` + `create_tools(repos)`） |
+| 7 | DatabaseAuditLogger | `observability/logging.py` |
+| 8 | DatabaseCostTracker | `observability/logging.py` |
+
+**关键设计决策：**
+- 工具构造器 `__init__(repo=None)` 默认创建 InMemory → 777 现有测试零修改通过
+- `_build_repositories()` 检测 `DATABASE_URL`：有 → Database repos + seed；无 → InMemory repos
+- `seed_if_empty(engine)` 首次启动自动从 `_mock_data.py` 初始化数据库
+- 审计日志/成本追踪在 DB 模式下双写（Python logging + 数据库表）
+
+**总计：**
+- 37 个功能 + Repository Layer 全部 passing
+- 777 个测试
+- 零配置：`./run.sh` → 内存模式，行为不变
+- 生产配置：设 `DATABASE_URL` → 自动建表 + seed + 数据持久化

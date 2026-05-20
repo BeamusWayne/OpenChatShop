@@ -7,8 +7,8 @@ from typing import Any
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import CheckResult, SessionContext, ToolPermission, ToolResult
-
-from open_chat_shop.tools.builtin._mock_data import ORDERS
+from open_chat_shop.storage.repositories.abc import OrderRepository
+from open_chat_shop.storage.repositories.memory import InMemoryOrderRepository
 
 
 class CheckRefundEligibilityTool(BaseTool):
@@ -30,9 +30,12 @@ class CheckRefundEligibilityTool(BaseTool):
         idempotent=True,
     )
 
+    def __init__(self, order_repo: OrderRepository | None = None) -> None:
+        self._order_repo = order_repo or InMemoryOrderRepository()
+
     async def pre_check(self, params: dict, context: SessionContext) -> CheckResult:
         order_id = params["order_id"]
-        order = ORDERS.get(order_id)
+        order = self._order_repo.get(order_id)
         if order is None:
             return CheckResult(passed=False, reason=f"订单 {order_id} 不存在")
         if order["status"] == "refunded":
@@ -41,7 +44,7 @@ class CheckRefundEligibilityTool(BaseTool):
 
     async def execute(self, params: dict, context: SessionContext) -> ToolResult:
         order_id = params["order_id"]
-        order = ORDERS.get(order_id)
+        order = self._order_repo.get(order_id)
         if order is None:
             return ToolResult(success=False, error=f"Order {order_id} not found")
 

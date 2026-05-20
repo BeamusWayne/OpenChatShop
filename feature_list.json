@@ -1,7 +1,7 @@
 {
   "project": "OpenChatShop",
   "_status": "active",
-  "last_updated": "2026-05-19",
+  "last_updated": "2026-05-20",
   "autonomous_config": {
     "enabled": true,
     "max_iterations_per_feature": 5,
@@ -598,6 +598,21 @@
       "iteration_count": 0,
       "iteration_budget": 5,
       "evidence": "All tests passing. Verified via pytest."
+    },
+    {
+      "id": "feat-038",
+      "phase": 6,
+      "priority": 38,
+      "status": "passing",
+      "description": "Repository Layer: 5 个 Repository ABC (Order/Product/Logistics/Refund/Handoff) + InMemory 实现 + Database 实现 + Seed + 8 个工具迁移到构造器注入 + DatabaseAuditLogger + DatabaseCostTracker。零配置内存模式 + DATABASE_URL 自动切换数据库。",
+      "depends_on": [
+        "feat-015",
+        "feat-008"
+      ],
+      "verification": "777 测试全部通过。不设 DATABASE_URL 行为不变，设 DATABASE_URL 自动建表+seed+切换。",
+      "iteration_count": 0,
+      "iteration_budget": 5,
+      "evidence": "777 tests passed. InMemory default preserves all existing behavior. Database repos implement all 5 ABCs. seed_if_empty() populates from _mock_data.py. DatabaseAuditLogger dual-writes. DatabaseCostTracker persists to CostRecord."
     }
   ]
 }

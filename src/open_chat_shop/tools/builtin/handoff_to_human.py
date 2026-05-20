@@ -6,8 +6,8 @@ from typing import Any
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import SessionContext, ToolPermission, ToolResult
-
-from open_chat_shop.tools.builtin._mock_data import HANDOFF_RESPONSE
+from open_chat_shop.storage.repositories.abc import HandoffRepository
+from open_chat_shop.storage.repositories.memory import InMemoryHandoffRepository
 
 
 class HandoffToHumanTool(BaseTool):
@@ -29,12 +29,15 @@ class HandoffToHumanTool(BaseTool):
         idempotent=True,
     )
 
+    def __init__(self, handoff_repo: HandoffRepository | None = None) -> None:
+        self._handoff_repo = handoff_repo or InMemoryHandoffRepository()
+
     async def execute(self, params: dict, context: SessionContext) -> ToolResult:
         reason = params.get("reason", "Customer requested human agent")
         return ToolResult(
             success=True,
             data={
-                **HANDOFF_RESPONSE,
+                **self._handoff_repo.get_response(),
                 "reason": reason,
             },
         )

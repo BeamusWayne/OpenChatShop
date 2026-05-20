@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi.staticfiles import StaticFiles
+
+load_dotenv()
 
 from open_chat_shop.api.app import create_app
 from open_chat_shop.core.context import InMemoryContextManager
@@ -23,8 +26,6 @@ from open_chat_shop.core.tool import ToolInjector
 from open_chat_shop.core.tool_response_mapper import ToolResponseMapper
 from open_chat_shop.core.types import IntentInfo, RoutingRule
 from open_chat_shop.observability.logging import setup_logging
-from open_chat_shop.tools.builtin import ALL_TOOLS
-
 from open_chat_shop.core.middleware import (
     MiddlewarePipeline,
     RateLimitMiddleware,
@@ -42,7 +43,7 @@ except ImportError:
     _LLM_AVAILABLE = False
 
 # Structured logging (replaces basicConfig)
-setup_logging(level="INFO")
+setup_logging(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
 # OpenTelemetry tracing — safe no-op if packages are missing
@@ -131,9 +132,89 @@ def _build_provider() -> Any:
     return None
 
 
+def _build_repositories() -> dict[str, Any]:
+    """Select repository backend based on DATABASE_URL env var.
+
+    Returns a dict with keys: order, product, logistics, refund, handoff.
+    Falls back to in-memory repositories when the database is unavailable.
+    """
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        try:
+            from open_chat_shop.storage.database import init_db
+            from open_chat_shop.storage.repositories.database import (
+                DatabaseLogisticsRepository,
+                DatabaseOrderRepository,
+                DatabaseProductRepository,
+                DatabaseRefundRepository,
+            )
+            from open_chat_shop.storage.repositories.memory import (
+                InMemoryHandoffRepository,
+            )
+            from open_chat_shop.storage.repositories.seeding import seed_if_empty
+
+            engine = init_db(db_url)
+            seed_if_empty(engine)
+            logger.info("Using database repositories")
+            return {
+                "order": DatabaseOrderRepository(engine),
+                "product": DatabaseProductRepository(engine),
+                "logistics": DatabaseLogisticsRepository(engine),
+                "refund": DatabaseRefundRepository(engine),
+                "handoff": InMemoryHandoffRepository(),
+            }
+        except Exception as e:
+            logger.warning(
+                "Database repositories failed, falling back to memory: %s", e
+            )
+
+    from open_chat_shop.storage.repositories.memory import (
+        create_in_memory_repositories,
+    )
+
+    return create_in_memory_repositories()
+
+
+def _load_yaml_config() -> dict:
+    """Load YAML config files from configs/ directory if available."""
+    config_dir = Path(__file__).parent / "configs"
+    if not config_dir.is_dir():
+        logger.info("No configs/ directory found, using hardcoded defaults")
+        return {}
+
+    try:
+        from open_chat_shop.core.config import ConfigLoader
+        config = ConfigLoader.load_all(str(config_dir))
+        logger.info("Loaded YAML config from %s", config_dir)
+        return config
+    except FileNotFoundError as e:
+        logger.warning("Config file missing (%s), using defaults for missing files", e)
+        return {}
+    except Exception as e:
+        logger.warning("Config loading failed (%s), using hardcoded defaults", e)
+        return {}
+
+
 def build_orchestrator() -> DialogueOrchestrator:
     """Construct the full component pipeline and return a DialogueOrchestrator."""
+    yaml_config = _load_yaml_config()
+
+    # Build security config from YAML or fallback to empty defaults
     security_config: dict = {"rbac": {}}
+    if "security" in yaml_config:
+        sec = yaml_config["security"]
+        security_config["injection_detection"] = {
+            "enabled": sec.injection_detection.enabled,
+            "max_input_length": sec.injection_detection.max_input_length,
+        }
+        security_config["content_safety"] = {
+            "enabled": sec.content_safety.enabled,
+            "pii_masking": sec.content_safety.pii_masking,
+        }
+        security_config["rbac"] = {
+            role.name: {"tools": role.tools} for role in sec.rbac.roles
+        }
+
     security_guard = SecurityGuard(security_config)
 
     # Task 1: Smart storage selection based on environment
@@ -163,8 +244,6 @@ def build_orchestrator() -> DialogueOrchestrator:
     # Task 3: Load intent samples for Level-2 semantic matching
     try:
         from open_chat_shop.evaluation.golden_dataset import BUILT_IN_SAMPLES
-        # add_samples() is async but purely synchronous internally (dict append),
-        # so we populate the internal dict directly during startup.
         for sample in BUILT_IN_SAMPLES:
             intent_name = sample.expected_intent
             if intent_name not in intent_engine._samples:
@@ -179,26 +258,42 @@ def build_orchestrator() -> DialogueOrchestrator:
     if provider is not None:
         intent_engine.set_provider(provider)
 
-    # Instantiate tools and build registry + routing rules
-    tool_registry = {}
-    intent_to_tools: dict[str, list[str]] = {}
-    for tool_cls in ALL_TOOLS:
-        tool = tool_cls()
-        tool_registry[tool.name] = tool
-        intent_to_tools[tool.name] = [tool.name]
+    # Instantiate tools and build registry
+    from open_chat_shop.tools.builtin import create_tools
 
-    routing_rules = [
-        RoutingRule(
-            intent_patterns=[name],
-            tools=tool_names,
-            priority=10 if len(tool_names) == 1 else 0,
-        )
-        for name, tool_names in intent_to_tools.items()
-    ]
+    repos = _build_repositories()
+    tool_registry = {}
+    for tool in create_tools(repos):
+        tool_registry[tool.name] = tool
+
+    # Build routing rules from YAML config or fallback to per-tool defaults
+    if "tool_routing" in yaml_config:
+        tr = yaml_config["tool_routing"]
+        routing_rules = [
+            RoutingRule(
+                intent_patterns=rule.intent_patterns,
+                tools=rule.tools,
+                priority=rule.priority,
+                scenario=rule.scenario,
+            )
+            for rule in tr.rules
+        ]
+        max_tools = tr.max_tools_per_turn
+    else:
+        routing_rules = [
+            RoutingRule(
+                intent_patterns=[name],
+                tools=[name],
+                priority=10,
+            )
+            for name in tool_registry
+        ]
+        max_tools = 5
 
     tool_injector = ToolInjector(
         registry=tool_registry,
         routing_rules=routing_rules,
+        max_tools_per_turn=max_tools,
     )
 
     strategy = RuleBasedStrategy()
@@ -270,4 +365,6 @@ def create_main_app():
 app = create_main_app()
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    host = os.environ.get("APP_HOST", "0.0.0.0")
+    port = int(os.environ.get("APP_PORT", "8000"))
+    uvicorn.run("main:app", host=host, port=port, reload=True)

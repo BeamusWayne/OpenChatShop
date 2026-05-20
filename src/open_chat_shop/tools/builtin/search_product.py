@@ -6,8 +6,8 @@ from typing import Any
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import SessionContext, ToolPermission, ToolResult
-
-from open_chat_shop.tools.builtin._mock_data import PRODUCTS
+from open_chat_shop.storage.repositories.abc import ProductRepository
+from open_chat_shop.storage.repositories.memory import InMemoryProductRepository
 
 
 class SearchProductTool(BaseTool):
@@ -31,25 +31,15 @@ class SearchProductTool(BaseTool):
         idempotent=True,
     )
 
+    def __init__(self, product_repo: ProductRepository | None = None) -> None:
+        self._product_repo = product_repo or InMemoryProductRepository()
+
     async def execute(self, params: dict, context: SessionContext) -> ToolResult:
-        keyword = params["keyword"].lower()
+        keyword = params["keyword"]
         category = params.get("category")
         limit = params.get("limit", 5)
 
-        results = []
-        for product in PRODUCTS:
-            if keyword not in product["name"].lower():
-                continue
-            if category and product["category"] != category:
-                continue
-            results.append({
-                "id": product["id"],
-                "name": product["name"],
-                "price": product["price"],
-                "image_url": product["image_url"],
-            })
-            if len(results) >= limit:
-                break
+        results = self._product_repo.search(keyword, category, limit)
 
         return ToolResult(
             success=True,

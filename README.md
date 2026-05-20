@@ -10,7 +10,8 @@
 - **四层安全防护** — Prompt 注入检测、内容安全过滤、RBAC 权限校验、输出脱敏
 - **业务状态机** — 售前咨询/售后处理/退款流程独立 FSM，可编排组合
 - **多渠道适配** — Web、微信公众号、微信小程序统一接口，按渠道自动路由，11 种富消息类型渲染
-- **生产就绪** — JWT/API Key 认证、速率限制、成本治理、会话持久化、OpenTelemetry 链路追踪、Docker Compose 一键部署
+- **Repository 层** — 5 个 Repository ABC（Order/Product/Logistics/Refund/Handoff），零配置内存模式 + 设 DATABASE_URL 自动切换数据库，工具层与存储完全解耦
+- **生产就绪** — JWT/API Key 认证、速率限制、成本治理、会话持久化、审计日志持久化、成本追踪持久化、OpenTelemetry 链路追踪、Docker Compose 一键部署
 
 ## 快速开始
 
@@ -53,6 +54,18 @@ cp .env.example .env
 # 编辑 .env，填入你的 API Key
 ```
 
+### 配置数据库（可选）
+
+默认使用内存模式（mock 数据），无需数据库。如需数据持久化：
+
+```bash
+# .env 中添加：
+DATABASE_URL=sqlite:///data/shop.db        # SQLite（最简单）
+# DATABASE_URL=postgresql://user:pass@localhost:5432/shop  # PostgreSQL（生产推荐）
+```
+
+首次启动自动建表并从 mock 数据集初始化。重启后数据不丢失。
+
 支持的环境变量：
 
 | 变量 | 说明 | 必填 |
@@ -61,6 +74,8 @@ cp .env.example .env
 | `ANTHROPIC_BASE_URL` | 自定义 API 端点（默认 Anthropic 官方） | 否 |
 | `GLM_MODEL` | 模型名称（默认 glm-5.1） | 否 |
 | `OPENAI_API_KEY` | OpenAI API Key | 否 |
+| `DATABASE_URL` | 数据库连接串（SQLite/PostgreSQL） | 数据持久化时必填 |
+| `REDIS_URL` | Redis 连接串（会话持久化） | 否 |
 | `WECHAT_APP_ID` | 微信公众号 AppID | 接入公众号时必填 |
 | `WECHAT_APP_SECRET` | 微信公众号 AppSecret | 接入公众号时必填 |
 | `WECHAT_TOKEN` | 微信公众号 Token | 接入公众号时必填 |
@@ -191,6 +206,11 @@ registry.register("my_channel", MyChannelAdapter())
 │ PII 脱敏  │ 语义检索  │ 生命周期  │ 槽位追踪                  │
 │ RBAC 权限 │ LLM 分类  │ 补偿回滚  │ 人工转接                  │
 ├──────────┴──────────┴──────────┴──────────────────────────┤
+│               Repository 抽象层（构造器注入）                │
+│  OrderRepository  ·  ProductRepository  ·  LogisticsRepo   │
+│  RefundRepository ·  HandoffRepository                      │
+│  InMemory（默认） ·  Database（DATABASE_URL）               │
+├──────────────────────────────────────────────────────────┤
 │                 LLM Provider 抽象层                        │
 │  Anthropic · OpenAI · Qwen · DeepSeek · Ollama            │
 │  CascadeStrategy · LiteLLM · 级联降级                      │
@@ -198,8 +218,8 @@ registry.register("my_channel", MyChannelAdapter())
 │                  基础设施层 (Infrastructure)                 │
 │  会话存储    │  可观测性      │  治理                        │
 │  内存/Redis  │  链路追踪      │  速率限制                    │
-│  SQLModel DB │  审计日志      │  成本治理                    │
-│  向量检索    │  CostTracker   │  预算管控                    │
+│  SQLModel DB │  审计日志(DB)  │  成本治理                    │
+│  向量检索    │  CostTracker(DB)│  预算管控                   │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -350,8 +370,8 @@ registry.register("my_channel", MyChannelAdapter())
 
 | 环节 | 组件 | 状态 | 作用 |
 |------|------|------|------|
-| 数据采集 | `StructuredFormatter` + `AuditLogger` | 运行中 | JSON 结构化日志，记录意图/实体/工具调用/Token消耗 |
-| 成本追踪 | `CostTracker` | 运行中 | 每次 LLM 调用后记录模型和 Token 用量 |
+| 数据采集 | `StructuredFormatter` + `AuditLogger` / `DatabaseAuditLogger` | 运行中 | JSON 结构化日志，记录意图/实体/工具调用/Token消耗，DB 模式下持久化到 AuditRecord 表 |
+| 成本追踪 | `CostTracker` / `DatabaseCostTracker` | 运行中 | 每次 LLM 调用后记录模型和 Token 用量，DB 模式下持久化到 CostRecord 表 |
 | 链路追踪 | OpenTelemetry (10 span) | 运行中 | security/context/intent/tool 各环节独立 trace |
 | 黄金数据集 | `GoldenDataset` (500 样本) | 已加载 | 启动时注入 Level-2 语义匹配引擎 |
 | 回归测试 | `python -m evaluation regression` | CLI 可用 | CI 中运行，≥80% 通过 exit 0 |
@@ -406,12 +426,16 @@ open-chat-shop/
 │   │   ├── rate_limiter.py     # 速率限制
 │   │   ├── middleware.py       # 编排器中间件
 │   │   └── handoff.py          # 人工转接队列
-│   ├── tools/builtin/          # 8 个内置电商工具
+│   ├── tools/builtin/          # 8 个内置电商工具（构造器注入 Repository）
 │   ├── channel/                # 多渠道适配 + Registry + 富消息渲染
 │   ├── api/                    # REST + WebSocket + 流式响应 + 微信 Webhook
-│   ├── storage/                # 会话持久化（内存/Redis/数据库）
+│   ├── storage/                # 会话持久化 + 数据模型 + Repository 层
+│   │   ├── repositories/       # Repository ABC + InMemory + Database + Seed
+│   │   ├── models.py           # SQLModel 数据模型（8 表）
+│   │   ├── database.py         # 数据库初始化 + 会话管理
+│   │   └── alembic/            # 数据库迁移
 │   ├── evaluation/             # 评测框架（黄金数据集/回归/LLM-as-Judge）
-│   └── observability/          # 日志/链路追踪
+│   └── observability/          # 日志/链路追踪 + DatabaseAuditLogger + DatabaseCostTracker
 ├── tests/                      # 40+ 个测试文件（777 个测试用例）
 ├── static/                     # 前端聊天组件
 └── docs/                       # 设计文档
@@ -420,6 +444,10 @@ open-chat-shop/
 ## 内置测试数据
 
 系统内置 mock 数据，启动即可体验全部功能，无需数据库。数据位于 `src/open_chat_shop/tools/builtin/_mock_data.py`。
+
+**存储模式：**
+- **内存模式**（默认）：`InMemory*Repository` 直接引用 mock dict，零配置即开即用
+- **数据库模式**（设 `DATABASE_URL`）：`Database*Repository` 操作 SQLModel 表，`seed_if_empty()` 首次启动时自动从 mock 数据初始化
 
 **订单（5 个）：**
 

@@ -6,8 +6,11 @@ from typing import Any
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import SessionContext, ToolPermission, ToolResult
-
-from open_chat_shop.tools.builtin._mock_data import LOGISTICS, ORDERS
+from open_chat_shop.storage.repositories.abc import LogisticsRepository, OrderRepository
+from open_chat_shop.storage.repositories.memory import (
+    InMemoryLogisticsRepository,
+    InMemoryOrderRepository,
+)
 
 
 class QueryLogisticsTool(BaseTool):
@@ -29,13 +32,21 @@ class QueryLogisticsTool(BaseTool):
         idempotent=True,
     )
 
+    def __init__(
+        self,
+        order_repo: OrderRepository | None = None,
+        logistics_repo: LogisticsRepository | None = None,
+    ) -> None:
+        self._order_repo = order_repo or InMemoryOrderRepository()
+        self._logistics_repo = logistics_repo or InMemoryLogisticsRepository()
+
     async def execute(self, params: dict, context: SessionContext) -> ToolResult:
         order_id = params["order_id"]
 
-        if order_id not in ORDERS:
+        if self._order_repo.get(order_id) is None:
             return ToolResult(success=False, error=f"未找到订单 {order_id}")
 
-        logistics = LOGISTICS.get(order_id)
+        logistics = self._logistics_repo.get_by_order(order_id)
         if logistics is None:
             return ToolResult(
                 success=False,

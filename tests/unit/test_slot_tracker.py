@@ -174,7 +174,7 @@ class TestBuiltinTracker:
     @pytest.mark.unit
     def test_refund_requires_order_id_not_reason(self):
         tracker = create_builtin_tracker()
-        status = tracker.get_status("request_refund", {"reason": "broken"})
+        status = tracker.get_status("create_refund", {"reason": "broken"})
         assert not status.complete
         assert "order_id" in status.missing
 

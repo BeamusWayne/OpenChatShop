@@ -43,46 +43,103 @@ class DatabaseContextManager(ContextManager):
         self._max_history_tokens = max_history_tokens
         self._max_context_tokens = max_context_tokens
 
-    async def load(self, session_id: str) -> SessionContext:
+    async def load(self, session_id: str, channel: str = "web") -> SessionContext:
         """Load session from database or create a new one."""
         with get_session(self._engine) as session:
-            # Check for existing metadata
+            from sqlmodel import select
+
             meta_entry = session.exec(
-                ConversationLog.__table__.select().where(
+                select(ConversationLog).where(
                     ConversationLog.session_id == session_id,
                     ConversationLog.role == "__session_meta__",
                 )
-            ).first() if False else None
+            ).first()
 
-            # Load history
+            if meta_entry:
+                meta = json.loads(meta_entry.content)
+                created_at = datetime.fromisoformat(meta["created_at"])
+                last_active_at = datetime.fromisoformat(meta["last_active_at"])
+            else:
+                meta = {}
+                created_at = datetime.now(timezone.utc)
+                last_active_at = created_at
+
             logs = session.exec(
-                ConversationLog.__table__.select().where(
+                select(ConversationLog)
+                .where(
                     ConversationLog.session_id == session_id,
-                ).order_by(ConversationLog.created_at)
-            ).all() if False else []
+                    ConversationLog.role != "__session_meta__",
+                )
+                .order_by(ConversationLog.created_at)
+            ).all()
 
-        # For simplicity with SQLModel sync API in async context,
-        # store sessions in-memory and periodically flush
-        now = datetime.now(timezone.utc)
+            history = [
+                Message(
+                    role=log.role,
+                    content=log.content,
+                    timestamp=log.created_at,
+                )
+                for log in logs
+            ]
+            token_usage = sum(log.tokens_used for log in logs)
+
         return SessionContext(
             session_id=session_id,
-            user_id=None,
-            channel="web",
-            history=[],
-            summary=None,
-            slots={},
-            fsm_state="idle",
-            current_scenario=None,
-            token_usage=0,
-            user_role="customer",
-            created_at=now,
-            last_active_at=now,
+            user_id=meta.get("user_id"),
+            channel=meta.get("channel", "web"),
+            history=history,
+            summary=meta.get("summary"),
+            slots=meta.get("slots", {}),
+            fsm_state=meta.get("fsm_state", "idle"),
+            current_scenario=meta.get("current_scenario"),
+            token_usage=token_usage,
+            user_role=meta.get("user_role", "customer"),
+            created_at=created_at,
+            last_active_at=last_active_at,
         )
 
     async def save(self, context: SessionContext, response: AgentMessage) -> None:
-        """Save context to database."""
+        """Save context to database: upsert session metadata and assistant response."""
         try:
             with get_session(self._engine) as db:
+                from sqlmodel import select
+
+                # Upsert session metadata
+                existing_meta = db.exec(
+                    select(ConversationLog).where(
+                        ConversationLog.session_id == context.session_id,
+                        ConversationLog.role == "__session_meta__",
+                    )
+                ).first()
+
+                meta_json = json.dumps(
+                    {
+                        "user_id": context.user_id,
+                        "channel": context.channel,
+                        "summary": context.summary,
+                        "slots": context.slots,
+                        "fsm_state": context.fsm_state,
+                        "current_scenario": context.current_scenario,
+                        "user_role": context.user_role,
+                        "created_at": context.created_at.isoformat(),
+                        "last_active_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                    ensure_ascii=False,
+                )
+
+                if existing_meta:
+                    existing_meta.content = meta_json
+                    db.add(existing_meta)
+                else:
+                    db.add(
+                        ConversationLog(
+                            session_id=context.session_id,
+                            user_id=context.user_id,
+                            role="__session_meta__",
+                            content=meta_json,
+                        )
+                    )
+
                 # Save assistant response
                 log = ConversationLog(
                     session_id=context.session_id,
@@ -93,7 +150,6 @@ class DatabaseContextManager(ContextManager):
                     tokens_used=0,
                 )
                 db.add(log)
-                db.commit()
         except Exception as e:
             raise ContextError(
                 f"Failed to save context: {e}",

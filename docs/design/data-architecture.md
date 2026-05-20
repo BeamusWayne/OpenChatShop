@@ -57,9 +57,54 @@ vector_index:
         软删除标记 → 异步重建索引
 ```
 
-## 3. 关系数据库
+## 3. Repository 抽象层
 
-### 3.1 分表策略
+工具层通过 Repository ABC 访问业务数据，不直接依赖存储实现。
+
+### 3.1 架构
+
+```
+┌───────────────────────────────────────────────────────────┐
+│                      工具层 (8 个 Built-in Tools)           │
+│  QueryOrderTool  ·  CancelOrderTool  ·  CreateRefundTool  │
+│  构造器注入 Repository，默认 InMemory                       │
+├───────────────────────────────────────────────────────────┤
+│                 Repository ABC (storage/repositories/abc)  │
+│  OrderRepository    get / update_status / update_address   │
+│                    save_snapshot / restore_snapshot         │
+│  ProductRepository  search / get                           │
+│  LogisticsRepository get_by_order                          │
+│  RefundRepository   create / delete_processing_by_order    │
+│  HandoffRepository  get_response                           │
+├──────────────────┬────────────────────────────────────────┤
+│  InMemory 实现   │  Database 实现                          │
+│  (默认，零配置)   │  (DATABASE_URL 自动激活)                │
+│  包装 _mock_data │  SQLModel + seed_if_empty()            │
+└──────────────────┴────────────────────────────────────────┘
+```
+
+### 3.2 智能选择
+
+`main.py` 中 `_build_repositories()` 根据环境自动选择：
+
+| 环境 | 选择 | 数据来源 |
+|------|------|---------|
+| 无 `DATABASE_URL` | InMemory Repositories | `_mock_data.py` 模块级 dict |
+| `DATABASE_URL=sqlite:///...` | Database Repositories | 首次启动 seed from `_mock_data.py` |
+| `DATABASE_URL=postgresql://...` | Database Repositories | 同上，生产推荐 |
+
+### 3.3 快照/恢复模式
+
+写操作工具（cancel_order, modify_address）使用 snapshot/restore 保证原子性：
+
+```
+execute() → save_snapshot() → 修改数据 → 成功返回
+                                      → 失败 → compensate() → restore_snapshot()
+```
+
+## 4. 关系数据库
+
+### 4.1 分表策略
 
 ```yaml
 relational_db:
@@ -80,7 +125,7 @@ relational_db:
     index: [session_id, user_id, timestamp, action_type]
 ```
 
-### 3.2 读写分离
+### 4.2 读写分离
 
 ```
 写操作 → Primary DB (强一致性)
@@ -89,7 +134,7 @@ relational_db:
          Redis Cache (热点数据，延迟 < 5ms)
 ```
 
-## 4. 缓存架构
+## 5. 缓存架构
 
 ```yaml
 redis_cluster:
@@ -121,7 +166,7 @@ redis_cluster:
         max: 1000
 ```
 
-## 5. 数据同步
+## 6. 数据同步
 
 ```
 业务数据库 → Debezium CDC → Redis (热数据更新)

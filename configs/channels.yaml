@@ -1,19 +1,18 @@
-channels:
-  web:
-    enabled: true
-    max_message_length: 4096
+web:
+  enabled: true
+  max_message_length: 4096
 
-  wechat:
-    enabled: false
-    app_id_env: WECHAT_APP_ID
-    app_secret_env: WECHAT_APP_SECRET
-    token_env: WECHAT_TOKEN
-    encoding_aes_key_env: WECHAT_ENCODING_AES_KEY
-    max_message_length: 2048
+wechat:
+  enabled: false
+  app_id_env: WECHAT_APP_ID
+  app_secret_env: WECHAT_APP_SECRET
+  token_env: WECHAT_TOKEN
+  encoding_aes_key_env: WECHAT_ENCODING_AES_KEY
+  max_message_length: 2048
 
-  miniprogram:
-    enabled: false
-    app_id_env: WECHAT_MINIPROGRAM_APP_ID
-    app_secret_env: WECHAT_MINIPROGRAM_APP_SECRET
-    token_env: WECHAT_MINIPROGRAM_TOKEN
-    max_message_length: 2048
+miniprogram:
+  enabled: false
+  app_id_env: WECHAT_MINIPROGRAM_APP_ID
+  app_secret_env: WECHAT_MINIPROGRAM_APP_SECRET
+  token_env: WECHAT_MINIPROGRAM_TOKEN
+  max_message_length: 2048

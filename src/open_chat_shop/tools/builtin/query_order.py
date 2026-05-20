@@ -6,8 +6,8 @@ from typing import Any
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import SessionContext, ToolPermission, ToolResult
-
-from open_chat_shop.tools.builtin._mock_data import ORDERS
+from open_chat_shop.storage.repositories.abc import OrderRepository
+from open_chat_shop.storage.repositories.memory import InMemoryOrderRepository
 
 
 class QueryOrderTool(BaseTool):
@@ -29,9 +29,12 @@ class QueryOrderTool(BaseTool):
         idempotent=True,
     )
 
+    def __init__(self, order_repo: OrderRepository | None = None) -> None:
+        self._order_repo = order_repo or InMemoryOrderRepository()
+
     async def execute(self, params: dict, context: SessionContext) -> ToolResult:
         order_id = params["order_id"]
-        order = ORDERS.get(order_id)
+        order = self._order_repo.get(order_id)
         if order is None:
             return ToolResult(success=False, error=f"未找到订单 {order_id}，请检查订单号是否正确")
         return ToolResult(

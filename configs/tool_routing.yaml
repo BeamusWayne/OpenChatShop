@@ -12,7 +12,7 @@ rules:
     tools: ["search_product"]
     priority: 10
 
-  - intent_patterns: ["request_refund", "check_refund"]
+  - intent_patterns: ["create_refund", "check_refund_eligibility", "refund*"]
     tools: ["check_refund_eligibility", "create_refund"]
     priority: 10
 
