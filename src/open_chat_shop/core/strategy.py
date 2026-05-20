@@ -98,7 +98,16 @@ class RuleBasedStrategy(Strategy):
                 )
                 return Action(
                     type="clarify",
-                    payload={"question": prompt, "missing_slots": missing},
+                    payload={
+                        "question": prompt,
+                        "missing_slots": missing,
+                        "_pending_action": {
+                            "intent_name": intent.name,
+                            "missing_slots": missing,
+                            "tool_name": tool.name if tools else None,
+                            "params": params,
+                        },
+                    },
                 )
 
             # Check if tool requires confirmation

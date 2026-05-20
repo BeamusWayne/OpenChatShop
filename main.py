@@ -14,7 +14,7 @@ from open_chat_shop.core.orchestrator import DialogueOrchestrator
 from open_chat_shop.core.security import SecurityGuard
 from open_chat_shop.core.strategy import RuleBasedStrategy
 from open_chat_shop.core.tool import ToolInjector
-from open_chat_shop.core.types import RoutingRule
+from open_chat_shop.core.types import IntentInfo, RoutingRule
 from open_chat_shop.tools.builtin import ALL_TOOLS
 
 try:
@@ -62,7 +62,24 @@ def build_orchestrator() -> DialogueOrchestrator:
 
     rule_matcher = RuleBasedMatcher()
     _register_default_rules(rule_matcher)
-    intent_engine = CascadeIntentEngine(rule_matcher, level1_threshold=0.60)
+    intent_engine = CascadeIntentEngine(rule_matcher, level1_threshold=0.85)
+
+    # Register all supported intents so Level-3 LLM knows what is available
+    INTENT_DEFINITIONS = [
+        IntentInfo(name="query_order", display_name="查询订单", description="用户想查询订单状态、详情", sample_count=3, typical_entities=["order_id"]),
+        IntentInfo(name="query_logistics", display_name="物流查询", description="用户想查询快递物流状态", sample_count=4, typical_entities=["order_id"]),
+        IntentInfo(name="search_product", display_name="搜索商品", description="用户想搜索或浏览商品", sample_count=4, typical_entities=["keyword", "category"]),
+        IntentInfo(name="check_refund_eligibility", display_name="查看退款条件", description="用户想知道订单能否退款", sample_count=3, typical_entities=["order_id"]),
+        IntentInfo(name="create_refund", display_name="申请退款", description="用户想申请退款或退货", sample_count=2, typical_entities=["order_id", "reason"]),
+        IntentInfo(name="cancel_order", display_name="取消订单", description="用户想取消订单", sample_count=2, typical_entities=["order_id", "reason"]),
+        IntentInfo(name="modify_address", display_name="修改地址", description="用户想修改收货地址", sample_count=2, typical_entities=["order_id", "new_address"]),
+        IntentInfo(name="handoff_to_human", display_name="转人工客服", description="用户想转接人工客服", sample_count=2, typical_entities=[]),
+        IntentInfo(name="greeting", display_name="打招呼", description="用户打招呼", sample_count=2, typical_entities=[]),
+        IntentInfo(name="thanks", display_name="感谢", description="用户表示感谢", sample_count=2, typical_entities=[]),
+    ]
+
+    for info in INTENT_DEFINITIONS:
+        intent_engine.register_intent(info)
 
     # Wire LLM provider for Level 3 intent classification
     if _LLM_AVAILABLE:
@@ -97,13 +114,21 @@ def build_orchestrator() -> DialogueOrchestrator:
 
     strategy = RuleBasedStrategy()
 
-    return DialogueOrchestrator(
+    orchestrator = DialogueOrchestrator(
         security_guard=security_guard,
         context_manager=context_manager,
         intent_engine=intent_engine,
         tool_injector=tool_injector,
         strategy=strategy,
     )
+
+    if _LLM_AVAILABLE:
+        try:
+            orchestrator.set_provider(provider)  # same provider instance used for intent
+        except Exception:
+            pass
+
+    return orchestrator
 
 
 def create_main_app():

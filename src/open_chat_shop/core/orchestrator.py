@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re as _re
 from typing import Any
 
 from open_chat_shop.core.types import (
+    Message,
     UserMessage,
     AgentMessage,
     SessionContext,
     Action,
+    Intent,
 )
 from open_chat_shop.core.exceptions import (
     SecurityError,
@@ -17,6 +20,7 @@ from open_chat_shop.core.exceptions import (
     ToolError,
     OpenChatShopError,
 )
+from open_chat_shop.core.intent import _extract_entities
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +41,17 @@ class DialogueOrchestrator:
         self._intent_engine = intent_engine
         self._tool_injector = tool_injector
         self._strategy = strategy
+        self._provider: Any = None
         self._session_locks: dict[str, asyncio.Lock] = {}
+
+    def set_provider(self, provider: Any) -> None:
+        """Inject an LLM provider for natural language response generation.
+
+        When set, the provider is used to enhance responses instead of
+        returning hard-coded template text.  Pass None to revert to
+        template-based replies.
+        """
+        self._provider = provider
 
     async def handle_message(self, message: UserMessage) -> AgentMessage:
         """Process user message, return agent reply.
@@ -63,6 +77,17 @@ class DialogueOrchestrator:
         except ContextError:
             return self._error_response("会话已过期，请重新开始。")
 
+        # 2.5 Check if user is answering a previous clarification
+        pending_action = context.slots.get("_pending_action")
+        if pending_action is not None:
+            pending_response = await self._try_resolve_pending(
+                message, context, pending_action,
+            )
+            if pending_response is not None:
+                await self._context_manager.save(context, pending_response)
+                return pending_response
+            # If resolution failed, fall through to normal flow
+
         # 3. Intent recognition
         intent = await self._intent_engine.classify(message, context)
 
@@ -72,6 +97,10 @@ class DialogueOrchestrator:
         # 5. Strategy decision
         action = await self._strategy.decide(intent, context, tools)
 
+        # 5.5 Save pending action info to context when clarifying
+        if action.type == "clarify" and "_pending_action" in action.payload:
+            context.slots["_pending_action"] = action.payload["_pending_action"]
+
         # 6. Execute action
         response = await self._execute_action(action, context, tools)
 
@@ -79,6 +108,86 @@ class DialogueOrchestrator:
         await self._context_manager.save(context, response)
 
         return response
+
+    async def _try_resolve_pending(
+        self,
+        message: UserMessage,
+        context: SessionContext,
+        pending: dict[str, Any],
+    ) -> AgentMessage | None:
+        """Attempt to fill pending missing slots from the user's response.
+
+        Returns a complete AgentMessage if all slots are now filled,
+        or *None* if the user's input doesn't resolve the pending action
+        and the normal intent-classification flow should proceed instead.
+        """
+        pending_intent_name: str = pending.get("intent_name", "")
+        missing_slots: list[str] = pending.get("missing_slots", [])
+        tool_name: str | None = pending.get("tool_name")
+        existing_params: dict[str, Any] = dict(pending.get("params", {}))
+
+        # Extract entities using the intent-aware extractor
+        entities: dict[str, Any] = _extract_entities(
+            message.content, pending_intent_name,
+        )
+
+        # Simple value extraction for common slot types the regex extractor
+        # may not cover (e.g. bare order IDs, raw keyword input)
+        for slot in missing_slots:
+            if slot in entities:
+                continue
+            if slot == "order_id":
+                m = _re.search(r"ORD-[\w]+", message.content, _re.IGNORECASE)
+                if m:
+                    entities["order_id"] = m.group(0)
+            elif slot == "keyword":
+                entities["keyword"] = message.content.strip()
+            elif slot == "reason":
+                entities["reason"] = message.content.strip()
+            elif slot == "new_address":
+                entities["new_address"] = message.content.strip()
+
+        still_missing = [s for s in missing_slots if s not in entities]
+
+        if still_missing:
+            # Could not fill all slots — update pending and ask again
+            updated_params = {**existing_params, **entities}
+            context.slots["_pending_action"] = {
+                "intent_name": pending_intent_name,
+                "missing_slots": still_missing,
+                "tool_name": tool_name,
+                "params": updated_params,
+            }
+            return None
+
+        # All slots filled — build a synthetic intent and execute directly
+        merged_params = {**existing_params, **entities}
+        context.slots.pop("_pending_action", None)
+
+        pending_intent = Intent(
+            name=pending_intent_name,
+            display_name=pending_intent_name,
+            confidence=1.0,
+            source="context",
+            entities=merged_params,
+        )
+        tools = await self._tool_injector.inject(pending_intent, context)
+
+        # Build a tool_call action with the complete params
+        if tool_name:
+            action = Action(
+                type="tool_call",
+                payload={
+                    "tool_name": tool_name,
+                    "params": merged_params,
+                    "call_id": f"call-{pending_intent_name}",
+                },
+            )
+            return await self._execute_action(action, context, tools)
+
+        # No tool — use strategy to decide
+        action = await self._strategy.decide(pending_intent, context, tools)
+        return await self._execute_action(action, context, tools)
 
     async def _execute_action(
         self,
@@ -89,6 +198,9 @@ class DialogueOrchestrator:
         """Dispatch action by type."""
         match action.type:
             case "reply":
+                llm_msg = await self._llm_enhance(action, context)
+                if llm_msg is not None:
+                    return llm_msg
                 return AgentMessage(
                     message_type=action.payload.get("message_type", "text"),
                     payload=action.payload,
@@ -99,6 +211,9 @@ class DialogueOrchestrator:
                 return await self._execute_tool(action, context, tools)
 
             case "confirm":
+                llm_msg = await self._llm_enhance(action, context)
+                if llm_msg is not None:
+                    return llm_msg
                 return AgentMessage(
                     message_type="confirm",
                     payload=action.payload,
@@ -107,6 +222,9 @@ class DialogueOrchestrator:
                 )
 
             case "clarify":
+                llm_msg = await self._llm_enhance(action, context)
+                if llm_msg is not None:
+                    return llm_msg
                 return AgentMessage(
                     message_type="text",
                     payload=action.payload,
@@ -114,6 +232,9 @@ class DialogueOrchestrator:
                 )
 
             case "transfer":
+                llm_msg = await self._llm_enhance(action, context)
+                if llm_msg is not None:
+                    return llm_msg
                 return AgentMessage(
                     message_type="transfer",
                     payload=action.payload,
@@ -121,6 +242,9 @@ class DialogueOrchestrator:
                 )
 
             case "end":
+                llm_msg = await self._llm_enhance(action, context)
+                if llm_msg is not None:
+                    return llm_msg
                 return AgentMessage(
                     message_type="text",
                     payload={"content": action.payload.get("summary", "")},
@@ -128,6 +252,9 @@ class DialogueOrchestrator:
                 )
 
             case "switch_scenario":
+                llm_msg = await self._llm_enhance(action, context)
+                if llm_msg is not None:
+                    return llm_msg
                 return AgentMessage(
                     message_type="text",
                     payload={"content": f"切换到场景: {action.payload.get('scenario', '')}"},
@@ -186,11 +313,15 @@ class DialogueOrchestrator:
 
         # Build response from tool result
         if result.success:
-            text = tool.format_result(result)
+            formatted = tool.format_result(result)
+            # Try to enhance tool result with LLM
+            enhanced = await self._llm_enhance_tool_result(
+                formatted, result.data, context,
+            )
             return AgentMessage(
                 message_type="text",
-                payload={"content": text},
-                text_fallback=text,
+                payload={"content": enhanced or formatted},
+                text_fallback=enhanced or formatted,
             )
         else:
             return AgentMessage(
@@ -205,3 +336,107 @@ class DialogueOrchestrator:
             payload={"content": message},
             text_fallback=message,
         )
+
+    # ------------------------------------------------------------------
+    # LLM enhancement helpers
+    # ------------------------------------------------------------------
+
+    async def _llm_enhance(
+        self,
+        action: Action,
+        context: SessionContext,
+    ) -> AgentMessage | None:
+        """Use LLM to generate natural reply based on action payload and history.
+
+        Returns None when the provider is not available or the LLM call fails,
+        so callers can fall back to template-based responses.
+        """
+        if self._provider is None:
+            return None
+
+        history_text = self._build_history_text(context)
+
+        system_prompt = (
+            "你是 OpenChatShop 电商智能客服。根据对话上下文和系统提供的信息，"
+            "用自然、友好的语言回复用户。要求：\n"
+            "1. 回复简洁，通常1-3句话\n"
+            "2. 直接回答用户问题，不要重复已知信息\n"
+            "3. 如果有具体数据（订单号、金额等），包含在回复中\n"
+            "4. 用中文回复"
+        )
+
+        user_prompt = (
+            f"对话历史：\n{history_text}\n"
+            f"系统信息：{action.payload}\n请回复用户："
+        )
+
+        messages = [
+            Message(role="system", content=system_prompt),
+            Message(role="user", content=user_prompt),
+        ]
+
+        try:
+            response = await self._provider.chat(messages)
+        except Exception:
+            logger.warning("LLM enhancement failed, falling back to template")
+            return None
+
+        return AgentMessage(
+            message_type=action.payload.get("message_type", "text"),
+            payload=action.payload,
+            text_fallback=response.content,
+        )
+
+    async def _llm_enhance_tool_result(
+        self,
+        formatted: str,
+        data: dict[str, Any] | None,
+        context: SessionContext,
+    ) -> str | None:
+        """Use LLM to rewrite a formatted tool result in natural language.
+
+        Returns None when the provider is not available or the LLM call fails.
+        """
+        if self._provider is None:
+            return None
+
+        history_text = self._build_history_text(context)
+
+        system_prompt = (
+            "你是 OpenChatShop 电商智能客服。根据对话上下文和工具返回的数据，"
+            "用自然、友好的语言回复用户。要求：\n"
+            "1. 回复简洁，通常1-3句话\n"
+            "2. 直接回答用户问题，不要重复已知信息\n"
+            "3. 如果有具体数据（订单号、金额等），包含在回复中\n"
+            "4. 用中文回复"
+        )
+
+        data_section = (
+            f"格式化结果：{formatted}\n原始数据：{data}"
+            if data
+            else f"格式化结果：{formatted}"
+        )
+        user_prompt = (
+            f"对话历史：\n{history_text}\n"
+            f"{data_section}\n请回复用户："
+        )
+
+        messages = [
+            Message(role="system", content=system_prompt),
+            Message(role="user", content=user_prompt),
+        ]
+
+        try:
+            response = await self._provider.chat(messages)
+            return response.content
+        except Exception:
+            logger.warning("LLM tool-result enhancement failed, using formatted text")
+            return None
+
+    def _build_history_text(self, context: SessionContext) -> str:
+        """Build a compact text representation of recent conversation history."""
+        lines: list[str] = []
+        for msg in context.history[-6:]:
+            role_label = "用户" if msg.role == "user" else "客服"
+            lines.append(f"{role_label}: {msg.content}")
+        return "\n".join(lines)

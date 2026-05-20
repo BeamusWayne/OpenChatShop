@@ -72,7 +72,6 @@ export default function MessageBubble({ message, onSuggestionClick }: Props) {
         >
           <Typography.Text style={{ color: 'inherit' }}>
             {message.content}
-            {message.streaming && <span style={{ animation: 'blink 1s step-end infinite' }}>|</span>}
           </Typography.Text>
         </div>
         {message.suggestions && message.suggestions.length > 0 && (

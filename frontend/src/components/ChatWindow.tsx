@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Input, Button, Badge, Space, theme } from 'antd';
+import { Input, Button, Badge, Space, Spin, theme } from 'antd';
 import { SendOutlined, ClearOutlined, RobotOutlined } from '@ant-design/icons';
 import { useChat } from '../hooks/useChat';
 import MessageBubble from './MessageBubble';
@@ -99,9 +99,7 @@ export default function ChatWindow() {
         ))}
         {isTyping && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: token.colorTextSecondary, fontSize: 13 }}>
-            <span className="ant-typing-dot" />
-            <span className="ant-typing-dot" />
-            <span className="ant-typing-dot" />
+            <Spin size="small" />
             <span>正在思考...</span>
           </div>
         )}

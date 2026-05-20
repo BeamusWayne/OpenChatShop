@@ -28,6 +28,7 @@
     "playwright": "^1.60.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "ws": "^8.20.1"
   }
 }
