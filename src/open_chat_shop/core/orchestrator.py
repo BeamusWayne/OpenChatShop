@@ -73,20 +73,36 @@ class DialogueOrchestrator:
 
         # 2. Load context
         try:
-            context = await self._context_manager.load(message.session_id)
+            context = await self._context_manager.load(message.session_id, channel=message.channel)
         except ContextError:
             return self._error_response("会话已过期，请重新开始。")
 
         # 2.5 Check if user is answering a previous clarification
         pending_action = context.slots.get("_pending_action")
         if pending_action is not None:
-            pending_response = await self._try_resolve_pending(
-                message, context, pending_action,
-            )
-            if pending_response is not None:
-                await self._context_manager.save(context, pending_response)
-                return pending_response
-            # If resolution failed, fall through to normal flow
+            # Detect topic switch: if user's input strongly matches a
+            # different intent, clear pending and process the new request.
+            quick_intent = self._intent_engine._rule_matcher.match(message.content)
+            if (
+                quick_intent is not None
+                and quick_intent.confidence >= 0.8
+                and quick_intent.name != pending_action.get("intent_name")
+            ):
+                context.slots.pop("_pending_action", None)
+                logger.info(
+                    "Topic switch detected, clearing pending action",
+                    extra={
+                        "new_intent": quick_intent.name,
+                        "old_pending": pending_action.get("intent_name"),
+                    },
+                )
+            else:
+                pending_response = await self._try_resolve_pending(
+                    message, context, pending_action,
+                )
+                if pending_response is not None:
+                    await self._context_manager.save(context, pending_response)
+                    return pending_response
 
         # 3. Intent recognition
         intent = await self._intent_engine.classify(message, context)
