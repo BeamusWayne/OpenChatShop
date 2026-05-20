@@ -1,5 +1,5 @@
 import { Card, Timeline, Typography, theme } from 'antd';
-import { CarOutlined, CheckCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { CarOutlined, ClockCircleOutlined } from '@ant-design/icons';
 
 interface TimelineEntry {
   time?: string;

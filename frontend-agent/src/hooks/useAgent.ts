@@ -117,6 +117,23 @@ export function useAgent(agentId: string): UseAgentReturn {
             }
             break;
           }
+          case 'customer_message': {
+            const sid = msg.data?.session_id as string | undefined;
+            const content = msg.data?.content as string | undefined;
+            if (sid && content) {
+              const customerMsg: ChatMessage = {
+                id: `cust-${Date.now()}`,
+                role: 'user',
+                content,
+                timestamp: Date.now(),
+              };
+              setMessages((prev) => ({
+                ...prev,
+                [sid]: [...(prev[sid] ?? []), customerMsg],
+              }));
+            }
+            break;
+          }
           default:
             break;
         }
@@ -175,7 +192,7 @@ export function useAgent(agentId: string): UseAgentReturn {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
-          type: 'send_message',
+          type: 'agent_message',
           data: { session_id: sessionId, content },
         }),
       );
@@ -187,6 +204,30 @@ export function useAgent(agentId: string): UseAgentReturn {
     await refreshQueue();
     await refreshActive();
     setSelectedSessionId(sessionId);
+
+    // Fetch previous chat history for this session
+    try {
+      const res = await fetch(`/api/v1/agent/history/${sessionId}`);
+      if (res.ok) {
+        const data = await res.json();
+        const history: ChatMessage[] = (data.messages ?? []).map(
+          (m: { role: string; content: string; message_type?: string; payload?: Record<string, unknown>; timestamp?: string }) => ({
+            id: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            role: m.role === 'assistant' ? 'system' : (m.role as 'user' | 'agent' | 'system'),
+            content: m.content,
+            messageType: m.message_type === 'transfer' ? 'transfer_status' : m.message_type,
+            payload: m.payload,
+            timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+          }),
+        );
+        setMessages((prev) => ({
+          ...prev,
+          [sessionId]: [...history, ...(prev[sessionId] ?? [])],
+        }));
+      }
+    } catch {
+      // history fetch is best-effort
+    }
   }, [refreshQueue, refreshActive]);
 
   const completeSession = useCallback(async (sessionId: string) => {

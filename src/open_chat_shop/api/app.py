@@ -91,6 +91,11 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
     _registry = default_registry()
     _orchestrator = orchestrator
 
+    # Shared state for WebSocket tracking and session message history
+    _agent_sockets: dict[str, WebSocket] = {}
+    _customer_sockets: dict[str, WebSocket] = {}
+    _session_messages: dict[str, list[dict]] = {}
+
     # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
@@ -192,6 +197,7 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
         channel: str = Query("web"),
     ) -> None:
         await websocket.accept()
+        _customer_sockets[session_id] = websocket
         ws_adapter = _registry.get_adapter(channel)
         try:
             while True:
@@ -199,6 +205,32 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
                 if _orchestrator is None:
                     await websocket.send_json({"error": "Service not configured"})
                     continue
+
+                # If session has active human transfer, forward to agent
+                if _handoff_queue is not None:
+                    transfer = _handoff_queue.get_active_transfer(session_id)
+                    if transfer is not None:
+                        assigned_agent_id = transfer.assigned_agent_id
+                        agent_ws = _agent_sockets.get(assigned_agent_id) if assigned_agent_id else None
+                        if agent_ws:
+                            await agent_ws.send_text(json.dumps({
+                                "type": "customer_message",
+                                "data": {
+                                    "session_id": session_id,
+                                    "content": data,
+                                },
+                            }, ensure_ascii=False))
+                            _session_messages.setdefault(session_id, []).append({
+                                "role": "user",
+                                "content": data,
+                            })
+                            continue
+
+                # Record user message
+                _session_messages.setdefault(session_id, []).append({
+                    "role": "user",
+                    "content": data,
+                })
 
                 msg = UserMessage(
                     session_id=session_id,
@@ -229,9 +261,17 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
                                 },
                             ).to_json()
                         )
+                        # Record assistant response
+                        _session_messages[session_id].append({
+                            "role": "assistant",
+                            "content": event.data.get("payload", {}).get("content", ""),
+                            "message_type": event.data.get("message_type"),
+                            "payload": event.data.get("payload"),
+                        })
                     else:
                         await websocket.send_text(event.to_json())
         except WebSocketDisconnect:
+            _customer_sockets.pop(session_id, None)
             logger.info(
                 "WebSocket disconnected",
                 extra={"session_id": session_id},
@@ -242,17 +282,19 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
     # ------------------------------------------------------------------
 
     _handoff_queue = getattr(_orchestrator, "_handoff_queue", None) if _orchestrator else None
+    _context_manager = getattr(_orchestrator, "_context_manager", None) if _orchestrator else None
 
     if _handoff_queue is not None:
-        agent_router = create_agent_router(_handoff_queue)
+        agent_router = create_agent_router(
+            _handoff_queue,
+            context_manager=_context_manager,
+            session_messages=_session_messages,
+        )
         app.include_router(agent_router)
 
     # ------------------------------------------------------------------
     # Agent WebSocket
     # ------------------------------------------------------------------
-
-    # Track connected agent WebSockets: agent_id -> WebSocket
-    _agent_sockets: dict[str, WebSocket] = {}
 
     if _handoff_queue is not None:
 
@@ -321,28 +363,27 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
                 msg_type = msg.get("type", "")
                 msg_data = msg.get("data", {})
 
-                if msg_type == "agent_message" and _orchestrator is not None:
-                    # Agent sends a message to a customer session
+                if msg_type == "agent_message":
                     session_id = msg_data.get("session_id", "")
                     content = msg_data.get("content", "")
 
-                    # Find customer WebSocket for this session
-                    # For now, use the orchestrator to process the message
-                    # as if it came from the agent
-                    cust_msg = UserMessage(
-                        session_id=session_id,
-                        content=f"[人工客服] {content}",
-                        channel="web",
-                    )
-                    response = await _orchestrator.handle_message(cust_msg)
-                    # The response goes through the normal customer WS flow
-                    # We'll send it back to the agent for confirmation
+                    # Forward directly to customer WebSocket
+                    cust_ws = _customer_sockets.get(session_id)
+                    if cust_ws:
+                        await cust_ws.send_text(json.dumps({
+                            "type": "agent_message",
+                            "data": {
+                                "content": content,
+                                "agent_name": msg_data.get("agent_name", "客服"),
+                            },
+                        }, ensure_ascii=False))
+
+                    # Confirm to agent
                     await websocket.send_text(json.dumps({
                         "type": "message_sent",
                         "data": {
                             "session_id": session_id,
                             "content": content,
-                            "response": response.text_fallback,
                         },
                     }, ensure_ascii=False))
 

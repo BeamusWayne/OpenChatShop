@@ -101,6 +101,15 @@ export function useChat() {
           break;
         }
 
+        case 'agent_message': {
+          setIsTyping(false);
+          addMessage({
+            role: 'assistant',
+            content: `[人工客服] ${evt.data.content ?? ''}`,
+          });
+          break;
+        }
+
         case 'error': {
           setIsTyping(false);
           streamingIdRef.current = null;

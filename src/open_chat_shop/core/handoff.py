@@ -117,12 +117,18 @@ class HandoffQueue:
         """Try to assign a request to an available agent.
 
         Uses least-load strategy: picks the agent with the fewest
-        active sessions.
+        active sessions. Falls back to any department if no exact match.
         """
         available = [
             a for a in self.get_online_agents(request.department)
             if len(a.active_sessions) < a.max_concurrent
         ]
+        if not available:
+            # Fall back to any online agent regardless of department
+            available = [
+                a for a in self.get_online_agents()
+                if len(a.active_sessions) < a.max_concurrent
+            ]
         if not available:
             return None
 

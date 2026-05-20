@@ -52,7 +52,11 @@ class AgentInfoResponse(BaseModel):
     active_session_count: int
 
 
-def create_agent_router(handoff_queue: HandoffQueue) -> APIRouter:
+def create_agent_router(
+    handoff_queue: HandoffQueue,
+    context_manager: Any = None,
+    session_messages: dict[str, list[dict]] | None = None,
+) -> APIRouter:
     """Build and return a FastAPI router with agent endpoints."""
     router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
 
@@ -121,6 +125,12 @@ def create_agent_router(handoff_queue: HandoffQueue) -> APIRouter:
             )
             for sid, r in handoff_queue._active_transfers.items()
         ]
+
+    @router.get("/history/{session_id}")
+    async def get_history(session_id: str) -> dict[str, Any]:
+        if session_messages is None:
+            return {"messages": []}
+        return {"messages": session_messages.get(session_id, [])}
 
     @router.post("/accept/{session_id}")
     async def accept_session(session_id: str) -> dict[str, Any]:
