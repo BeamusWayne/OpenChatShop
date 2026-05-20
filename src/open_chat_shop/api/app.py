@@ -12,6 +12,7 @@ import json
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware as _BaseMiddleware
 
 from open_chat_shop.api.auth import AuthMiddleware
 from open_chat_shop.core.types import AgentMessage, UserMessage, SessionMode
@@ -52,6 +53,19 @@ class ChatResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str
+
+
+class CheckDetail(BaseModel):
+    status: str
+    latency_ms: float | None = None
+    error: str | None = None
+
+
+class ReadyResponse(BaseModel):
+    status: str
+    version: str
+    checks: dict[str, CheckDetail]
+    uptime_seconds: float
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +111,9 @@ def create_app(
 
     _registry = default_registry()
     _orchestrator = orchestrator
+    import time as _time
+
+    _start_time: float = _time.monotonic()
 
     # Shared state for WebSocket tracking and session message history
     _agent_sockets: dict[str, WebSocket] = {}
@@ -110,6 +127,67 @@ def create_app(
     @app.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
         return HealthResponse(status="ok", version=_VERSION)
+
+    # ------------------------------------------------------------------
+    # Readiness probe
+    # ------------------------------------------------------------------
+
+    async def _check_database(app_ref: FastAPI) -> CheckDetail:
+        engine = getattr(app_ref.state, "db_engine", None)
+        if engine is None:
+            return CheckDetail(status="ok", latency_ms=0)
+        try:
+            import time
+            from sqlalchemy import text
+            t0 = time.monotonic()
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            return CheckDetail(
+                status="ok", latency_ms=round((time.monotonic() - t0) * 1000, 1)
+            )
+        except Exception as exc:
+            return CheckDetail(status="unhealthy", error=str(exc))
+
+    async def _check_redis(app_ref: FastAPI) -> CheckDetail:
+        client = getattr(app_ref.state, "redis_client", None)
+        if client is None:
+            return CheckDetail(status="ok", latency_ms=0)
+        try:
+            import time
+            t0 = time.monotonic()
+            await client.ping()
+            return CheckDetail(
+                status="ok", latency_ms=round((time.monotonic() - t0) * 1000, 1)
+            )
+        except Exception as exc:
+            return CheckDetail(status="unhealthy", error=str(exc))
+
+    @app.get("/health/ready", response_model=ReadyResponse)
+    async def readiness() -> ReadyResponse:
+        import time
+
+        checks: dict[str, CheckDetail] = {}
+        checks["database"] = await _check_database(app)
+        checks["redis"] = await _check_redis(app)
+
+        overall = "ok"
+        for detail in checks.values():
+            if detail.status == "unhealthy":
+                overall = "unhealthy"
+                break
+
+        uptime = time.monotonic() - _start_time
+
+        resp = ReadyResponse(
+            status=overall,
+            version=_VERSION,
+            checks=checks,
+            uptime_seconds=round(uptime, 1),
+        )
+
+        if overall == "unhealthy":
+            raise HTTPException(status_code=503, detail=resp.model_dump())
+        return resp
 
     # ------------------------------------------------------------------
     # REST chat
