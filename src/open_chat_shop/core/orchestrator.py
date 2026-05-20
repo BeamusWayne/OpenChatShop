@@ -14,6 +14,7 @@ from open_chat_shop.core.types import (
     SessionContext,
     Action,
     Intent,
+    SessionMode,
 )
 from open_chat_shop.core.exceptions import (
     SecurityError,
@@ -108,6 +109,24 @@ class DialogueOrchestrator:
         """
         self._middleware_pipeline = pipeline
 
+    def _trace_extras(self, session_id: str = "") -> dict[str, str]:
+        """Build structured log extras with trace_id / span_id when available."""
+        extras: dict[str, str] = {}
+        if session_id:
+            extras["session_id"] = session_id
+        if _TRACING_AVAILABLE:
+            try:
+                from opentelemetry import trace
+
+                span = trace.get_current_span()
+                ctx = span.get_span_context()
+                if ctx.is_valid:
+                    extras["trace_id"] = format(ctx.trace_id, "032x")
+                    extras["span_id"] = format(ctx.span_id, "016x")
+            except Exception:
+                pass
+        return extras
+
     async def handle_message(self, message: UserMessage) -> AgentMessage:
         """Process user message, return agent reply.
         Same session_id processed serially via async lock.
@@ -130,9 +149,13 @@ class DialogueOrchestrator:
                 try:
                     self._security.check_input(message)
                 except SecurityError as e:
-                    logger.warning("Security check blocked message", extra={
-                        "session_id": message.session_id, "error": e.message,
-                    })
+                    logger.warning(
+                        "Security check blocked message",
+                        extra={
+                            **self._trace_extras(message.session_id),
+                            "error": e.message,
+                        },
+                    )
                     return self._error_response("您的消息包含不当内容，请修改后重试。")
 
             # 2. Load context
@@ -144,6 +167,20 @@ class DialogueOrchestrator:
                     context = await self._context_manager.load(message.session_id, channel=message.channel)
                 except ContextError:
                     return self._error_response("会话已过期，请重新开始。")
+
+            # 2.1 Session mode guard — bot must not respond in HUMAN mode
+            if context.mode == SessionMode.HUMAN_MODE:
+                return AgentMessage(
+                    message_type="text",
+                    payload={"content": "当前会话由人工客服为您服务，如需结束人工服务请告知客服。"},
+                    text_fallback="当前会话由人工客服为您服务，如需结束人工服务请告知客服。",
+                )
+            if context.mode == SessionMode.TRANSFER_PENDING:
+                return AgentMessage(
+                    message_type="transfer",
+                    payload={"status": "waiting"},
+                    text_fallback="正在为您转接人工客服，请稍候...",
+                )
 
             # If middleware pipeline is configured, wrap core processing with it.
             if self._middleware_pipeline is not None:
@@ -174,6 +211,7 @@ class DialogueOrchestrator:
                 logger.info(
                     "Topic switch detected, clearing pending action",
                     extra={
+                        **self._trace_extras(),
                         "new_intent": quick_intent.name,
                         "old_pending": pending_action.get("intent_name"),
                     },
@@ -382,16 +420,24 @@ class DialogueOrchestrator:
                             msg = f"已为您接入人工客服 {agent_name}，请直接描述您的问题。"
                             action.payload["agent_name"] = agent_name
                             action.payload["status"] = "assigned"
+                            # Set session to HUMAN_MODE — bot must stop responding
+                            context.mode = SessionMode.HUMAN_MODE
+                            context.human_agent_id = agent_id
                         else:
                             est_wait = self._handoff_queue.get_estimated_wait(context.session_id)
                             msg = f"正在为您转接人工客服，当前排队位置：第{position}位，预计等待约{est_wait // 60}分钟。"
                             action.payload["queue_position"] = position
                             action.payload["estimated_wait_seconds"] = est_wait
+                            action.payload["status"] = "waiting"
+                            # Set session to TRANSFER_PENDING — bot stays silent
+                            context.mode = SessionMode.TRANSFER_PENDING
                     except Exception:
                         logger.warning("HandoffQueue enqueue failed, using fallback message")
                         msg = "正在为您转接人工客服..."
+                        action.payload["status"] = "waiting"
                 else:
                     msg = "正在为您转接人工客服..."
+                    action.payload["status"] = "waiting"
                 llm_msg = await self._llm_enhance(action, context)
                 if llm_msg is not None:
                     return llm_msg
