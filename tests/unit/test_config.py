@@ -9,6 +9,7 @@ import pytest
 from open_chat_shop.core.config import (
     CascadeConfigModel,
     CascadeLevelModel,
+    ChannelsFileModel,
     ConfigLoader,
     ConfigValidationError,
     ProviderConfigModel,
@@ -391,11 +392,12 @@ def test_confidence_threshold_boundary_invalid(tmp_path):
 @pytest.mark.unit
 def test_load_all_valid(config_dir):
     result = ConfigLoader.load_all(config_dir)
-    assert set(result.keys()) == {"providers", "tool_routing", "security", "scenarios"}
+    assert set(result.keys()) == {"providers", "tool_routing", "security", "scenarios", "channels"}
     assert isinstance(result["providers"], ProvidersFileModel)
     assert isinstance(result["tool_routing"], ToolRoutingFileModel)
     assert isinstance(result["security"], SecurityFileModel)
     assert isinstance(result["scenarios"], ScenariosFileModel)
+    assert isinstance(result["channels"], ChannelsFileModel)
 
 
 @pytest.mark.unit

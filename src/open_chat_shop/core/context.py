@@ -22,7 +22,7 @@ class ContextManager(ABC):
     """Abstract interface for session context management."""
 
     @abstractmethod
-    async def load(self, session_id: str) -> SessionContext:
+    async def load(self, session_id: str, channel: str = "web") -> SessionContext:
         """Load an existing session or create a new one."""
         ...
 
@@ -59,14 +59,14 @@ class InMemoryContextManager(ContextManager):
         self._max_history_tokens = max_history_tokens
         self._max_context_tokens = max_context_tokens
 
-    async def load(self, session_id: str) -> SessionContext:
+    async def load(self, session_id: str, channel: str = "web") -> SessionContext:
         """Load or create a session context."""
         if session_id not in self._sessions:
             now = datetime.now(timezone.utc)
             self._sessions[session_id] = SessionContext(
                 session_id=session_id,
                 user_id=None,
-                channel="web",
+                channel=channel,
                 history=[],
                 summary=None,
                 slots={},

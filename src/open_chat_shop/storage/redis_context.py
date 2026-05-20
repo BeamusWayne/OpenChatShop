@@ -94,7 +94,7 @@ class RedisContextManager(ContextManager):
     def _key(self, session_id: str) -> str:
         return f"{self._prefix}{session_id}"
 
-    async def load(self, session_id: str) -> SessionContext:
+    async def load(self, session_id: str, channel: str = "web") -> SessionContext:
         """Load session from Redis or create a new one."""
         key = self._key(session_id)
         try:
@@ -104,7 +104,7 @@ class RedisContextManager(ContextManager):
                 ctx = SessionContext(
                     session_id=session_id,
                     user_id=None,
-                    channel="web",
+                    channel=channel,
                     history=[],
                     summary=None,
                     slots={},

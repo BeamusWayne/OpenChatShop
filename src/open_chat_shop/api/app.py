@@ -12,8 +12,9 @@ from pydantic import BaseModel
 
 from open_chat_shop.core.types import AgentMessage, UserMessage
 from open_chat_shop.core.orchestrator import DialogueOrchestrator
-from open_chat_shop.channel.web import WebAdapter
+from open_chat_shop.channel.registry import default_registry
 from open_chat_shop.api.streaming import StreamEvent, StreamingOrchestrator
+from open_chat_shop.api.wechat import setup_wechat_routes
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    web_adapter = WebAdapter()
+    _registry = default_registry()
     _orchestrator = orchestrator
 
     # ------------------------------------------------------------------
@@ -101,7 +102,8 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
         )
 
         response: AgentMessage = await _orchestrator.handle_message(msg)
-        channel_msg = web_adapter.adapt_with_fallback(response)
+        adapter = _registry.get_adapter(request.channel)
+        channel_msg = adapter.adapt_with_fallback(response)
 
         return ChatResponse(
             message_type=channel_msg.content_type,
@@ -132,10 +134,33 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
             user_id=user_id,
         )
         streaming = StreamingOrchestrator(_orchestrator)
+        sse_adapter = _registry.get_adapter(channel)
 
         async def event_generator():
             async for event in streaming.handle_streaming(msg):
-                yield event.to_sse()
+                if event.type == "done":
+                    # Reconstruct AgentMessage from done event data and adapt
+                    agent_msg = AgentMessage(
+                        message_type=event.data.get("message_type", "text"),
+                        payload=event.data.get("payload", {}),
+                        text_fallback=event.data.get("payload", {}).get(
+                            "content", ""
+                        ),
+                    )
+                    channel_msg = sse_adapter.adapt_with_fallback(agent_msg)
+                    yield StreamEvent(
+                        type="done",
+                        data={
+                            "message_type": channel_msg.content_type,
+                            "payload": channel_msg.payload,
+                            "suggestions": event.data.get("suggestions", []),
+                            "requires_confirmation": event.data.get(
+                                "requires_confirmation", False
+                            ),
+                        },
+                    ).to_sse()
+                else:
+                    yield event.to_sse()
 
         return StreamingResponse(
             event_generator(),
@@ -147,8 +172,13 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
     # ------------------------------------------------------------------
 
     @app.websocket("/ws/chat/{session_id}")
-    async def websocket_chat(websocket: WebSocket, session_id: str) -> None:
+    async def websocket_chat(
+        websocket: WebSocket,
+        session_id: str,
+        channel: str = Query("web"),
+    ) -> None:
         await websocket.accept()
+        ws_adapter = _registry.get_adapter(channel)
         try:
             while True:
                 data = await websocket.receive_text()
@@ -159,16 +189,46 @@ def create_app(orchestrator: DialogueOrchestrator | None = None) -> FastAPI:
                 msg = UserMessage(
                     session_id=session_id,
                     content=data,
-                    channel="web",
+                    channel=channel,
                 )
                 streaming = StreamingOrchestrator(_orchestrator)
                 async for event in streaming.handle_streaming(msg):
-                    await websocket.send_text(event.to_json())
+                    if event.type == "done":
+                        agent_msg = AgentMessage(
+                            message_type=event.data.get("message_type", "text"),
+                            payload=event.data.get("payload", {}),
+                            text_fallback=event.data.get("payload", {}).get(
+                                "content", ""
+                            ),
+                        )
+                        channel_msg = ws_adapter.adapt_with_fallback(agent_msg)
+                        await websocket.send_text(
+                            StreamEvent(
+                                type="done",
+                                data={
+                                    "message_type": channel_msg.content_type,
+                                    "payload": channel_msg.payload,
+                                    "suggestions": event.data.get("suggestions", []),
+                                    "requires_confirmation": event.data.get(
+                                        "requires_confirmation", False
+                                    ),
+                                },
+                            ).to_json()
+                        )
+                    else:
+                        await websocket.send_text(event.to_json())
         except WebSocketDisconnect:
             logger.info(
                 "WebSocket disconnected",
                 extra={"session_id": session_id},
             )
+
+    # ------------------------------------------------------------------
+    # WeChat webhook
+    # ------------------------------------------------------------------
+
+    if _orchestrator is not None:
+        setup_wechat_routes(app, _orchestrator)
 
     return app
 

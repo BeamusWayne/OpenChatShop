@@ -2,6 +2,9 @@ import { Typography, Space, Tag, theme } from 'antd';
 import { RobotOutlined, UserOutlined } from '@ant-design/icons';
 import type { ChatMessage } from '../types/chat';
 
+const AI_ACCENT = '#ff5600';
+const AI_ACCENT_BG = '#fff5eb';
+
 interface Props {
   message: ChatMessage;
   onSuggestionClick?: (text: string) => void;
@@ -35,8 +38,8 @@ export default function MessageBubble({ message, onSuggestionClick }: Props) {
             justifyContent: 'center',
             flexShrink: 0,
             fontSize: 16,
-            background: isUser ? token.colorPrimary : token.colorPrimaryBg,
-            color: isUser ? '#fff' : token.colorPrimary,
+            background: isUser ? token.colorPrimary : AI_ACCENT_BG,
+            color: isUser ? '#fff' : AI_ACCENT,
           }}
         >
           {isUser ? <UserOutlined /> : <RobotOutlined />}
@@ -46,22 +49,22 @@ export default function MessageBubble({ message, onSuggestionClick }: Props) {
         <div
           style={{
             padding: '10px 14px',
-            borderRadius: token.borderRadiusLG,
+            borderRadius: token.borderRadius,
             ...(isUser
               ? {
                   background: token.colorPrimary,
-                  color: token.colorWhite,
-                  borderTopRightRadius: 4,
+                  color: token.colorTextLightSolid,
+                  borderTopRightRadius: token.borderRadiusXS,
                 }
               : isAssistant
                 ? {
                     background: token.colorBgContainer,
                     border: `1px solid ${token.colorBorderSecondary}`,
-                    borderTopLeftRadius: 4,
+                    borderTopLeftRadius: token.borderRadiusXS,
                   }
                 : {
-                    background: token.colorInfoBg,
-                    borderRadius: token.borderRadiusLG,
+                    background: '#e8f4fd',
+                    borderRadius: token.borderRadius,
                     fontSize: 13,
                     color: token.colorTextSecondary,
                   }),

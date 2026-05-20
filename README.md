@@ -9,7 +9,7 @@
 - **可插拔工具系统** — 8 个内置电商工具（订单/物流/商品/退款/转人工），自定义工具只需继承 `BaseTool`
 - **四层安全防护** — Prompt 注入检测、内容安全过滤、RBAC 权限校验、输出脱敏
 - **业务状态机** — 售前咨询/售后处理/退款流程独立 FSM，可编排组合
-- **多渠道适配** — Web、小程序等渠道统一接口，11 种富消息类型渲染
+- **多渠道适配** — Web、微信公众号、微信小程序统一接口，按渠道自动路由，11 种富消息类型渲染
 - **生产就绪** — 速率限制、成本治理、会话持久化、OpenTelemetry 链路追踪、Docker Compose 一键部署
 
 ## 快速开始
@@ -61,6 +61,13 @@ cp .env.example .env
 | `ANTHROPIC_BASE_URL` | 自定义 API 端点（默认 Anthropic 官方） | 否 |
 | `GLM_MODEL` | 模型名称（默认 glm-5.1） | 否 |
 | `OPENAI_API_KEY` | OpenAI API Key | 否 |
+| `WECHAT_APP_ID` | 微信公众号 AppID | 接入公众号时必填 |
+| `WECHAT_APP_SECRET` | 微信公众号 AppSecret | 接入公众号时必填 |
+| `WECHAT_TOKEN` | 微信公众号 Token | 接入公众号时必填 |
+| `WECHAT_ENCODING_AES_KEY` | 微信公众号 EncodingAESKey | 否 |
+| `WECHAT_MINIPROGRAM_APP_ID` | 微信小程序 AppID | 接入小程序时必填 |
+| `WECHAT_MINIPROGRAM_APP_SECRET` | 微信小程序 AppSecret | 接入小程序时必填 |
+| `WECHAT_MINIPROGRAM_TOKEN` | 微信小程序 Token | 接入小程序时必填 |
 
 ### Docker Compose
 
@@ -68,6 +75,99 @@ cp .env.example .env
 # 完整部署（api + redis + postgres）
 docker compose up
 ```
+
+## 多渠道接入
+
+系统内置三个渠道适配器，通过 `ChannelRegistry` 按请求中的 `channel` 字段自动路由到对应适配器，无需手动选择。
+
+### 渠道概览
+
+| 渠道 | Adapter | 支持消息类型 | 接入方式 |
+|------|---------|-------------|---------|
+| **Web** | `WebAdapter` | 11 种（全量） | 开箱即用 |
+| **微信公众号** | `WechatAdapter` | 3 种，其余自动降级为文本 | 配置 `.env` 后可用 |
+| **微信小程序** | `MiniProgramAdapter` | 6 种，其余自动降级为文本 | 配置 `.env` 后可用 |
+
+### 消息类型对照
+
+| 消息类型 | Web | 公众号 | 小程序 |
+|---------|-----|--------|--------|
+| text | ✅ | ✅ | ✅ |
+| product_card | ✅ | ✅ | ✅ |
+| product_list | ✅ | ❌→文本 | ❌→文本 |
+| order_card | ✅ | ✅ | ✅ |
+| logistics_timeline | ✅ | ❌→文本 | ✅ |
+| confirm | ✅ | ❌→文本 | ❌→文本 |
+| form | ✅ | ❌→文本 | ❌→文本 |
+| rating | ✅ | ❌→文本 | ✅ |
+| transfer | ✅ | ❌→文本 | ❌→文本 |
+| carousel | ✅ | ❌→文本 | ❌→文本 |
+| quick_replies | ✅ | ❌→文本 | ✅ |
+
+> ❌→文本 表示该渠道不支持此类型，系统自动降级为纯文本回复（`text_fallback`）。
+
+### 接入微信公众号
+
+1. 在 `.env` 中配置微信变量：
+
+```bash
+WECHAT_APP_ID=你的公众号AppID
+WECHAT_APP_SECRET=你的公众号AppSecret
+WECHAT_TOKEN=你设定的Token
+WECHAT_ENCODING_AES_KEY=你的EncodingAESKey
+```
+
+2. 登录 [微信公众平台](https://mp.weixin.qq.com) → 开发 → 基本配置 → 服务器地址填入：
+
+```
+https://your-domain/api/v1/wechat/callback
+```
+
+3. 微信服务器会发送 GET 请求验签，通过后即可接收用户消息并自动回复。
+
+### 接入微信小程序
+
+1. 在 `.env` 中配置小程序变量：
+
+```bash
+WECHAT_MINIPROGRAM_APP_ID=你的小程序AppID
+WECHAT_MINIPROGRAM_APP_SECRET=你的小程序AppSecret
+WECHAT_MINIPROGRAM_TOKEN=你设定的Token
+```
+
+2. 小程序前端通过 REST API 发送消息，设置 `channel: "miniprogram"`：
+
+```javascript
+const res = await fetch('/api/v1/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    session_id: userId,
+    content: '搜索手机',
+    channel: 'miniprogram',
+  }),
+});
+```
+
+### 自定义渠道
+
+继承 `ChannelAdapter` 并注册到 Registry：
+
+```python
+from open_chat_shop.channel.base import ChannelAdapter
+from open_chat_shop.channel.registry import default_registry
+
+class MyChannelAdapter(ChannelAdapter):
+    # 实现 adapt(), get_capabilities(), downgrade()
+    ...
+
+registry = default_registry()
+registry.register("my_channel", MyChannelAdapter())
+```
+
+### 渠道配置文件
+
+渠道相关配置在 `configs/channels.yaml`，可控制每个渠道的启用状态和消息长度限制。
 
 ## 项目结构
 
@@ -82,7 +182,8 @@ open-chat-shop/
 │   ├── providers.yaml          # LLM Provider 配置
 │   ├── tool_routing.yaml       # 工具路由规则
 │   ├── security.yaml           # 安全策略
-│   └── scenarios.yaml          # 业务场景 FSM
+│   ├── scenarios.yaml          # 业务场景 FSM
+│   └── channels.yaml           # 渠道配置
 ├── src/open_chat_shop/
 │   ├── core/                   # 核心引擎
 │   │   ├── types.py            # 数据结构（Message, Intent, SessionContext...）
@@ -103,12 +204,12 @@ open-chat-shop/
 │   │   ├── middleware.py       # 编排器中间件
 │   │   └── handoff.py          # 人工转接队列
 │   ├── tools/builtin/          # 8 个内置电商工具
-│   ├── channel/                # 多渠道适配 + 富消息渲染
-│   ├── api/                    # REST + WebSocket + 流式响应
+│   ├── channel/                # 多渠道适配 + Registry + 富消息渲染
+│   ├── api/                    # REST + WebSocket + 流式响应 + 微信 Webhook
 │   ├── storage/                # 会话持久化（内存/Redis/数据库）
 │   ├── evaluation/             # 评测框架（黄金数据集/回归/LLM-as-Judge）
 │   └── observability/          # 日志/链路追踪
-├── tests/                      # 39 个测试文件
+├── tests/                      # 40+ 个测试文件（753 个测试用例）
 ├── static/                     # 前端聊天组件
 └── docs/                       # 设计文档
 ```

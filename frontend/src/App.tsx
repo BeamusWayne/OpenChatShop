@@ -1,11 +1,10 @@
-import { ConfigProvider, theme } from 'antd';
+import { ConfigProvider } from 'antd';
+import { openChatShopTheme } from './theme/intercomTheme';
 import ChatWindow from './components/ChatWindow';
 
 export default function App() {
-  const configProps = { theme: { algorithm: theme.defaultAlgorithm } };
-
   return (
-    <ConfigProvider {...configProps}>
+    <ConfigProvider theme={openChatShopTheme}>
       <ChatWindow />
     </ConfigProvider>
   );

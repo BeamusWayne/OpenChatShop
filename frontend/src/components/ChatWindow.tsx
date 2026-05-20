@@ -12,6 +12,9 @@ const QUICK_ACTIONS = [
   { label: '转人工', text: '转人工客服' },
 ];
 
+const AI_ACCENT = '#ff5600';
+const AI_ACCENT_BG = '#fff5eb';
+
 export default function ChatWindow() {
   const { token } = theme.useToken();
   const { messages, connection, isTyping, sendMessage, clearMessages } = useChat();
@@ -45,28 +48,28 @@ export default function ChatWindow() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '16px 24px',
+          padding: `${token.padding}px ${token.paddingLG}px`,
           background: token.colorBgContainer,
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: token.paddingXS }}>
           <div
             style={{
               width: 40,
               height: 40,
               borderRadius: token.borderRadiusLG,
-              background: token.colorPrimary,
+              background: AI_ACCENT_BG,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#fff',
+              color: AI_ACCENT,
               fontSize: 20,
             }}
           >
             <RobotOutlined />
           </div>
-          <span style={{ fontSize: 20, fontWeight: 600, color: token.colorText }}>
+          <span style={{ fontSize: 20, fontWeight: 600, color: token.colorText, letterSpacing: -0.3 }}>
             OpenChatShop
           </span>
         </div>
@@ -88,10 +91,10 @@ export default function ChatWindow() {
         style={{
           flex: 1,
           overflow: 'auto',
-          padding: '20px 24px',
+          padding: `20px ${token.paddingLG}px`,
           display: 'flex',
           flexDirection: 'column',
-          gap: 16,
+          gap: token.padding,
         }}
       >
         {messages.map((msg) => (
@@ -109,7 +112,7 @@ export default function ChatWindow() {
       {/* Input area */}
       <div
         style={{
-          padding: '16px 24px',
+          padding: `${token.padding}px ${token.paddingLG}px`,
           background: token.colorBgContainer,
           borderTop: `1px solid ${token.colorBorderSecondary}`,
         }}

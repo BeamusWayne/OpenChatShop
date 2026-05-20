@@ -163,6 +163,46 @@ class ScenariosFileModel(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Channel models
+# ---------------------------------------------------------------------------
+
+class WebChannelConfigModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    max_message_length: int = 4096
+
+
+class WechatChannelConfigModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    app_id_env: str = "WECHAT_APP_ID"
+    app_secret_env: str = "WECHAT_APP_SECRET"
+    token_env: str = "WECHAT_TOKEN"
+    encoding_aes_key_env: str = "WECHAT_ENCODING_AES_KEY"
+    max_message_length: int = 2048
+
+
+class MiniProgramChannelConfigModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    app_id_env: str = "WECHAT_MINIPROGRAM_APP_ID"
+    app_secret_env: str = "WECHAT_MINIPROGRAM_APP_SECRET"
+    token_env: str = "WECHAT_MINIPROGRAM_TOKEN"
+    max_message_length: int = 2048
+
+
+class ChannelsFileModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    web: WebChannelConfigModel = WebChannelConfigModel()
+    wechat: WechatChannelConfigModel = WechatChannelConfigModel()
+    miniprogram: MiniProgramChannelConfigModel = MiniProgramChannelConfigModel()
+
+
+# ---------------------------------------------------------------------------
 # ConfigLoader
 # ---------------------------------------------------------------------------
 
@@ -216,10 +256,16 @@ class ConfigLoader:
         return cls._validate(data, ScenariosFileModel, path)
 
     @classmethod
-    def load_all(cls, config_dir: str) -> dict:
-        """Load all four config files from *config_dir*.
+    def load_channels(cls, path: str) -> ChannelsFileModel:
+        data = cls._load_yaml(path)
+        return cls._validate(data, ChannelsFileModel, path)
 
-        Returns a dict with keys: providers, tool_routing, security, scenarios.
+    @classmethod
+    def load_all(cls, config_dir: str) -> dict:
+        """Load all config files from *config_dir*.
+
+        Returns a dict with keys: providers, tool_routing, security,
+        scenarios, channels.
         """
         base = Path(config_dir)
         return {
@@ -227,4 +273,9 @@ class ConfigLoader:
             "tool_routing": cls.load_tool_routing(str(base / "tool_routing.yaml")),
             "security": cls.load_security(str(base / "security.yaml")),
             "scenarios": cls.load_scenarios(str(base / "scenarios.yaml")),
+            "channels": (
+                cls.load_channels(str(channels_path))
+                if (channels_path := base / "channels.yaml").exists()
+                else ChannelsFileModel()
+            ),
         }
