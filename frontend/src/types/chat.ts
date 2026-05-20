@@ -10,7 +10,7 @@ export interface ChatMessage {
 }
 
 export interface StreamEvent {
-  type: 'typing' | 'chunk' | 'done' | 'error' | 'agent_message';
+  type: 'typing' | 'chunk' | 'done' | 'error' | 'agent_message' | 'transfer_status' | 'transfer_ended';
   data: {
     status?: string;
     content_delta?: string;
@@ -21,6 +21,7 @@ export interface StreamEvent {
     message?: string;
     content?: string;
     agent_name?: string;
+    position?: number;
   };
 }
 

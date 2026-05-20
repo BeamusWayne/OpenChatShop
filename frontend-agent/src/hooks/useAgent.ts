@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { QueueItem, ActiveSession, ChatMessage } from '../types/agent';
 
+function mapHistoryRole(role: string): ChatMessage['role'] {
+  if (role === 'assistant') return 'system';
+  if (role === 'user') return 'customer';
+  if (role === 'agent' || role === 'customer' || role === 'system') return role;
+  return 'customer';
+}
+
 interface UseAgentReturn {
   queueItems: QueueItem[];
   activeSessions: ActiveSession[];
@@ -24,6 +31,8 @@ export function useAgent(agentId: string): UseAgentReturn {
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const messagesRef = useRef<Record<string, ChatMessage[]>>({});
+  messagesRef.current = messages;
 
   const refreshQueue = useCallback(async () => {
     try {
@@ -91,6 +100,27 @@ export function useAgent(agentId: string): UseAgentReturn {
               };
               setActiveSessions((prev) => [...prev, newActive]);
               setSelectedSessionId((prev) => prev ?? sessionId);
+
+              // Fetch chat history for auto-assigned sessions
+              fetch(`/api/v1/agent/history/${sessionId}`)
+                .then((res) => (res.ok ? res.json() : { messages: [] }))
+                .then((data) => {
+                  const history: ChatMessage[] = (data.messages ?? []).map(
+                    (m: { role: string; content: string; message_type?: string; payload?: Record<string, unknown>; timestamp?: string }) => ({
+                      id: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                      role: mapHistoryRole(m.role),
+                      content: m.content,
+                      messageType: m.message_type === 'transfer' ? 'transfer_status' : m.message_type,
+                      payload: m.payload,
+                      timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+                    }),
+                  );
+                  setMessages((prev) => ({
+                    ...prev,
+                    [sessionId]: [...history, ...(prev[sessionId] ?? [])],
+                  }));
+                })
+                .catch(() => {});
             }
             break;
           }
@@ -103,18 +133,22 @@ export function useAgent(agentId: string): UseAgentReturn {
               setSelectedSessionId((prev) =>
                 prev === sessionId ? null : prev,
               );
+              const endMsg: ChatMessage = {
+                id: `end-${Date.now()}`,
+                role: 'system',
+                content: '会话已结束',
+                timestamp: Date.now(),
+              };
+              setMessages((prev) => ({
+                ...prev,
+                [sessionId]: [...(prev[sessionId] ?? []), endMsg],
+              }));
             }
             break;
           }
           case 'message_sent': {
-            const chatMsg = msg.data as ChatMessage | undefined;
-            const sid = (msg.data?.session_id as string) ?? chatMsg?.id;
-            if (chatMsg && sid) {
-              setMessages((prev) => ({
-                ...prev,
-                [sid]: [...(prev[sid] ?? []), chatMsg],
-              }));
-            }
+            // Confirmation only — temp message already added in sendMessage.
+            // No need to append another copy.
             break;
           }
           case 'customer_message': {
@@ -123,7 +157,7 @@ export function useAgent(agentId: string): UseAgentReturn {
             if (sid && content) {
               const customerMsg: ChatMessage = {
                 id: `cust-${Date.now()}`,
-                role: 'user',
+                role: 'customer',
                 content,
                 timestamp: Date.now(),
               };
@@ -172,6 +206,28 @@ export function useAgent(agentId: string): UseAgentReturn {
 
   const selectSession = useCallback((sessionId: string | null) => {
     setSelectedSessionId(sessionId);
+    // Load history for the selected session if not already loaded
+    if (sessionId && messagesRef.current[sessionId] === undefined) {
+      fetch(`/api/v1/agent/history/${sessionId}`)
+        .then((res) => (res.ok ? res.json() : { messages: [] }))
+        .then((data) => {
+          const history: ChatMessage[] = (data.messages ?? []).map(
+            (m: { role: string; content: string; message_type?: string; payload?: Record<string, unknown>; timestamp?: string }) => ({
+              id: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              role: mapHistoryRole(m.role),
+              content: m.content,
+              messageType: m.message_type === 'transfer' ? 'transfer_status' : m.message_type,
+              payload: m.payload,
+              timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+            }),
+          );
+          setMessages((prev) => {
+            if (prev[sessionId] !== undefined) return prev;
+            return { ...prev, [sessionId]: history };
+          });
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const sendMessage = useCallback((sessionId: string, content: string) => {
@@ -213,7 +269,7 @@ export function useAgent(agentId: string): UseAgentReturn {
         const history: ChatMessage[] = (data.messages ?? []).map(
           (m: { role: string; content: string; message_type?: string; payload?: Record<string, unknown>; timestamp?: string }) => ({
             id: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            role: m.role === 'assistant' ? 'system' : (m.role as 'user' | 'agent' | 'system'),
+            role: mapHistoryRole(m.role),
             content: m.content,
             messageType: m.message_type === 'transfer' ? 'transfer_status' : m.message_type,
             payload: m.payload,

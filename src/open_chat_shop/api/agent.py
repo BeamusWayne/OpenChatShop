@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from open_chat_shop.core.handoff import AgentStatus, HandoffQueue, HumanAgent
+from open_chat_shop.core.types import SessionMode
 
 
 # ---- Request / Response models ----
@@ -146,11 +147,35 @@ def create_agent_router(
         if agent is None:
             raise HTTPException(status_code=409, detail="No available agents")
 
+        # Set session context to HUMAN_MODE
+        if context_manager is not None:
+            import asyncio
+            ctx = await context_manager.load(session_id)
+            ctx.mode = SessionMode.HUMAN_MODE
+            ctx.human_agent_id = agent.agent_id
+
+        # Build context payload for the agent
+        context_data: dict[str, Any] = {}
+        if session_messages is not None:
+            context_data["messages"] = session_messages.get(session_id, [])
+        if context_manager is not None:
+            import asyncio
+            ctx = await context_manager.load(session_id)
+            context_data["intents"] = list({
+                m.get("intent", "") for m in session_messages.get(session_id, [])
+                if m.get("intent")
+            })
+            context_data["duration_with_ai"] = int(
+                (ctx.last_active_at - ctx.created_at).total_seconds()
+            ) if ctx.created_at else 0
+        context_data["transfer_reason"] = request.reason
+
         return {
             "status": "assigned",
             "session_id": session_id,
             "agent_id": agent.agent_id,
             "agent_name": agent.name,
+            "context": context_data,
         }
 
     @router.post("/complete/{session_id}")
@@ -158,6 +183,7 @@ def create_agent_router(
         if session_id not in handoff_queue._active_transfers:
             raise HTTPException(status_code=404, detail="No active transfer for session")
         handoff_queue.complete_transfer(session_id)
+        # Context reset happens via _on_complete_cb in app.py
         return {"status": "completed"}
 
     return router

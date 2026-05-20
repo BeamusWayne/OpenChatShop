@@ -110,6 +110,42 @@ export function useChat() {
           break;
         }
 
+        case 'transfer_status': {
+          setIsTyping(false);
+          const status = evt.data.status ?? 'waiting';
+          if (status === 'connected') {
+            addMessage({
+              role: 'assistant',
+              content: `客服 ${evt.data.agent_name ?? ''} 已为您服务`,
+              messageType: 'transfer',
+              payload: {
+                status: 'assigned',
+                agent_name: evt.data.agent_name,
+              },
+            });
+          } else {
+            addMessage({
+              role: 'assistant',
+              content: '正在为您转接人工客服，请稍候...',
+              messageType: 'transfer',
+              payload: {
+                status: 'waiting',
+                position: evt.data.position,
+              },
+            });
+          }
+          break;
+        }
+
+        case 'transfer_ended': {
+          setIsTyping(false);
+          addMessage({
+            role: 'system',
+            content: evt.data.message ?? '人工服务已结束，已回到智能助手模式。',
+          });
+          break;
+        }
+
         case 'error': {
           setIsTyping(false);
           streamingIdRef.current = null;

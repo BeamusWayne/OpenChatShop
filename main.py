@@ -35,6 +35,8 @@ from open_chat_shop.core.middleware import (
 from open_chat_shop.core.rate_limiter import InMemoryRateLimiter, RateLimitGuard
 from open_chat_shop.core.cost_governance import SessionBudgetManager, BudgetConfig
 from open_chat_shop.core.slot_tracker import create_builtin_tracker
+from open_chat_shop.core.resilience import CircuitBreaker, RetryPolicy
+from open_chat_shop.core.cache import ResponseCache
 
 try:
     from open_chat_shop.core.anthropic_provider import AnthropicProvider
@@ -308,6 +310,17 @@ def build_orchestrator() -> DialogueOrchestrator:
 
     if provider is not None:
         try:
+            # Wrap provider with circuit breaker and retry for resilience
+            circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=30.0)
+            retry_policy = RetryPolicy(max_retries=3)
+            original_generate = provider.generate
+
+            async def _resilient_generate(*args, **kwargs):
+                async def _call():
+                    return await original_generate(*args, **kwargs)
+                return await retry_policy.execute(circuit_breaker.call, _call)
+
+            provider.generate = _resilient_generate
             orchestrator.set_provider(provider)
         except Exception:
             pass
@@ -337,7 +350,16 @@ def build_orchestrator() -> DialogueOrchestrator:
 
     # Wire middleware pipeline: rate limiting -> budget enforcement -> slot tracking
     rate_limiter = InMemoryRateLimiter()
-    rate_guard = RateLimitGuard(rate_limiter)
+    _redis_url = os.environ.get("REDIS_URL", "")
+    redis_client = None
+    if _redis_url:
+        try:
+            import redis.asyncio as aioredis
+            redis_client = aioredis.from_url(_redis_url)
+            logger.info("Using Redis-backed rate limiter")
+        except Exception as e:
+            logger.warning("Redis client init failed for rate limiter: %s", e)
+    rate_guard = RateLimitGuard(rate_limiter, redis_client=redis_client)
     budget_manager = SessionBudgetManager(BudgetConfig(max_tokens=100_000))
     slot_tracker = create_builtin_tracker()
 
@@ -346,6 +368,10 @@ def build_orchestrator() -> DialogueOrchestrator:
     pipeline.add(BudgetMiddleware(budget_manager))
     pipeline.add(SlotTrackingMiddleware(slot_tracker))
     orchestrator.set_middleware_pipeline(pipeline)
+
+    # Wire response cache (Redis-backed when available, in-memory fallback)
+    response_cache = ResponseCache(redis_client=redis_client)
+    orchestrator.set_response_cache(response_cache)
 
     return orchestrator
 

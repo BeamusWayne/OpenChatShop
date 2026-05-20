@@ -3,6 +3,7 @@ import {
   CustomerServiceOutlined,
   ClockCircleOutlined,
   UserOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 
 interface Props {
@@ -12,7 +13,8 @@ interface Props {
     estimated_wait_seconds?: number;
     queue_position?: number;
     agent_name?: string;
-    status?: 'queued' | 'assigned' | 'active' | 'completed';
+    status?: 'queued' | 'assigned' | 'active' | 'completed' | 'waiting' | 'ended';
+    position?: number;
     [key: string]: unknown;
   };
 }
@@ -27,9 +29,51 @@ export default function TransferStatus({ payload }: Props) {
   const { token } = theme.useToken();
 
   const agentName = payload.agent_name;
-  const queuePos = payload.queue_position;
+  const queuePos = payload.queue_position ?? payload.position;
   const waitSeconds = payload.estimated_wait_seconds ?? 120;
-  const isAssigned = !!agentName || payload.status === 'assigned' || payload.status === 'active';
+  const rawStatus = payload.status;
+  const isAssigned = !!agentName || rawStatus === 'assigned' || rawStatus === 'active';
+  const isEnded = rawStatus === 'completed' || rawStatus === 'ended';
+
+  if (isEnded) {
+    return (
+      <Card
+        size="small"
+        style={{
+          maxWidth: 340,
+          background: '#f0f5ff',
+          borderColor: '#adc6ff',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              background: '#f0f5ff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#1677ff',
+              fontSize: 20,
+              flexShrink: 0,
+            }}
+          >
+            <CheckCircleOutlined />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              人工服务已结束
+            </div>
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+              已回到智能助手模式，您可以继续提问。
+            </Typography.Text>
+          </div>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card

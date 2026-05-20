@@ -340,8 +340,17 @@ def create_app(
                 # If session has active human transfer, forward to agent
                 if _context_manager is not None:
                     ctx = _context_manager.get(session_id)
+                    logger.info(
+                        "WS mode check: session=%s ctx=%s mode=%s",
+                        session_id, ctx is not None,
+                        ctx.mode if ctx else "N/A",
+                    )
                     if ctx is not None and ctx.mode == SessionMode.HUMAN_MODE:
                         agent_ws = _agent_sockets.get(ctx.human_agent_id or "")
+                        logger.info(
+                            "HUMAN_MODE forward: agent_id=%s ws_found=%s",
+                            ctx.human_agent_id, agent_ws is not None,
+                        )
                         if agent_ws:
                             await agent_ws.send_text(json.dumps({
                                 "type": "customer_message",
@@ -354,7 +363,6 @@ def create_app(
                             "role": "user",
                             "content": data,
                         })
-                        # Also forward to customer for echo
                         continue
 
                     if ctx is not None and ctx.mode == SessionMode.TRANSFER_PENDING:
@@ -466,12 +474,20 @@ def create_app(
             # Update session context to HUMAN_MODE
             if _context_manager is not None:
                 ctx = _context_manager.get(request.session_id)
+                logger.info(
+                    "on_assign: session=%s ctx_found=%s",
+                    request.session_id, ctx is not None,
+                )
                 if ctx is not None:
                     ctx.mode = SessionMode.HUMAN_MODE
                     ctx.human_agent_id = agent.agent_id
 
             # Notify customer about agent assignment
             cust_ws = _customer_sockets.get(request.session_id)
+            logger.info(
+                "on_assign notify customer: session=%s cust_ws=%s",
+                request.session_id, cust_ws is not None,
+            )
             if cust_ws is not None:
                 try:
                     import asyncio as _aio
@@ -585,6 +601,18 @@ def create_app(
 
     if _orchestrator is not None:
         setup_wechat_routes(app, _orchestrator)
+
+    # ------------------------------------------------------------------
+    # Prometheus metrics endpoint
+    # ------------------------------------------------------------------
+
+    try:
+        from open_chat_shop.observability.metrics import metrics_app as _metrics_app
+
+        if _metrics_app is not None:
+            app.mount("/metrics", _metrics_app)
+    except Exception:
+        logger.debug("Prometheus metrics endpoint not mounted")
 
     return app
 

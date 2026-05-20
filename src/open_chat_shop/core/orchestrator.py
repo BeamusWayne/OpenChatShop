@@ -66,6 +66,7 @@ class DialogueOrchestrator:
         self._scenarios: dict[str, Any] = {}
         self._handoff_queue: Any = None
         self._middleware_pipeline: Any = None
+        self._response_cache: Any = None
 
     def set_provider(self, provider: Any) -> None:
         """Inject an LLM provider for natural language response generation.
@@ -108,6 +109,14 @@ class DialogueOrchestrator:
         execution.  Pass None to disable middleware.
         """
         self._middleware_pipeline = pipeline
+
+    def set_response_cache(self, cache: Any) -> None:
+        """Inject a ResponseCache for caching read-only query responses.
+
+        When set, the cache is checked before intent classification for
+        supported intents and populated after successful execution.
+        """
+        self._response_cache = cache
 
     def _trace_extras(self, session_id: str = "") -> dict[str, str]:
         """Build structured log extras with trace_id / span_id when available."""
@@ -231,6 +240,15 @@ class DialogueOrchestrator:
         with intent_span:
             intent = await self._intent_engine.classify(message, context)
 
+        # 3.5 Cache lookup for read-only intents
+        if self._response_cache is not None:
+            params = dict(intent.entities) if intent.entities else {}
+            params["content"] = message.content
+            cached = self._response_cache.get(intent.name, params)
+            if cached is not None:
+                await self._context_manager.save(context, cached)
+                return cached
+
         # 4. Dynamic tool injection
         inject_span = _nullcontext()
         if _TRACING_AVAILABLE:
@@ -247,6 +265,12 @@ class DialogueOrchestrator:
 
         # 6. Execute action
         response = await self._execute_action(action, context, tools)
+
+        # 6.5 Cache successful responses for read-only intents
+        if self._response_cache is not None and response.message_type != "error":
+            params = dict(intent.entities) if intent.entities else {}
+            params["content"] = message.content
+            self._response_cache.set(intent.name, params, response)
 
         # 7. Update context
         await self._context_manager.save(context, response)

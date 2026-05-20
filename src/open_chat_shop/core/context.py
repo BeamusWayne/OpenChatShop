@@ -13,6 +13,7 @@ from open_chat_shop.core.types import (
     AgentMessage,
     SessionContext,
     TokenBudget,
+    SessionMode,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,8 @@ class InMemoryContextManager(ContextManager):
                 user_role="customer",
                 created_at=now,
                 last_active_at=now,
+                mode=SessionMode.AI_MODE,
+                human_agent_id=None,
             )
         return self._sessions[session_id]
 
@@ -94,6 +97,8 @@ class InMemoryContextManager(ContextManager):
             user_role=context.user_role,
             created_at=context.created_at,
             last_active_at=datetime.now(timezone.utc),
+            mode=context.mode,
+            human_agent_id=context.human_agent_id,
         )
         self._sessions[context.session_id] = updated
 
@@ -130,6 +135,8 @@ class InMemoryContextManager(ContextManager):
             user_role=context.user_role,
             created_at=context.created_at,
             last_active_at=datetime.now(timezone.utc),
+            mode=context.mode,
+            human_agent_id=context.human_agent_id,
         )
 
     def get_token_budget(self, context: SessionContext) -> TokenBudget:
@@ -168,4 +175,10 @@ class InMemoryContextManager(ContextManager):
             user_role=context.user_role,
             created_at=context.created_at,
             last_active_at=context.last_active_at,
+            mode=context.mode,
+            human_agent_id=context.human_agent_id,
         )
+
+    def get(self, session_id: str) -> SessionContext | None:
+        """Synchronous lookup for session context (used by API guards)."""
+        return self._sessions.get(session_id)
