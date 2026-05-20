@@ -13,7 +13,9 @@
 - **业务状态机** — 售前咨询/售后处理/退款流程独立 FSM，可编排组合
 - **多渠道适配** — Web、微信公众号、微信小程序统一接口，按渠道自动路由，11 种富消息类型渲染
 - **Repository 层** — 5 个 Repository ABC（Order/Product/Logistics/Refund/Handoff），零配置内存模式 + 设 DATABASE_URL 自动切换数据库，工具层与存储完全解耦
-- **生产就绪** — JWT/API Key 认证、速率限制、成本治理、会话持久化、审计日志持久化、成本追踪持久化、OpenTelemetry 链路追踪、Docker Compose 一键部署
+- **弹性容错** — 熔断器（Circuit Breaker）+ 指数退避重试保护 LLM 调用，Redis/内存双模式限速器，读操作响应缓存
+- **可观测性** — Prometheus 指标 + Grafana 仪表盘 + OpenTelemetry 链路追踪 + 结构化审计日志
+- **生产就绪** — JWT/API Key 认证、速率限制、成本治理、会话持久化、Docker 多阶段构建、CI/CD、安全响应头、就绪探针
 
 ## 快速开始
 
@@ -48,6 +50,8 @@ pip install -e .
 - 聊天界面: http://localhost:8000/
 - API 文档: http://localhost:8000/docs
 - 健康检查: http://localhost:8000/health
+- 就绪探针: http://localhost:8000/health/ready
+- Prometheus 指标: http://localhost:8000/metrics
 
 ### 启动人工客服后台
 
@@ -102,7 +106,7 @@ DATABASE_URL=sqlite:///data/shop.db        # SQLite（最简单）
 | `GLM_MODEL` | 模型名称（默认 glm-5.1） | 否 |
 | `OPENAI_API_KEY` | OpenAI API Key | 否 |
 | `DATABASE_URL` | 数据库连接串（SQLite/PostgreSQL） | 数据持久化时必填 |
-| `REDIS_URL` | Redis 连接串（会话持久化） | 否 |
+| `REDIS_URL` | Redis 连接串（限速器 + 缓存 + 会话持久化） | 否 |
 | `WECHAT_APP_ID` | 微信公众号 AppID | 接入公众号时必填 |
 | `WECHAT_APP_SECRET` | 微信公众号 AppSecret | 接入公众号时必填 |
 | `WECHAT_TOKEN` | 微信公众号 Token | 接入公众号时必填 |
@@ -111,13 +115,158 @@ DATABASE_URL=sqlite:///data/shop.db        # SQLite（最简单）
 | `WECHAT_MINIPROGRAM_APP_SECRET` | 微信小程序 AppSecret | 接入小程序时必填 |
 | `WECHAT_MINIPROGRAM_TOKEN` | 微信小程序 Token | 接入小程序时必填 |
 | `API_KEY` | 静态 API Key（与 JWT 二选一） | 否 |
+| `CORS_ORIGINS` | 允许的跨域来源（逗号分隔，默认 localhost:3000,localhost:8000） | 否 |
+| `JWT_SECRET_KEY` | JWT 签名密钥 | 否 |
+| `LOG_LEVEL` | 日志级别（默认 INFO） | 否 |
 
 ### Docker Compose
 
 ```bash
-# 完整部署（api + redis + postgres）
+# 完整部署（api + postgres + redis + prometheus + grafana）
 docker compose up
 ```
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| agent-api | 8000 | 主 API 服务 |
+| postgres | 5432 (内部) | 数据库（pgvector） |
+| redis | 6379 (内部) | 缓存 + 限速 + 会话 |
+| prometheus | 9090 | 指标采集 |
+| grafana | 3000 | 监控仪表盘（admin/admin） |
+
+## 弹性与容错
+
+### 熔断器
+
+LLM 调用受 Circuit Breaker 保护，避免级联故障：
+
+```
+CLOSED →（连续 5 次失败）→ OPEN →（30 秒后）→ HALF_OPEN →（探针成功）→ CLOSED
+                                                         └→（探针失败）→ OPEN
+```
+
+- `failure_threshold=5` — 连续失败 5 次触发熔断
+- `recovery_timeout=30s` — 熔断 30 秒后进入半开状态
+- 半开状态允许 1 个探针请求验证恢复
+
+### 重试策略
+
+瞬态错误（TimeoutError、ConnectionError、OSError）自动重试：
+
+- `max_retries=3` — 最多重试 3 次
+- 指数退避：1s → 2s → 4s（上限 8s）
+- 业务错误（ValueError 等）不重试，立即抛出
+
+### 响应缓存
+
+读操作（商品搜索、订单查询、物流查询）自动缓存，减少 LLM 调用：
+
+| 意图 | TTL | 后端 |
+|------|-----|------|
+| `search_product` | 5 分钟 | Redis / 内存 |
+| `query_order` | 1 分钟 | Redis / 内存 |
+| `query_logistics` | 30 秒 | Redis / 内存 |
+
+写操作（退款、取消订单、修改地址、转人工）不缓存。设 `REDIS_URL` 自动启用分布式缓存，否则使用进程内缓存。
+
+### 速率限制
+
+滑动窗口算法，支持 Redis 和内存双后端：
+
+| 维度 | 窗口 | 上限 |
+|------|------|------|
+| 用户消息 | 60 秒 | 30 条 |
+| IP 请求 | 60 秒 | 60 条 |
+| 工具调用 | 3600 秒 | 1000 次 |
+
+设 `REDIS_URL` 自动使用 Redis 分布式限速（Lua 原子脚本），否则进程内限速。
+
+## 监控与可观测性
+
+### Prometheus 指标
+
+`/metrics` 端点暴露以下指标：
+
+| 指标 | 类型 | 说明 |
+|------|------|------|
+| `openchatshop_chat_requests_total` | Counter | 聊天请求总数（按 intent/status 分维） |
+| `openchatshop_chat_duration_seconds` | Histogram | 聊天请求延迟（分桶 0.1s-10s） |
+| `openchatshop_llm_calls_total` | Counter | LLM 调用次数（按 model/status） |
+| `openchatshop_llm_tokens_total` | Counter | Token 消耗（按 model/type） |
+| `openchatshop_tool_calls_total` | Counter | 工具调用次数（按 tool/status） |
+| `openchatshop_cache_hits_total` | Counter | 缓存命中次数（按 intent） |
+| `openchatshop_active_sessions` | Gauge | 当前活跃会话数 |
+| `openchatshop_handoff_queue_size` | Gauge | 人工转接排队数 |
+
+### Grafana 仪表盘
+
+`docker compose up` 后访问 http://localhost:3000 ，内置预配置仪表盘：
+
+- 请求量 & 延迟分布
+- LLM 调用成功率 & Token 消耗
+- 工具调用频率
+- 缓存命中率
+- 活跃会话 & 排队趋势
+
+### Prometheus 告警规则
+
+`monitoring/prometheus/alerts.yml` 预定义 3 条告警：
+
+| 告警 | 条件 |
+|------|------|
+| HighErrorRate | 5 分钟内错误率 > 10% |
+| HighLatency | P95 延迟 > 5 秒 |
+| LLMProviderDown | LLM 调用连续 2 分钟失败 |
+
+### 健康检查
+
+| 端点 | 用途 |
+|------|------|
+| `GET /health` | 存活探针（总是返回 ok） |
+| `GET /health/ready` | 就绪探针（检查 DB + Redis 连通性，不健康时返回 503） |
+
+### 安全响应头
+
+所有 HTTP 响应自动添加安全头：
+
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `X-XSS-Protection: 1; mode=block`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Content-Security-Policy: default-src 'self'`
+- HTTPS 时自动添加 `Strict-Transport-Security`
+
+## CI/CD
+
+GitHub Actions 自动化流水线（`.github/workflows/ci.yml`）：
+
+| Job | 说明 |
+|-----|------|
+| lint | Ruff 代码规范检查 |
+| type-check | MyPy 类型检查 |
+| test | pytest 测试（Python 3.11 + 3.12 矩阵） |
+| frontend | 前端构建验证 |
+| docker | Docker 镜像构建验证 |
+
+5 个 Job 并行执行，PR 自动触发。
+
+## 负载测试
+
+使用 Locust 进行压力测试：
+
+```bash
+pip install -e ".[dev]"
+cd tests/load
+locust -f locustfile.py --host=http://localhost:8000
+```
+
+访问 http://localhost:8089 查看 Locust 控制台。
+
+内置 4 种测试场景：
+- `ChatUser` — 基础对话（问候/感谢）
+- `OrderUser` — 订单查询
+- `ProductUser` — 商品搜索
+- `WebSocketUser` — WebSocket 连接
 
 ## 富消息渲染
 
@@ -293,6 +442,7 @@ registry.register("my_channel", MyChannelAdapter())
 │                      API 层 (FastAPI)                      │
 │     REST / SSE 流式 / WebSocket / 微信 Webhook             │
 │     Agent REST API / Agent WebSocket                       │
+│     Prometheus /metrics · SecurityHeaders                  │
 ├──────────────────────────────────────────────────────────┤
 │                    对话编排层 (Orchestrator)                 │
 │  Security → Context → Intent → Tool → Strategy → Action   │
@@ -302,6 +452,10 @@ registry.register("my_channel", MyChannelAdapter())
 │ PII 脱敏  │ 语义检索  │ 生命周期  │ 槽位追踪                  │
 │ RBAC 权限 │ LLM 分类  │ 补偿回滚  │ 人工转接                  │
 ├──────────┴──────────┴──────────┴──────────────────────────┤
+│               弹性层 (Resilience)                          │
+│  CircuitBreaker · RetryPolicy · ResponseCache              │
+│  RedisRateLimiter · SessionBudgetManager                   │
+├──────────────────────────────────────────────────────────┤
 │               Repository 抽象层（构造器注入）                │
 │  OrderRepository  ·  ProductRepository  ·  LogisticsRepo   │
 │  RefundRepository ·  HandoffRepository                      │
@@ -312,10 +466,11 @@ registry.register("my_channel", MyChannelAdapter())
 │  CascadeStrategy · LiteLLM · 级联降级                      │
 ├──────────────────────────────────────────────────────────┤
 │                  基础设施层 (Infrastructure)                 │
-│  会话存储    │  可观测性      │  治理                        │
-│  内存/Redis  │  链路追踪      │  速率限制                    │
-│  SQLModel DB │  审计日志(DB)  │  成本治理                    │
-│  向量检索    │  CostTracker(DB)│  预算管控                   │
+│  会话存储    │  可观测性          │  治理                    │
+│  内存/Redis  │  Prometheus+Grafana│  速率限制                │
+│  SQLModel DB │  链路追踪(OTel)    │  成本治理                │
+│  向量检索    │  审计日志(DB)      │  预算管控                │
+│              │  CostTracker(DB)   │  CI/CD(GitHub Actions)  │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -374,6 +529,11 @@ frontend-agent/              坐席管理后台（独立 React 应用）
 │     → 结果: Intent(name="query_logistics", confidence=0.92)
 │     → 实体提取: {order_id: "ORD-001"}
 │
+├─ 4.5 响应缓存查询
+│     ResponseCache.get("query_logistics", {order_id: "ORD-001"})
+│     → 命中 → 直接返回缓存 AgentMessage，跳过后续步骤
+│     → 未命中 → 继续
+│
 ├─ 5. 工具注入
 │     ToolInjector.inject(intent, context)
 │     ├─ 意图匹配: intent_patterns glob 匹配
@@ -396,7 +556,10 @@ frontend-agent/              坐席管理后台（独立 React 应用）
 │
 ├─ 8. 响应构建
 │     ToolResponseMapper → 构建 AgentMessage(message_type="logistics_timeline")
-│     LLM Enhancement (可选) → 自然语言润色
+│     LLM Enhancement (Circuit Breaker + Retry 保护) → 自然语言润色
+│
+├─ 8.5 缓存写入
+│     ResponseCache.set("query_logistics", {order_id: "ORD-001"}, response, ttl=30s)
 │
 ├─ 9. 渠道适配
 │     WechatAdapter.adapt_with_fallback()
@@ -492,6 +655,7 @@ frontend-agent/              坐席管理后台（独立 React 应用）
 | 数据采集 | `StructuredFormatter` + `AuditLogger` / `DatabaseAuditLogger` | 运行中 | JSON 结构化日志，记录意图/实体/工具调用/Token消耗，DB 模式下持久化到 AuditRecord 表 |
 | 成本追踪 | `CostTracker` / `DatabaseCostTracker` | 运行中 | 每次 LLM 调用后记录模型和 Token 用量，DB 模式下持久化到 CostRecord 表 |
 | 链路追踪 | OpenTelemetry (10 span) | 运行中 | security/context/intent/tool 各环节独立 trace |
+| Prometheus | 8 个指标 + Histogram 分桶 | 运行中 | /metrics 端点自动采集 |
 | 黄金数据集 | `GoldenDataset` (500 样本) | 已加载 | 启动时注入 Level-2 语义匹配引擎 |
 | 回归测试 | `python -m evaluation regression` | CLI 可用 | CI 中运行，≥80% 通过 exit 0 |
 | LLM Judge | `python -m evaluation judge` | CLI 可用 | 4 维度评分（准确/安全/有用/语气），1-5 分 |
@@ -518,14 +682,21 @@ open-chat-shop/
 ├── main.py                     # 入口：组装组件并启动 FastAPI
 ├── run.sh                      # 启动脚本（自动构建前端）
 ├── pyproject.toml              # 项目依赖（FastAPI, LiteLLM, SQLModel, Redis...）
-├── Dockerfile
-├── docker-compose.yml          # api + redis + postgres
+├── Dockerfile                  # 多阶段构建，非 root 用户
+├── docker-compose.yml          # api + postgres + redis + prometheus + grafana
+├── .github/workflows/ci.yml    # GitHub Actions CI（lint/type/test/frontend/docker）
 ├── configs/                    # YAML 配置
 │   ├── providers.yaml          # LLM Provider 配置
 │   ├── tool_routing.yaml       # 工具路由规则
 │   ├── security.yaml           # 安全策略
 │   ├── scenarios.yaml          # 业务场景 FSM
 │   └── channels.yaml           # 渠道配置
+├── monitoring/                 # Prometheus + Grafana 配置
+│   ├── prometheus/
+│   │   └── alerts.yml          # 告警规则（错误率/延迟/LLM 故障）
+│   └── grafana/
+│       ├── datasources/        # Prometheus 数据源
+│       └── dashboards/         # 预配置仪表盘
 ├── frontend/                   # 客户聊天前端（React + Ant Design）
 │   ├── src/components/         #   ChatWindow, MessageBubble
 │   ├── src/components/rich/    #   4 种富消息组件
@@ -545,20 +716,22 @@ open-chat-shop/
 │   │   ├── intent.py           # 三级级联意图引擎
 │   │   ├── tool.py             # 工具注册与动态注入
 │   │   ├── strategy.py         # 对话策略
-│   │   ├── orchestrator.py     # 对话编排器（主流程）
+│   │   ├── orchestrator.py     # 对话编排器（主流程 + 缓存 + 链路追踪）
 │   │   ├── security.py         # 安全防护层
 │   │   ├── scenario.py         # 通用状态机 FSM
 │   │   ├── slot_tracker.py     # 实体槽位追踪
 │   │   ├── semantic_search.py  # 向量语义搜索
 │   │   ├── cost_governance.py  # 成本治理
-│   │   ├── rate_limiter.py     # 速率限制
+│   │   ├── rate_limiter.py     # 速率限制（内存 + Redis 双后端）
 │   │   ├── middleware.py       # 编排器中间件
 │   │   ├── handoff.py          # 人工转接队列（自动分配 + 回调通知）
+│   │   ├── resilience.py       # 熔断器 + 重试策略
+│   │   ├── cache.py            # 响应缓存（Redis + 内存双后端）
 │   │   └── tool_response_mapper.py  # 工具结果 → 富消息映射
 │   ├── tools/builtin/          # 8 个内置电商工具（构造器注入 Repository）
 │   ├── channel/                # 多渠道适配 + Registry + 富消息渲染
 │   ├── api/                    # REST + WebSocket + 流式响应 + 微信 Webhook
-│   │   ├── app.py              #   主应用（含 Agent WebSocket）
+│   │   ├── app.py              #   主应用（含 Agent WebSocket + 安全头 + /metrics）
 │   │   ├── agent.py            #   Agent REST API（7 个端点）
 │   │   ├── streaming.py        #   SSE + WebSocket 流式响应
 │   │   └── wechat.py           #   微信 Webhook
@@ -568,8 +741,11 @@ open-chat-shop/
 │   │   ├── database.py         # 数据库初始化 + 会话管理
 │   │   └── alembic/            # 数据库迁移
 │   ├── evaluation/             # 评测框架（黄金数据集/回归/LLM-as-Judge）
-│   └── observability/          # 日志/链路追踪 + DatabaseAuditLogger + DatabaseCostTracker
-├── tests/                      # 40+ 个测试文件（791 个测试用例）
+│   └── observability/          # 日志/链路追踪 + Prometheus 指标 + DatabaseAuditLogger
+├── tests/                      # 40+ 个测试文件（852 个测试用例）
+│   ├── unit/                   #   单元测试
+│   ├── integration/            #   集成测试
+│   └── load/                   #   Locust 负载测试
 └── docs/                       # 设计文档
 ```
 
@@ -651,9 +827,12 @@ class MyCustomTool(BaseTool):
 | 数据模型 | SQLModel |
 | 向量检索 | pgvector / 内存 |
 | 会话存储 | Redis / 内存 / 数据库 |
-| 可观测 | OpenTelemetry + structlog |
+| 可观测 | Prometheus + Grafana + OpenTelemetry + structlog |
+| 弹性 | Circuit Breaker + Retry + Response Cache |
 | 前端 | React 19 + Ant Design 6 + Vite 8 |
-| 容器化 | Docker + Docker Compose |
+| CI/CD | GitHub Actions |
+| 负载测试 | Locust |
+| 容器化 | Docker（多阶段构建）+ Docker Compose |
 
 ## License
 
