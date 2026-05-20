@@ -1,6 +1,10 @@
 import { Typography, Space, Tag, theme } from 'antd';
 import { RobotOutlined, UserOutlined } from '@ant-design/icons';
 import type { ChatMessage } from '../types/chat';
+import OrderCard from './rich/OrderCard';
+import LogisticsTimeline from './rich/LogisticsTimeline';
+import ProductGrid from './rich/ProductGrid';
+import TransferStatus from './rich/TransferStatus';
 
 const AI_ACCENT = '#ff5600';
 const AI_ACCENT_BG = '#fff5eb';
@@ -74,7 +78,17 @@ export default function MessageBubble({ message, onSuggestionClick }: Props) {
           }}
         >
           <Typography.Text style={{ color: 'inherit' }}>
-            {message.content}
+            {message.messageType === 'order_card' && message.payload ? (
+              <OrderCard payload={message.payload as Parameters<typeof OrderCard>[0]['payload']} />
+            ) : message.messageType === 'logistics_timeline' && message.payload ? (
+              <LogisticsTimeline payload={message.payload as Parameters<typeof LogisticsTimeline>[0]['payload']} />
+            ) : message.messageType === 'product_list' && message.payload ? (
+              <ProductGrid payload={message.payload as Parameters<typeof ProductGrid>[0]['payload']} />
+            ) : message.messageType === 'transfer' && message.payload ? (
+              <TransferStatus payload={message.payload as Parameters<typeof TransferStatus>[0]['payload']} />
+            ) : (
+              message.content
+            )}
           </Typography.Text>
         </div>
         {message.suggestions && message.suggestions.length > 0 && (

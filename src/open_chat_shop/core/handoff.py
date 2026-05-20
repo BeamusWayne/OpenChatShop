@@ -74,6 +74,10 @@ class HandoffQueue:
         self._queue: list[TransferRequest] = []
         self._active_transfers: dict[str, TransferRequest] = {}
         self._timeout_seconds = timeout_seconds
+        # Optional callbacks for real-time notifications
+        self._on_enqueue: list[Any] = []   # Called with (TransferRequest, position)
+        self._on_assign: list[Any] = []    # Called with (TransferRequest, HumanAgent)
+        self._on_complete: list[Any] = []  # Called with (TransferRequest)
 
     def register_agent(self, agent: HumanAgent) -> None:
         """Register a human agent."""
@@ -101,7 +105,13 @@ class HandoffQueue:
         """Add a transfer request to the queue. Returns queue position."""
         self._queue.append(request)
         self._queue.sort(key=lambda r: r.priority, reverse=True)
-        return self._queue.index(request) + 1
+        position = self._queue.index(request) + 1
+        for cb in self._on_enqueue:
+            try:
+                cb(request, position)
+            except Exception:
+                pass
+        return position
 
     def assign(self, request: TransferRequest) -> HumanAgent | None:
         """Try to assign a request to an available agent.
@@ -137,6 +147,11 @@ class HandoffQueue:
             "Assigned session %s to agent %s",
             request.session_id, agent.name,
         )
+        for cb in self._on_assign:
+            try:
+                cb(request, agent)
+            except Exception:
+                pass
         return agent
 
     def complete_transfer(self, session_id: str) -> None:
@@ -154,6 +169,12 @@ class HandoffQueue:
                 s for s in agent.active_sessions if s != session_id
             ]
             agent.status = AgentStatus.ONLINE
+
+        for cb in self._on_complete:
+            try:
+                cb(transfer)
+            except Exception:
+                pass
 
     def get_queue_position(self, session_id: str) -> int | None:
         """Get the queue position for a session. None if not queued."""
@@ -200,3 +221,28 @@ class HandoffQueue:
                 self._queue.pop(i)
                 return True
         return False
+
+    def try_auto_assign(self) -> TransferRequest | None:
+        """Try to assign the highest-priority queued request to an agent.
+
+        Returns the assigned request, or None if no assignment was possible.
+        """
+        if not self._queue:
+            return None
+        # Pick highest-priority request
+        request = self._queue[0]
+        agent = self.assign(request)
+        if agent is None:
+            return None
+        return request
+
+    def get_active_transfer(self, session_id: str) -> TransferRequest | None:
+        """Get the active transfer for a session, if any."""
+        return self._active_transfers.get(session_id)
+
+    def get_queued_request(self, session_id: str) -> TransferRequest | None:
+        """Get a queued request by session_id, if any."""
+        for req in self._queue:
+            if req.session_id == session_id:
+                return req
+        return None

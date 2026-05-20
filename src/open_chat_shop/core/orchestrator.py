@@ -372,7 +372,21 @@ class DialogueOrchestrator:
                             department=action.payload.get("department", "general"),
                         )
                         position = self._handoff_queue.enqueue(request)
-                        msg = f"正在为您转接人工客服，当前排队位置：第{position}位，请耐心等待。"
+
+                        # Try auto-assign to an available agent
+                        assigned = self._handoff_queue.try_auto_assign()
+                        if assigned is not None:
+                            agent_id = assigned.assigned_agent_id
+                            agent = self._handoff_queue._agents.get(agent_id or "")
+                            agent_name = agent.name if agent else "客服"
+                            msg = f"已为您接入人工客服 {agent_name}，请直接描述您的问题。"
+                            action.payload["agent_name"] = agent_name
+                            action.payload["status"] = "assigned"
+                        else:
+                            est_wait = self._handoff_queue.get_estimated_wait(context.session_id)
+                            msg = f"正在为您转接人工客服，当前排队位置：第{position}位，预计等待约{est_wait // 60}分钟。"
+                            action.payload["queue_position"] = position
+                            action.payload["estimated_wait_seconds"] = est_wait
                     except Exception:
                         logger.warning("HandoffQueue enqueue failed, using fallback message")
                         msg = "正在为您转接人工客服..."

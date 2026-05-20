@@ -35,10 +35,15 @@ def _map_query_order(data: dict[str, Any]) -> AgentMessage:
 
 
 def _map_query_logistics(data: dict[str, Any]) -> AgentMessage:
-    steps = data.get("steps", [])
+    steps = data.get("steps", data.get("timeline", []))
     return AgentMessage(
         message_type="logistics_timeline",
-        payload={"order_id": data["order_id"], "steps": steps},
+        payload={
+            "order_id": data["order_id"],
+            "carrier": data.get("carrier", ""),
+            "tracking_number": data.get("tracking_number", ""),
+            "steps": steps,
+        },
         text_fallback=f"订单 {data['order_id']} 物流信息已查询",
     )
 
