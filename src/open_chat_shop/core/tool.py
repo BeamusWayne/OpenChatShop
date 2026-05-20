@@ -117,7 +117,9 @@ class ToolInjector:
         # Layer 1 — intent matching
         candidate_tools = self._match_intent(intent.name)
         if not candidate_tools:
-            logger.warning("No tools matched intent", extra={"intent": intent.name})
+            # Intents like greeting/thanks have no tools — that's expected
+            if intent.name not in ("greeting", "thanks", "fallback"):
+                logger.warning("No tools matched intent", extra={"intent": intent.name})
             return []
 
         # Layer 2 — scenario filtering

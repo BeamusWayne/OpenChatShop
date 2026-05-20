@@ -131,8 +131,7 @@ class DialogueOrchestrator:
             message.content, pending_intent_name,
         )
 
-        # Simple value extraction for common slot types the regex extractor
-        # may not cover (e.g. bare order IDs, raw keyword input)
+        # Specific slot extraction (regex-based)
         for slot in missing_slots:
             if slot in entities:
                 continue
@@ -140,17 +139,25 @@ class DialogueOrchestrator:
                 m = _re.search(r"ORD-[\w]+", message.content, _re.IGNORECASE)
                 if m:
                     entities["order_id"] = m.group(0)
-            elif slot == "keyword":
-                entities["keyword"] = message.content.strip()
-            elif slot == "reason":
-                entities["reason"] = message.content.strip()
-            elif slot == "new_address":
-                entities["new_address"] = message.content.strip()
+
+        # Generic fallback: only if no specific slot was filled above
+        specific_filled = any(s in entities for s in ("order_id", "keyword"))
+        if not specific_filled:
+            for slot in missing_slots:
+                if slot in entities:
+                    continue
+                if slot == "keyword":
+                    entities["keyword"] = message.content.strip()
+                elif slot == "reason":
+                    entities["reason"] = message.content.strip()
+                elif slot == "new_address":
+                    entities["new_address"] = message.content.strip()
+                break  # One generic slot per message
 
         still_missing = [s for s in missing_slots if s not in entities]
 
         if still_missing:
-            # Could not fill all slots — update pending and ask again
+            # Partial fill — keep pending and return a clarify message
             updated_params = {**existing_params, **entities}
             context.slots["_pending_action"] = {
                 "intent_name": pending_intent_name,
@@ -158,7 +165,12 @@ class DialogueOrchestrator:
                 "tool_name": tool_name,
                 "params": updated_params,
             }
-            return None
+            prompt = self._slot_prompt(still_missing)
+            return AgentMessage(
+                message_type="text",
+                payload={"content": prompt, "question": prompt},
+                text_fallback=prompt,
+            )
 
         # All slots filled — build a synthetic intent and execute directly
         merged_params = {**existing_params, **entities}
@@ -188,6 +200,17 @@ class DialogueOrchestrator:
         # No tool — use strategy to decide
         action = await self._strategy.decide(pending_intent, context, tools)
         return await self._execute_action(action, context, tools)
+
+    @staticmethod
+    def _slot_prompt(missing_slots: list[str]) -> str:
+        prompts = {
+            "order_id": "请问您的订单号是多少？例如 ORD-001",
+            "keyword": "请问您想搜索什么商品？",
+            "reason": "请问退款原因是什么？",
+            "new_address": "请问新的收货地址是什么？",
+        }
+        first = missing_slots[0]
+        return prompts.get(first, f"请提供以下信息：{', '.join(missing_slots)}")
 
     async def _execute_action(
         self,
@@ -365,9 +388,15 @@ class DialogueOrchestrator:
             "4. 用中文回复"
         )
 
+        # Filter internal fields from payload before sending to LLM
+        clean_payload = {
+            k: v for k, v in action.payload.items()
+            if not k.startswith("_")
+        }
+
         user_prompt = (
             f"对话历史：\n{history_text}\n"
-            f"系统信息：{action.payload}\n请回复用户："
+            f"系统信息：{clean_payload}\n请回复用户："
         )
 
         messages = [
