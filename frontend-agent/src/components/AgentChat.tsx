@@ -6,6 +6,7 @@ import ProductGrid from './rich/ProductGrid';
 import OrderCard from './rich/OrderCard';
 import LogisticsTimeline from './rich/LogisticsTimeline';
 import TransferStatus from './rich/TransferStatus';
+import QuickReplies from './QuickReplies';
 
 interface AgentChatProps {
   sessionId: string;
@@ -86,6 +87,9 @@ export default function AgentChat({ messages, onSendMessage }: AgentChatProps) {
 
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Quick Replies */}
+      <QuickReplies onSelect={onSendMessage} />
 
       {/* Input Area */}
       <div
