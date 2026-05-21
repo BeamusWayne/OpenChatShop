@@ -22,6 +22,13 @@ interface UseAgentReturn {
   refreshActive: () => Promise<void>;
 }
 
+const INITIAL_RECONNECT_DELAY = 3000;
+const MAX_RECONNECT_DELAY = 60000;
+
+function getReconnectDelay(retryCount: number): number {
+  return Math.min(INITIAL_RECONNECT_DELAY * Math.pow(2, retryCount), MAX_RECONNECT_DELAY);
+}
+
 export function useAgent(agentId: string, agentName = '', agentDepartment = 'general'): UseAgentReturn {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
@@ -31,6 +38,7 @@ export function useAgent(agentId: string, agentName = '', agentDepartment = 'gen
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
   const messagesRef = useRef<Record<string, ChatMessage[]>>({});
   messagesRef.current = messages;
 
@@ -66,6 +74,7 @@ export function useAgent(agentId: string, agentName = '', agentDepartment = 'gen
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws/agent/${agentId}?${params}`);
 
     ws.onopen = () => {
+      retryCountRef.current = 0;
       setConnected(true);
     };
 
@@ -183,9 +192,11 @@ export function useAgent(agentId: string, agentName = '', agentDepartment = 'gen
 
     ws.onclose = () => {
       setConnected(false);
+      const delay = getReconnectDelay(retryCountRef.current);
+      retryCountRef.current += 1;
       reconnectTimerRef.current = setTimeout(() => {
         connect();
-      }, 3000);
+      }, delay);
     };
 
     ws.onerror = () => {

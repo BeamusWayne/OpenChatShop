@@ -365,6 +365,17 @@ def create_app(
         try:
             while True:
                 data = await websocket.receive_text()
+
+                # Handle client heartbeat — respond immediately and skip
+                # normal processing so it is not treated as a chat message.
+                try:
+                    parsed = json.loads(data)
+                    if isinstance(parsed, dict) and parsed.get("type") == "heartbeat":
+                        await websocket.send_json({"type": "heartbeat"})
+                        continue
+                except (json.JSONDecodeError, ValueError):
+                    pass  # not JSON — treat as plain text chat message
+
                 if _orchestrator is None:
                     await websocket.send_json({"error": "Service not configured"})
                     continue

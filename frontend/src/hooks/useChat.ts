@@ -1,15 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage, ConnectionState, SessionMode, StreamEvent } from '../types/chat';
 
-const SESSION_ID = crypto.randomUUID();
-const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat/${SESSION_ID}`;
-const STORAGE_KEY = `openchatshop_messages_${SESSION_ID}`;
+const SESSION_ID_KEY = 'openchatshop_session_id';
+const INITIAL_RECONNECT_DELAY = 3000;
+const MAX_RECONNECT_DELAY = 60000;
+const HEARTBEAT_INTERVAL = 30000;
+const HEARTBEAT_TIMEOUT = 10000;
 const MAX_STORED_MESSAGES = 200;
-const RECONNECT_DELAY = 3000;
 
-function loadSavedMessages(): ChatMessage[] {
+function getReconnectDelay(retryCount: number): number {
+  return Math.min(INITIAL_RECONNECT_DELAY * Math.pow(2, retryCount), MAX_RECONNECT_DELAY);
+}
+
+function getOrCreateSessionId(): string {
+  const stored = localStorage.getItem(SESSION_ID_KEY);
+  if (stored) return stored;
+  const id = crypto.randomUUID();
+  localStorage.setItem(SESSION_ID_KEY, id);
+  return id;
+}
+
+function loadSavedMessages(sessionId: string): ChatMessage[] {
   try {
-    const saved = sessionStorage.getItem(STORAGE_KEY);
+    const storageKey = `openchatshop_messages_${sessionId}`;
+    const saved = sessionStorage.getItem(storageKey);
     if (!saved) return [];
     const parsed: unknown = JSON.parse(saved);
     if (!Array.isArray(parsed)) return [];
@@ -25,21 +39,25 @@ function loadSavedMessages(): ChatMessage[] {
   }
 }
 
-function persistMessages(msgs: ChatMessage[]): void {
+function persistMessages(sessionId: string, msgs: ChatMessage[]): void {
   try {
+    const storageKey = `openchatshop_messages_${sessionId}`;
     const toSave = msgs.slice(-MAX_STORED_MESSAGES);
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    sessionStorage.setItem(storageKey, JSON.stringify(toSave));
   } catch {
     // quota exceeded or incognito restriction — ignore
   }
 }
 
 export function useChat() {
-  const [messages, setMessages] = useState<ChatMessage[]>(() => loadSavedMessages());
+  const sessionIdRef = useRef<string>(getOrCreateSessionId());
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    loadSavedMessages(sessionIdRef.current),
+  );
 
   useEffect(() => {
     if (messages.length > 0) {
-      persistMessages(messages);
+      persistMessages(sessionIdRef.current, messages);
     }
   }, [messages]);
 
@@ -51,6 +69,10 @@ export function useChat() {
   const [sessionMode, setSessionMode] = useState<SessionMode>('ai_mode');
   const wsRef = useRef<WebSocket | null>(null);
   const streamingIdRef = useRef<string | null>(null);
+  const retryCountRef = useRef(0);
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const heartbeatTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingMessagesRef = useRef<string[]>([]);
 
   const addMessage = useCallback((msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     const full: ChatMessage = {
@@ -62,13 +84,54 @@ export function useChat() {
     return full.id;
   }, []);
 
+  const clearTimers = useCallback(() => {
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    }
+    if (heartbeatTimeoutRef.current) {
+      clearTimeout(heartbeatTimeoutRef.current);
+      heartbeatTimeoutRef.current = null;
+    }
+  }, []);
+
+  const drainPendingMessages = useCallback((ws: WebSocket) => {
+    const pending = [...pendingMessagesRef.current];
+    pendingMessagesRef.current = [];
+    for (const msg of pending) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(msg);
+      } else {
+        pendingMessagesRef.current.push(msg);
+      }
+    }
+  }, []);
+
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const ws = new WebSocket(WS_URL);
+    const sessionId = sessionIdRef.current;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/chat/${sessionId}`;
+    const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
+      retryCountRef.current = 0;
       setConnection({ connected: true, reconnecting: false });
+      drainPendingMessages(ws);
+
+      // Start heartbeat
+      clearTimers();
+      heartbeatTimerRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'heartbeat' }));
+          heartbeatTimeoutRef.current = setTimeout(() => {
+            clearTimers();
+            ws.close();
+          }, HEARTBEAT_TIMEOUT);
+        }
+      }, HEARTBEAT_INTERVAL);
+
       addMessage({
         role: 'system',
         content: '欢迎使用 OpenChatShop 智能客服！请问有什么可以帮您？',
@@ -76,7 +139,28 @@ export function useChat() {
     };
 
     ws.onmessage = (event) => {
-      const evt: StreamEvent = JSON.parse(event.data);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      // Handle heartbeat response — clear the timeout
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        'type' in parsed &&
+        (parsed as { type: string }).type === 'heartbeat'
+      ) {
+        if (heartbeatTimeoutRef.current) {
+          clearTimeout(heartbeatTimeoutRef.current);
+          heartbeatTimeoutRef.current = null;
+        }
+        return;
+      }
+
+      const evt = parsed as StreamEvent;
 
       switch (evt.type) {
         case 'typing':
@@ -201,32 +285,46 @@ export function useChat() {
     };
 
     ws.onclose = () => {
+      clearTimers();
       setConnection({ connected: false, reconnecting: true });
-      setTimeout(() => connect(), RECONNECT_DELAY);
+      const delay = getReconnectDelay(retryCountRef.current);
+      retryCountRef.current += 1;
+      setTimeout(() => connect(), delay);
     };
 
     ws.onerror = () => ws.close();
     wsRef.current = ws;
-  }, [addMessage]);
+  }, [addMessage, clearTimers, drainPendingMessages]);
 
   const sendMessage = useCallback(
     (content: string) => {
       if (!content.trim()) return;
-      addMessage({ role: 'user', content: content.trim() });
-      wsRef.current?.send(content.trim());
+      const trimmed = content.trim();
+      addMessage({ role: 'user', content: trimmed });
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(trimmed);
+      } else {
+        pendingMessagesRef.current.push(trimmed);
+      }
     },
     [addMessage],
   );
 
   useEffect(() => {
     connect();
-    return () => wsRef.current?.close();
-  }, [connect]);
+    return () => {
+      clearTimers();
+      wsRef.current?.close();
+    };
+  }, [connect, clearTimers]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
     try {
-      sessionStorage.removeItem(STORAGE_KEY);
+      const storageKey = `openchatshop_messages_${sessionIdRef.current}`;
+      sessionStorage.removeItem(storageKey);
+      localStorage.removeItem(SESSION_ID_KEY);
     } catch {
       // ignore
     }
