@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Form, Input, Select, Button, Card, Typography, message } from 'antd';
-import { UserOutlined, TeamOutlined } from '@ant-design/icons';
+import { UserOutlined, TeamOutlined, LockOutlined } from '@ant-design/icons';
 import type { AgentInfo } from '../types/agent';
 
 interface LoginFormValues {
   name: string;
   department: string;
+  secret?: string;
 }
 
 const DEPARTMENT_OPTIONS = [
@@ -90,6 +91,16 @@ export default function LoginPage() {
             rules={[{ required: true, message: '请选择部门' }]}
           >
             <Select options={DEPARTMENT_OPTIONS} />
+          </Form.Item>
+
+          <Form.Item
+            name="secret"
+            label="坐席密码"
+          >
+            <Input.Password
+              prefix={<LockOutlined />}
+              placeholder="请输入坐席密码（可选）"
+            />
           </Form.Item>
 
           <Form.Item style={{ marginBottom: 0 }}>

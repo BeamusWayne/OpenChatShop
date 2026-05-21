@@ -26,15 +26,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self._api_key = api_key
         self._public_paths = public_paths or [
             "/health",
+            "/health/ready",
+            "/metrics",
             "/docs",
             "/openapi.json",
             "/",
         ]
 
     async def dispatch(self, request: Request, call_next: Any) -> Any:
-        # Allow public paths without auth
-        if request.url.path in self._public_paths:
-            return await call_next(request)
+        # Allow public paths without auth (prefix match for /health, /metrics, /docs)
+        path = request.url.path
+        for prefix in self._public_paths:
+            if path == prefix or path.startswith(prefix + "/"):
+                return await call_next(request)
 
         # Allow static files
         if request.url.path.startswith("/assets") or request.url.path.endswith(

@@ -1,11 +1,48 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage, ConnectionState, SessionMode, StreamEvent } from '../types/chat';
 
-const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat/${crypto.randomUUID()}`;
+const SESSION_ID = crypto.randomUUID();
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat/${SESSION_ID}`;
+const STORAGE_KEY = `openchatshop_messages_${SESSION_ID}`;
+const MAX_STORED_MESSAGES = 200;
 const RECONNECT_DELAY = 3000;
 
+function loadSavedMessages(): ChatMessage[] {
+  try {
+    const saved = sessionStorage.getItem(STORAGE_KEY);
+    if (!saved) return [];
+    const parsed: unknown = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (m: unknown): m is ChatMessage =>
+        typeof m === 'object' &&
+        m !== null &&
+        'role' in m &&
+        'content' in m,
+    );
+  } catch {
+    return [];
+  }
+}
+
+function persistMessages(msgs: ChatMessage[]): void {
+  try {
+    const toSave = msgs.slice(-MAX_STORED_MESSAGES);
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch {
+    // quota exceeded or incognito restriction — ignore
+  }
+}
+
 export function useChat() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadSavedMessages());
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      persistMessages(messages);
+    }
+  }, [messages]);
+
   const [connection, setConnection] = useState<ConnectionState>({
     connected: false,
     reconnecting: false,
@@ -186,7 +223,14 @@ export function useChat() {
     return () => wsRef.current?.close();
   }, [connect]);
 
-  const clearMessages = useCallback(() => setMessages([]), []);
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+    try {
+      sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   return { messages, connection, isTyping, sessionMode, sendMessage, clearMessages };
 }

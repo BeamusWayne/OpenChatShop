@@ -894,6 +894,47 @@ class MyCustomTool(BaseTool):
 - [ ] **多 Worker** — 使用 gunicorn + uvicorn workers（见 docker-compose.prod.yml）
 - [ ] **Alembic 迁移** — 启动前执行 `alembic upgrade head`
 
+### TLS / HTTPS
+
+项目提供生产可用的 Nginx 反向代理配置，支持 TLS 终结、WebSocket 代理、速率限制和静态资源缓存。
+
+```bash
+# 1. 准备 SSL 证书，放到 deploy/ssl/ 目录
+mkdir -p deploy/ssl
+cp your-cert.pem deploy/ssl/cert.pem
+cp your-key.pem  deploy/ssl/key.pem
+
+# 2. 编辑 deploy/nginx.conf，将 server_name _ 改为你的域名
+
+# 3. 使用 nginx 覆盖文件启动（agent-api 不再直接暴露端口）
+docker compose -f docker-compose.prod.yml -f deploy/docker-compose.nginx.yml up -d
+```
+
+**配置文件说明：**
+
+| 文件 | 用途 |
+|------|------|
+| `deploy/nginx.conf` | Nginx 反向代理配置（TLS、WebSocket、限流、缓存） |
+| `deploy/docker-compose.nginx.yml` | Compose 覆盖，添加 nginx 服务并暴露 80/443 |
+
+**Let's Encrypt 自动证书：**
+
+推荐使用 [certbot](https://certbot.eff.org/) 获取免费证书：
+
+```bash
+# 安装 certbot（Debian/Ubuntu）
+apt install certbot
+
+# 获取证书（替换域名和邮箱）
+certbot certonly --standalone -d shop.example.com --email admin@example.com
+
+# 证书路径
+# cert: /etc/letsencrypt/live/shop.example.com/fullchain.pem
+# key:  /etc/letsencrypt/live/shop.example.com/privkey.pem
+```
+
+在 `docker-compose.nginx.yml` 中将卷挂载改为 Let's Encrypt 路径即可。certbot 自带自动续期 cron。
+
 ## License
 
 [Apache 2.0](LICENSE)

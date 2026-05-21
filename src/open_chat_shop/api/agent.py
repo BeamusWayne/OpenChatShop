@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel, Field
 
 from open_chat_shop.core.handoff import AgentStatus, HandoffQueue, HumanAgent
 from open_chat_shop.core.types import SessionMode
@@ -14,8 +14,9 @@ from open_chat_shop.core.types import SessionMode
 # ---- Request / Response models ----
 
 class RegisterRequest(BaseModel):
-    name: str
-    department: str = "general"
+    name: str = Field(..., min_length=1, max_length=50)
+    department: str = Field("general", max_length=50)
+    secret: Optional[str] = Field(None, max_length=128)
 
 
 class RegisterResponse(BaseModel):
@@ -57,12 +58,25 @@ def create_agent_router(
     handoff_queue: HandoffQueue,
     context_manager: Any = None,
     session_messages: dict[str, list[dict]] | None = None,
+    agent_secret: str | None = None,
 ) -> APIRouter:
-    """Build and return a FastAPI router with agent endpoints."""
+    """Build and return a FastAPI router with agent endpoints.
+
+    *agent_secret* is an optional shared secret.  When set, the register
+    endpoint requires ``secret`` in the request body and the status-update
+    endpoint requires the ``X-Agent-Secret`` header.  When not set, both
+    endpoints are open (backward compatible).
+    """
     router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
 
     @router.post("/register", response_model=RegisterResponse)
     async def register(body: RegisterRequest) -> RegisterResponse:
+        if agent_secret is not None:
+            if body.secret != agent_secret:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Invalid agent secret",
+                )
         agent_id = f"agent-{uuid.uuid4().hex[:8]}"
         agent = HumanAgent(
             agent_id=agent_id,
@@ -90,7 +104,17 @@ def create_agent_router(
         ]
 
     @router.put("/{agent_id}/status")
-    async def update_status(agent_id: str, body: StatusRequest) -> dict[str, str]:
+    async def update_status(
+        agent_id: str,
+        body: StatusRequest,
+        x_agent_secret: str | None = Header(default=None),
+    ) -> dict[str, str]:
+        if agent_secret is not None:
+            if x_agent_secret != agent_secret:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Invalid agent secret",
+                )
         agent = handoff_queue._agents.get(agent_id)
         if agent is None:
             raise HTTPException(status_code=404, detail="Agent not found")

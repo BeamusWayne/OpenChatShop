@@ -38,6 +38,8 @@ COPY static/ static/
 COPY main.py ./
 COPY alembic.ini ./
 COPY gunicorn.conf.py ./
+COPY entrypoint.sh ./
+RUN chmod +x /app/entrypoint.sh
 RUN groupadd -r appuser && useradd -r -g appuser appuser && \
     mkdir -p /app/data && chown appuser:appuser /app/data
 USER appuser
@@ -45,4 +47,5 @@ ENV PYTHONPATH=/app/src
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["gunicorn", "-c", "gunicorn.conf.py"]

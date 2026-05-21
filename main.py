@@ -426,7 +426,7 @@ def create_main_app():
             app.state.db_engine.dispose()
         logger.info("OpenChatShop shutdown complete")
 
-    app = create_app(orchestrator, lifespan=lifespan)
+    app = create_app(orchestrator, lifespan=lifespan, agent_token=os.environ.get("AGENT_TOKEN"))
 
     # Serve React frontend (built) if available, fall back to static/
     frontend_dist = Path(__file__).parent / "frontend" / "dist"

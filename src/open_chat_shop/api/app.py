@@ -11,7 +11,7 @@ import asyncio
 import json
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware as _BaseMiddleware
 
 from open_chat_shop.api.auth import AuthMiddleware
@@ -36,10 +36,10 @@ except importlib.metadata.PackageNotFoundError:
 
 
 class ChatRequest(BaseModel):
-    session_id: str
-    content: str
-    channel: str = "web"
-    user_id: Optional[str] = None
+    session_id: str = Field(..., max_length=128)
+    content: str = Field(..., min_length=1, max_length=2000)
+    channel: str = Field("web", max_length=32)
+    user_id: Optional[str] = Field(None, max_length=128)
 
 
 class ChatResponse(BaseModel):
@@ -98,6 +98,7 @@ class SecurityHeadersMiddleware(_BaseMiddleware):
 def create_app(
     orchestrator: DialogueOrchestrator | None = None,
     lifespan: Callable | None = None,
+    agent_token: str | None = None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application.
 
@@ -155,6 +156,17 @@ def create_app(
     _customer_sockets: dict[str, WebSocket] = {}
     _session_messages: dict[str, list[dict]] = {}
     _session_modes: dict[str, SessionMode] = {}
+
+    _MSG_HISTORY_CAP = 200
+
+    async def _delayed_session_cleanup(sid: str, delay: float = 300.0) -> None:
+        """Remove session message history after *delay* seconds.
+
+        Preserves messages long enough for agent dashboard to fetch history
+        after the customer disconnects.
+        """
+        await asyncio.sleep(delay)
+        _session_messages.pop(sid, None)
 
     # ------------------------------------------------------------------
     # Health
@@ -274,9 +286,9 @@ def create_app(
 
     @app.get("/api/v1/chat/stream")
     async def chat_stream(
-        session_id: str = Query(...),
-        content: str = Query(...),
-        channel: str = Query("web"),
+        session_id: str = Query(..., max_length=128),
+        content: str = Query(..., max_length=2000),
+        channel: str = Query("web", max_length=32),
         user_id: Optional[str] = Query(None),
     ) -> StreamingResponse:
         if _orchestrator is None:
@@ -379,17 +391,17 @@ def create_app(
                                 "content": data,
                             },
                         }, ensure_ascii=False))
-                    _session_messages.setdefault(session_id, []).append({
-                        "role": "user",
-                        "content": data,
-                    })
+                    msgs = _session_messages.setdefault(session_id, [])
+                    msgs.append({"role": "user", "content": data})
+                    if len(msgs) > _MSG_HISTORY_CAP:
+                        _session_messages[session_id] = msgs[-_MSG_HISTORY_CAP:]
                     continue
 
                 if _mode == SessionMode.TRANSFER_PENDING:
-                    _session_messages.setdefault(session_id, []).append({
-                        "role": "user",
-                        "content": data,
-                    })
+                    msgs = _session_messages.setdefault(session_id, [])
+                    msgs.append({"role": "user", "content": data})
+                    if len(msgs) > _MSG_HISTORY_CAP:
+                        _session_messages[session_id] = msgs[-_MSG_HISTORY_CAP:]
                     await websocket.send_text(json.dumps({
                         "type": "transfer_status",
                         "data": {"status": "waiting"},
@@ -397,10 +409,10 @@ def create_app(
                     continue
 
                 # Record user message
-                _session_messages.setdefault(session_id, []).append({
-                    "role": "user",
-                    "content": data,
-                })
+                msgs = _session_messages.setdefault(session_id, [])
+                msgs.append({"role": "user", "content": data})
+                if len(msgs) > _MSG_HISTORY_CAP:
+                    _session_messages[session_id] = msgs[-_MSG_HISTORY_CAP:]
 
                 msg = UserMessage(
                     session_id=session_id,
@@ -438,10 +450,15 @@ def create_app(
                             "message_type": event.data.get("message_type"),
                             "payload": event.data.get("payload"),
                         })
+                        if len(_session_messages[session_id]) > _MSG_HISTORY_CAP:
+                            _session_messages[session_id] = _session_messages[session_id][-_MSG_HISTORY_CAP:]
                     else:
                         await websocket.send_text(event.to_json())
         except WebSocketDisconnect:
             _customer_sockets.pop(session_id, None)
+            # Delayed cleanup: remove session messages after 300s so agent
+            # dashboard can still fetch history after customer disconnects.
+            asyncio.create_task(_delayed_session_cleanup(session_id))
             logger.info(
                 "WebSocket disconnected",
                 extra={"session_id": session_id},
@@ -455,10 +472,12 @@ def create_app(
     _context_manager = getattr(_orchestrator, "_context_manager", None) if _orchestrator else None
 
     if _handoff_queue is not None:
+        _agent_secret = os.environ.get("AGENT_SECRET", "") or None
         agent_router = create_agent_router(
             _handoff_queue,
             context_manager=_context_manager,
             session_messages=_session_messages,
+            agent_secret=_agent_secret,
         )
         app.include_router(agent_router)
 
@@ -573,6 +592,13 @@ def create_app(
         name: str = Query(""),
         department: str = Query("general"),
     ) -> None:
+        # Validate agent token when AGENT_TOKEN is configured
+        if agent_token:
+            ws_token = websocket.query_params.get("token", "")
+            if ws_token != agent_token:
+                await websocket.close(code=4001, reason="Invalid agent token")
+                return
+
         await websocket.accept()
         _agent_sockets[agent_id] = websocket
 
