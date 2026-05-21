@@ -3,6 +3,7 @@ import { Input, Button, Badge, Space, Spin, theme } from 'antd';
 import { SendOutlined, ClearOutlined, RobotOutlined, CustomerServiceOutlined } from '@ant-design/icons';
 import { useChat } from '../hooks/useChat';
 import MessageBubble from './MessageBubble';
+import WelcomeScreen from './WelcomeScreen';
 import type { SessionMode } from '../types/chat';
 
 const AI_QUICK_ACTIONS = [
@@ -61,6 +62,7 @@ export default function ChatWindow() {
 
   const isHumanMode = sessionMode === 'human_mode';
   const isTransferPending = sessionMode === 'transfer_pending';
+  const hasUserMessages = messages.some((m) => m.role === 'user');
 
   const headerConfig = getHeaderConfig(sessionMode);
 
@@ -119,28 +121,32 @@ export default function ChatWindow() {
         </Space>
       </div>
 
-      {/* Messages */}
-      <div
-        style={{
-          flex: 1,
-          overflow: 'auto',
-          padding: `20px ${token.paddingLG}px`,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: token.padding,
-        }}
-      >
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onSuggestionClick={sendMessage} />
-        ))}
-        {isTyping && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: token.colorTextSecondary, fontSize: 13 }}>
-            <Spin size="small" />
-            <span>{isHumanMode ? '客服正在输入...' : '正在思考...'}</span>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+      {/* Messages / Welcome */}
+      {!hasUserMessages ? (
+        <WelcomeScreen onAction={sendMessage} />
+      ) : (
+        <div
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: `20px ${token.paddingLG}px`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: token.padding,
+          }}
+        >
+          {messages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} onSuggestionClick={sendMessage} />
+          ))}
+          {isTyping && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: token.colorTextSecondary, fontSize: 13 }}>
+              <Spin size="small" />
+              <span>{isHumanMode ? '客服正在输入...' : '正在思考...'}</span>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+      )}
 
       {/* Input area */}
       <div
