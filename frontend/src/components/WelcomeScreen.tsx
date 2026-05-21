@@ -73,6 +73,7 @@ export default function WelcomeScreen({ onAction }: WelcomeScreenProps) {
             hoverable
             size="small"
             onClick={() => onAction(cap.text)}
+            aria-label={cap.label}
             style={{ textAlign: 'center', cursor: 'pointer' }}
             bodyStyle={{ padding: '16px 8px' }}
           >

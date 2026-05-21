@@ -128,7 +128,7 @@ export default function ChatWindow() {
               </span>
             }
           />
-          <Button type="text" icon={<ClearOutlined />} onClick={() => {
+          <Button type="text" icon={<ClearOutlined />} aria-label="清空聊天记录" onClick={() => {
             Modal.confirm({
               title: '清空聊天记录',
               content: '确定要清空所有聊天记录吗？此操作不可撤销。',
@@ -158,6 +158,9 @@ export default function ChatWindow() {
         <WelcomeScreen onAction={sendMessage} />
       ) : (
         <div
+          role="log"
+          aria-live="polite"
+          aria-label="聊天消息"
           style={{
             flex: 1,
             overflow: 'auto',
@@ -232,6 +235,7 @@ export default function ChatWindow() {
             type={isHumanMode ? 'default' : 'primary'}
             size="large"
             icon={<SendOutlined />}
+            aria-label="发送消息"
             onClick={handleSend}
             disabled={!input.trim() || !connection.connected || isTransferPending}
             style={isHumanMode ? { borderColor: AGENT_COLOR, color: AGENT_COLOR } : undefined}
