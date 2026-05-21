@@ -25,6 +25,10 @@ export default function MessageBubble({ message, onSuggestionClick }: Props) {
   const isSystem = message.role === 'system';
   const isFromBot = isAssistant;
 
+  const timeStr = message.timestamp
+    ? new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    : '';
+
   return (
     <div
       style={{
@@ -114,6 +118,20 @@ export default function MessageBubble({ message, onSuggestionClick }: Props) {
               </Tag>
             ))}
           </Space>
+        )}
+        {timeStr && (
+          <div
+            style={{
+              fontSize: 11,
+              color: token.colorTextQuaternary,
+              marginTop: 4,
+              textAlign: isUser ? 'right' : 'left',
+              paddingRight: isUser ? 4 : 0,
+              paddingLeft: isUser ? 0 : 4,
+            }}
+          >
+            {timeStr}
+          </div>
         )}
       </div>
     </div>

@@ -44,6 +44,17 @@ function getHeaderConfig(mode: SessionMode) {
   }
 }
 
+function getDateLabel(ts: number): string {
+  const msgDate = new Date(ts);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const msgDay = new Date(msgDate.getFullYear(), msgDate.getMonth(), msgDate.getDate());
+  if (msgDay.getTime() === today.getTime()) return '今天';
+  if (msgDay.getTime() === yesterday.getTime()) return '昨天';
+  return msgDate.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+}
+
 export default function ChatWindow() {
   const { token } = theme.useToken();
   const { messages, connection, isTyping, sessionMode, sendMessage, clearMessages } = useChat();
@@ -135,9 +146,23 @@ export default function ChatWindow() {
             gap: token.padding,
           }}
         >
-          {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} onSuggestionClick={sendMessage} />
-          ))}
+          {messages.map((msg, i) => {
+            const showDateSep = i === 0 || (
+              msg.timestamp &&
+              messages[i - 1].timestamp &&
+              new Date(msg.timestamp).toDateString() !== new Date(messages[i - 1].timestamp).toDateString()
+            );
+            return (
+              <div key={msg.id}>
+                {showDateSep && msg.timestamp && (
+                  <div style={{ textAlign: 'center', margin: '8px 0', fontSize: 12, color: token.colorTextQuaternary }}>
+                    {getDateLabel(msg.timestamp)}
+                  </div>
+                )}
+                <MessageBubble message={msg} onSuggestionClick={sendMessage} />
+              </div>
+            );
+          })}
           {isTyping && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: token.colorTextSecondary, fontSize: 13 }}>
               <Spin size="small" />
