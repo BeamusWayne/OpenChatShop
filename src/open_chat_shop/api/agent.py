@@ -8,7 +8,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from open_chat_shop.core.handoff import AgentStatus, HandoffQueue, HumanAgent
-from open_chat_shop.core.types import SessionMode
+from open_chat_shop.core.types import AgentMessage, SessionMode
 
 
 # ---- Request / Response models ----
@@ -191,7 +191,7 @@ def create_agent_router(
             ctx = await context_manager.load(session_id)
             ctx.mode = SessionMode.HUMAN_MODE
             ctx.human_agent_id = agent.agent_id
-            await context_manager.save(ctx)
+            await context_manager.save(ctx, AgentMessage(message_type="text", payload={}, text_fallback=""))
 
         # Build context payload for the agent
         context_data: dict[str, Any] = {}
