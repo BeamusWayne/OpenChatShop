@@ -34,7 +34,7 @@ export default function MessageBubble({ message, onSuggestionClick }: Props) {
       style={{
         display: 'flex',
         gap: 8,
-        maxWidth: isSystem ? '95%' : '75%',
+        maxWidth: isSystem ? '100%' : '85%',
         alignSelf: isUser ? 'flex-end' : 'flex-start',
         flexDirection: isUser ? 'row-reverse' : 'row',
       }}

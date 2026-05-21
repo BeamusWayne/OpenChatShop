@@ -177,6 +177,7 @@ export default function ChatWindow() {
       <div
         style={{
           padding: `${token.padding}px ${token.paddingLG}px`,
+          paddingBottom: `max(${token.padding}px, env(safe-area-inset-bottom, 0px))`,
           background: token.colorBgContainer,
           borderTop: `1px solid ${token.colorBorderSecondary}`,
         }}
