@@ -162,6 +162,7 @@ def create_app(
     _session_modes: dict[str, SessionMode] = {}
 
     _MSG_HISTORY_CAP = 200
+    _DATA_RETENTION_SECONDS = int(os.environ.get("DATA_RETENTION_DAYS", "90")) * 86400
 
     async def _delayed_session_cleanup(sid: str, delay: float = 300.0) -> None:
         """Remove session message history after *delay* seconds.
