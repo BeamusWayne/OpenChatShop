@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
@@ -40,7 +40,7 @@ class Message:
     role: Literal["system", "user", "assistant", "tool"]
     content: str
     metadata: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -277,8 +277,8 @@ class SessionContext:
     current_scenario: str | None = None
     token_usage: int = 0
     user_role: str = "customer"
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    last_active_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_active_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     mode: SessionMode = SessionMode.AI_MODE
     human_agent_id: str | None = None
 

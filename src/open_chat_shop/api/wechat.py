@@ -4,6 +4,14 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+
+try:
+    from defusedxml.ElementTree import fromstring as _safe_fromstring
+except ImportError:
+    import xml.etree.ElementTree as _unsafe_et
+    def _safe_fromstring(data):  # type: ignore[misc]
+        return _unsafe_et.fromstring(data)
+
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Query, Request, Response
@@ -69,7 +77,7 @@ async def verify(
 
 def _parse_xml_body(body: bytes) -> dict[str, str]:
     """Extract key fields from a WeChat XML message payload."""
-    root = ET.fromstring(body)
+    root = _safe_fromstring(body)
     fields = ("FromUserName", "ToUserName", "MsgType", "Content")
     result: dict[str, str] = {}
     for field in fields:
