@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Input, Button, Badge, Space, Spin, theme } from 'antd';
-import { SendOutlined, ClearOutlined, RobotOutlined, CustomerServiceOutlined } from '@ant-design/icons';
+import { Input, Button, Badge, Space, Spin, theme, Modal, Alert } from 'antd';
+import { SendOutlined, ClearOutlined, RobotOutlined, CustomerServiceOutlined, WifiOutlined } from '@ant-design/icons';
 import { useChat } from '../hooks/useChat';
 import MessageBubble from './MessageBubble';
 import WelcomeScreen from './WelcomeScreen';
@@ -128,9 +128,30 @@ export default function ChatWindow() {
               </span>
             }
           />
-          <Button type="text" icon={<ClearOutlined />} onClick={clearMessages} />
+          <Button type="text" icon={<ClearOutlined />} onClick={() => {
+            Modal.confirm({
+              title: '清空聊天记录',
+              content: '确定要清空所有聊天记录吗？此操作不可撤销。',
+              okText: '清空',
+              cancelText: '取消',
+              okButtonProps: { danger: true },
+              onOk: clearMessages,
+            });
+          }} />
         </Space>
       </div>
+
+      {/* Offline banner */}
+      {!connection.connected && connection.reconnecting && (
+        <Alert
+          message="连接已断开，正在重连..."
+          type="warning"
+          showIcon
+          icon={<WifiOutlined />}
+          banner
+          style={{ fontSize: 13 }}
+        />
+      )}
 
       {/* Messages / Welcome */}
       {!hasUserMessages ? (

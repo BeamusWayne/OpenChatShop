@@ -1,5 +1,5 @@
-import { Typography, Space, Tag, theme } from 'antd';
-import { RobotOutlined, UserOutlined, CustomerServiceOutlined } from '@ant-design/icons';
+import { Typography, Space, Tag, Button, theme } from 'antd';
+import { RobotOutlined, UserOutlined, CustomerServiceOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ChatMessage } from '../types/chat';
 import OrderCard from './rich/OrderCard';
 import LogisticsTimeline from './rich/LogisticsTimeline';
@@ -131,6 +131,19 @@ export default function MessageBubble({ message, onSuggestionClick }: Props) {
             }}
           >
             {timeStr}
+          </div>
+        )}
+        {message.failed && (
+          <div style={{ marginTop: 4, textAlign: isUser ? 'right' : 'left' }}>
+            <Button
+              type="link"
+              danger
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => onSuggestionClick?.(message.content)}
+            >
+              重试
+            </Button>
           </div>
         )}
       </div>
