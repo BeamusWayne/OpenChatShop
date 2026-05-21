@@ -62,6 +62,7 @@ class DialogueOrchestrator:
         self._audit_logger: Any = None
         self._cost_tracker: Any = None
         self._session_locks: dict[str, asyncio.Lock] = {}
+        self._SESSION_LOCKS_CAP = 10000
         self._tool_response_mapper: ToolResponseMapper | None = None
         self._scenarios: dict[str, Any] = {}
         self._handoff_queue: Any = None
@@ -140,6 +141,11 @@ class DialogueOrchestrator:
         """Process user message, return agent reply.
         Same session_id processed serially via async lock.
         """
+        # Evict oldest locks when cap exceeded
+        if len(self._session_locks) > self._SESSION_LOCKS_CAP:
+            keys_to_remove = list(self._session_locks.keys())[:5000]
+            for key in keys_to_remove:
+                del self._session_locks[key]
         lock = self._session_locks.setdefault(message.session_id, asyncio.Lock())
         async with lock:
             return await self._handle_internal(message)

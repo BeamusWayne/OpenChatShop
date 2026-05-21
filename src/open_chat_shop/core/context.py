@@ -8,6 +8,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 import logging
+import time
 
 from open_chat_shop.core.types import (
     AgentMessage,
@@ -55,13 +56,25 @@ class InMemoryContextManager(ContextManager):
         self,
         max_history_tokens: int = 2048,
         max_context_tokens: int = 4096,
+        ttl_seconds: float = 1800.0,
     ) -> None:
         self._sessions: dict[str, SessionContext] = {}
+        self._expiry: dict[str, float] = {}
         self._max_history_tokens = max_history_tokens
         self._max_context_tokens = max_context_tokens
+        self._ttl_seconds = ttl_seconds
+
+    def _evict_expired(self) -> None:
+        """Remove sessions whose TTL has elapsed."""
+        now = time.monotonic()
+        expired = [sid for sid, deadline in self._expiry.items() if now > deadline]
+        for sid in expired:
+            self._sessions.pop(sid, None)
+            del self._expiry[sid]
 
     async def load(self, session_id: str, channel: str = "web") -> SessionContext:
         """Load or create a session context."""
+        self._evict_expired()
         if session_id not in self._sessions:
             now = datetime.now(timezone.utc)
             self._sessions[session_id] = SessionContext(
@@ -80,10 +93,12 @@ class InMemoryContextManager(ContextManager):
                 mode=SessionMode.AI_MODE,
                 human_agent_id=None,
             )
+        self._expiry[session_id] = time.monotonic() + self._ttl_seconds
         return self._sessions[session_id]
 
     async def save(self, context: SessionContext, response: AgentMessage) -> None:
         """Save updated context. Updates last_active_at timestamp."""
+        self._evict_expired()
         updated = SessionContext(
             session_id=context.session_id,
             user_id=context.user_id,
@@ -101,6 +116,7 @@ class InMemoryContextManager(ContextManager):
             human_agent_id=context.human_agent_id,
         )
         self._sessions[context.session_id] = updated
+        self._expiry[context.session_id] = time.monotonic() + self._ttl_seconds
 
     async def compress(self, context: SessionContext) -> SessionContext:
         """Compress history when it exceeds the token budget.
