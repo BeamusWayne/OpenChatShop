@@ -1,6 +1,7 @@
 """OpenChatShop entry point — wires all components and starts the server."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -419,7 +420,24 @@ def create_main_app():
         app.state.orchestrator = orchestrator
         logger.info("OpenChatShop starting up")
         yield
-        logger.info("OpenChatShop shutting down")
+        logger.info("OpenChatShop shutting down — draining active sessions")
+        # Notify all connected WebSocket clients about shutdown
+        import asyncio
+        _agent_sockets = getattr(app.state, 'agent_sockets', {})
+        _customer_sockets = getattr(app.state, 'customer_sockets', {})
+        shutdown_msg = json.dumps({"type": "server_shutdown", "data": {"message": "服务器正在维护，请稍后重连"}}, ensure_ascii=False)
+        for ws in list(_customer_sockets.values()):
+            try:
+                await ws.send_text(shutdown_msg)
+            except Exception:
+                pass
+        for ws in list(_agent_sockets.values()):
+            try:
+                await ws.send_text(shutdown_msg)
+            except Exception:
+                pass
+        # Allow brief time for messages to be sent
+        await asyncio.sleep(1)
         if hasattr(app.state, 'redis_client') and app.state.redis_client:
             await app.state.redis_client.aclose()
         if hasattr(app.state, 'db_engine') and app.state.db_engine:

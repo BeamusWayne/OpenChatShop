@@ -155,6 +155,10 @@ def create_app(
     _agent_sockets: dict[str, WebSocket] = {}
     _customer_sockets: dict[str, WebSocket] = {}
     _session_messages: dict[str, list[dict]] = {}
+
+    # Expose socket dicts for graceful shutdown via app.state
+    app.state.agent_sockets = _agent_sockets
+    app.state.customer_sockets = _customer_sockets
     _session_modes: dict[str, SessionMode] = {}
 
     _MSG_HISTORY_CAP = 200
