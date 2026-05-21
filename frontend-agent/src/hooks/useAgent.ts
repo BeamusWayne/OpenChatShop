@@ -95,6 +95,29 @@ export function useAgent(agentId: string, agentName = '', agentDepartment = 'gen
             const item = msg.data as QueueItem | undefined;
             if (item) {
               setQueueItems((prev) => [...prev, item]);
+              // Audio notification
+              try {
+                const ctx = new AudioContext();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.frequency.value = 880;
+                gain.gain.value = 0.1;
+                osc.start();
+                osc.stop(ctx.currentTime + 0.15);
+              } catch { /* audio not available */ }
+              // Browser notification
+              try {
+                if (Notification.permission === 'granted') {
+                  new Notification('新客户请求', {
+                    body: `${item.reason || '客户请求人工服务'}`,
+                    tag: item.session_id,
+                  });
+                } else if (Notification.permission !== 'denied') {
+                  void Notification.requestPermission();
+                }
+              } catch { /* notifications not available */ }
             }
             break;
           }
