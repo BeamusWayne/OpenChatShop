@@ -75,6 +75,10 @@ class AgentMessage:
     text_fallback: str
     suggestions: list[str] = field(default_factory=list)
     requires_confirmation: bool = False
+    # Structured routing facts (intent/tools/entities/usage) for evaluation and
+    # observability. The channel `payload` carries rich-message content, not
+    # these facts, so they live here. Populated by the orchestrator.
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

@@ -57,3 +57,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build .
+
+  evaluation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      # Intent-classification regression against the golden dataset. Gates on
+      # intent_accuracy, which is independent of a real LLM; pass_rate (which
+      # needs LLM-generated response text) is reported but not gated here.
+      - name: Golden-dataset intent regression
+        run: python -m open_chat_shop.evaluation regression
+        env:
+          PYTHONPATH: src
+          DEV_MODE: "true"
+          OTEL_SDK_DISABLED: "true"
+          EVAL_MIN_INTENT_ACCURACY: "0.6"

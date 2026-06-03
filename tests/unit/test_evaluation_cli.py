@@ -53,8 +53,14 @@ class TestRegressionSubcommand:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_regression_with_single_sample(self) -> None:
-        """Regression logic works end-to-end on a single golden sample."""
+    async def test_regression_scoring_on_result_tuple(self) -> None:
+        """RegressionRunner *scoring* works on a hand-built result tuple.
+
+        NOTE: this exercises only the scoring/report logic with a pre-filled
+        actual_intent; it does NOT run the orchestrator and therefore cannot
+        catch an extraction break. The real end-to-end guard is
+        test_orchestrator_records_intent_on_meta below.
+        """
         from open_chat_shop.evaluation.golden_dataset import get_golden_dataset
         from open_chat_shop.evaluation.regression import RegressionRunner
 
@@ -70,6 +76,39 @@ class TestRegressionSubcommand:
         report = runner.generate_report(results)
         assert report["total"] == 1
         assert "pass_rate" in report
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_orchestrator_records_intent_on_meta(self) -> None:
+        """End-to-end guard for audit CRITICAL-4: the orchestrator must record
+        the routing intent on response.meta, which is exactly what the
+        regression harness reads. The original bug left actual_intent empty for
+        every sample (0/500) because the harness read response.payload, which
+        carries rich-message content rather than routing facts.
+        """
+        os.environ.setdefault("DEV_MODE", "true")
+        from main import build_orchestrator
+
+        from open_chat_shop.core.types import UserMessage
+        from open_chat_shop.evaluation.golden_dataset import get_golden_dataset
+
+        dataset = get_golden_dataset()
+        sample = dataset.get_by_id("BO-001")
+        assert sample is not None
+
+        orchestrator = build_orchestrator()
+        response = await orchestrator.handle_message(
+            UserMessage(
+                session_id="eval-cli-test",
+                content=sample.user_input,
+                channel="api",
+            )
+        )
+
+        assert response.meta.get("intent_name"), (
+            "orchestrator recorded no intent_name on meta — the regression "
+            "harness would read an empty actual_intent (the 0/500 bug)"
+        )
 
     @pytest.mark.unit
     def test_regression_import_does_not_error(self) -> None:

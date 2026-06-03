@@ -272,6 +272,21 @@ class DialogueOrchestrator:
         # 6. Execute action
         response = await self._execute_action(action, context, tools)
 
+        # 6.1 Record structured routing facts on response.meta (audit CRITICAL-4).
+        # The channel payload carries rich-message content, not the intent/tool
+        # facts the regression harness and observability need — expose them here.
+        executed_tool = (
+            action.payload.get("tool_name", "")
+            if action.type == "tool_call"
+            else ""
+        )
+        response.meta = {
+            "intent_name": intent.name,
+            "intent_source": intent.source,
+            "entities": dict(intent.entities),
+            "tool_calls": [executed_tool] if executed_tool else [],
+        }
+
         # 6.5 Cache successful responses for read-only intents
         if self._response_cache is not None and response.message_type != "error":
             params = dict(intent.entities) if intent.entities else {}
