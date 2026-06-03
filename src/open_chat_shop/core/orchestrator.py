@@ -5,6 +5,7 @@ import asyncio
 import logging
 import re as _re
 from contextlib import nullcontext as _nullcontext
+from dataclasses import replace
 from typing import Any
 
 from open_chat_shop.core.types import (
@@ -162,7 +163,10 @@ class DialogueOrchestrator:
                 sec_span = trace_security_check()
             with sec_span:
                 try:
-                    self._security.check_input(message)
+                    # check_input masks any PII and returns the sanitised
+                    # message; reassign so masked content flows downstream
+                    # (intent, LLM, history, tools) instead of raw PII.
+                    message = self._security.check_input(message)
                 except SecurityError as e:
                     logger.warning(
                         "Security check blocked message",
@@ -554,6 +558,22 @@ class DialogueOrchestrator:
                 text_fallback=f"工具 {tool_name} 不可用",
             )
 
+        # Security layer 3: RBAC gate — block execution if the session's role
+        # is not permitted to use this tool. Runs before validation/execution.
+        try:
+            self._security.check_permission(context.user_role, tool_name)
+        except SecurityError as e:
+            logger.warning(
+                "Tool execution blocked by RBAC",
+                extra={
+                    **self._trace_extras(context.session_id),
+                    "role": context.user_role,
+                    "tool_name": tool_name,
+                    "error": e.message,
+                },
+            )
+            return self._error_response("抱歉，您没有权限执行此操作。")
+
         # Parameter validation
         validation = tool.validate(params)
         if not validation.valid:
@@ -607,6 +627,15 @@ class DialogueOrchestrator:
 
         # Build response from tool result
         if result.success:
+            # Security layer 4: mask sensitive fields in the result before it
+            # reaches format_result / rich payload / LLM enhancement / channel.
+            if result.data is not None:
+                result = replace(
+                    result,
+                    data=self._security.sanitize_output(
+                        result.data, result.sensitive_fields or None
+                    ),
+                )
             formatted = tool.format_result(result)
             # Use mapper for rich message types when available
             if self._tool_response_mapper is not None:

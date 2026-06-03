@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+from dataclasses import replace
 from typing import Any
 
 from open_chat_shop.core.exceptions import SecurityError
@@ -292,10 +293,14 @@ class SecurityGuard:
         self.permission_checker = PermissionChecker(config.get("rbac", {}))
         self.output_sanitizer = OutputSanitizer()
 
-    def check_input(self, message: UserMessage) -> None:
+    def check_input(self, message: UserMessage) -> UserMessage:
         """Run injection + content checks on user input.
 
-        Raises SecurityError if blocked content is detected.
+        Layer 1 (injection) raises SecurityError when an attack is detected.
+        Layer 2 (PII) masks any detected PII and returns a *new* message
+        carrying the masked content, so downstream modules (intent, LLM,
+        history, tools) never see raw PII.  When no PII is present the
+        original message is returned unchanged.
         """
         text = message.content
 
@@ -311,14 +316,15 @@ class SecurityGuard:
                 details={"session_id": message.session_id},
             )
 
-        # Layer 2: content safety (PII detected — logged, not blocking)
+        # Layer 2: content safety — mask PII and write it back into the message.
         is_safe, masked = self.content_filter.check(text)
-        if not is_safe:
-            logger.info(
-                "PII detected in input (session=%s). Masked version: %s",
-                message.session_id,
-                masked,
-            )
+        if is_safe:
+            return message
+        logger.info(
+            "PII detected and masked in input (session=%s)",
+            message.session_id,
+        )
+        return replace(message, content=masked)
 
     def check_permission(self, role: str, tool_name: str) -> None:
         """Raise SecurityError if the role cannot use the tool."""
