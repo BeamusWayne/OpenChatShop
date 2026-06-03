@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import SessionContext, ToolPermission, ToolResult
@@ -14,9 +14,12 @@ class SearchProductTool(BaseTool):
     """Search the product catalog by keyword and optional category filter."""
 
     name: str = "search_product"
-    description: str = "Search products by keyword. Optionally filter by category and limit results."
+    description: str = (
+        "Search products by keyword. Optionally filter by category "
+        "and limit results."
+    )
     category: str = "product"
-    params_schema: dict[str, Any] = {
+    params_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
             "keyword": {"type": "string", "description": "Search keyword"},

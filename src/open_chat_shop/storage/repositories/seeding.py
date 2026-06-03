@@ -45,7 +45,7 @@ def seed_if_empty(engine: Engine) -> None:
             ))
 
         # --- Orders ---
-        for order_id, o in _md.ORDERS.items():
+        for _order_id, o in _md.ORDERS.items():
             created_str = o.get("created_at", "")
             created_at = _parse_iso(created_str)
             addr_json = json.dumps(
@@ -64,7 +64,7 @@ def seed_if_empty(engine: Engine) -> None:
             ))
 
         # --- Logistics ---
-        for order_id, lg in _md.LOGISTICS.items():
+        for _order_id, lg in _md.LOGISTICS.items():
             session.add(LogisticsRecord(
                 order_id=lg["order_id"],
                 carrier=lg["carrier"],

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import CheckResult, SessionContext, ToolPermission, ToolResult
@@ -14,9 +14,12 @@ class ModifyAddressTool(BaseTool):
     """Modify the delivery address of an order that has not yet shipped."""
 
     name: str = "modify_address"
-    description: str = "Modify delivery address for an order. Order must not be shipped. Requires confirmation."
+    description: str = (
+        "Modify delivery address for an order. Order must not be "
+        "shipped. Requires confirmation."
+    )
     category: str = "order"
-    params_schema: dict[str, Any] = {
+    params_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
             "order_id": {"type": "string", "description": "The order ID to modify"},
@@ -61,7 +64,10 @@ class ModifyAddressTool(BaseTool):
         if order["status"] in shipped_statuses:
             return ToolResult(
                 success=False,
-                error=f"Cannot modify address: order {order_id} has shipped (status: {order['status']})",
+                error=(
+                    f"Cannot modify address: order {order_id} has shipped "
+                    f"(status: {order['status']})"
+                ),
             )
 
         self._order_repo.save_snapshot(order_id)

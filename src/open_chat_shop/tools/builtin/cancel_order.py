@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import CheckResult, SessionContext, ToolPermission, ToolResult
@@ -14,9 +14,12 @@ class CancelOrderTool(BaseTool):
     """Cancel an order that is in pending or processing status."""
 
     name: str = "cancel_order"
-    description: str = "Cancel an order. Only pending or processing orders can be cancelled. Requires confirmation."
+    description: str = (
+        "Cancel an order. Only pending or processing orders can be "
+        "cancelled. Requires confirmation."
+    )
     category: str = "order"
-    params_schema: dict[str, Any] = {
+    params_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
             "order_id": {"type": "string", "description": "The order ID to cancel"},

@@ -70,12 +70,11 @@ def create_agent_router(
 
     @router.post("/register", response_model=RegisterResponse)
     async def register(body: RegisterRequest) -> RegisterResponse:
-        if agent_secret is not None:
-            if body.secret != agent_secret:
-                raise HTTPException(
-                    status_code=401,
-                    detail="Invalid agent secret",
-                )
+        if agent_secret is not None and body.secret != agent_secret:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid agent secret",
+            )
         agent_id = f"agent-{uuid.uuid4().hex[:8]}"
         agent = HumanAgent(
             agent_id=agent_id,
@@ -108,12 +107,11 @@ def create_agent_router(
         body: StatusRequest,
         x_agent_secret: str | None = Header(default=None),
     ) -> dict[str, str]:
-        if agent_secret is not None:
-            if x_agent_secret != agent_secret:
-                raise HTTPException(
-                    status_code=401,
-                    detail="Invalid agent secret",
-                )
+        if agent_secret is not None and x_agent_secret != agent_secret:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid agent secret",
+            )
         agent = handoff_queue._agents.get(agent_id)
         if agent is None:
             raise HTTPException(status_code=404, detail="Agent not found")

@@ -53,10 +53,7 @@ class InMemoryRateLimiter:
         count = len(current)
         remaining = max(0, rule.max_requests - count)
         # Find when the oldest request in window expires
-        if current:
-            reset_at = current[0] + rule.window_seconds
-        else:
-            reset_at = now + rule.window_seconds
+        reset_at = current[0] + rule.window_seconds if current else now + rule.window_seconds
 
         if count >= rule.max_requests:
             retry_after = reset_at - now

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import SessionContext, ToolPermission, ToolResult
@@ -14,9 +14,12 @@ class QueryOrderTool(BaseTool):
     """Query order status, items, and total amount."""
 
     name: str = "query_order"
-    description: str = "Query order status by order ID. Returns order details including status, items, and total amount."
+    description: str = (
+        "Query order status by order ID. Returns order details "
+        "including status, items, and total amount."
+    )
     category: str = "order"
-    params_schema: dict[str, Any] = {
+    params_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
             "order_id": {"type": "string", "description": "The order ID to query"},
@@ -48,7 +51,7 @@ class QueryOrderTool(BaseTool):
             },
         )
 
-    _STATUS_MAP: dict[str, str] = {
+    _STATUS_MAP: ClassVar[dict[str, str]] = {
         "pending": "待处理",
         "processing": "处理中",
         "shipped": "已发货",

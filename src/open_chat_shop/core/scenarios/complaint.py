@@ -5,6 +5,8 @@ Flow: idle -> received -> classified -> investigating -> resolving -> resolved
 """
 from __future__ import annotations
 
+from typing import ClassVar
+
 from open_chat_shop.core.scenario import ScenarioFSM
 from open_chat_shop.core.types import SessionContext, Transition
 
@@ -23,13 +25,13 @@ class ComplaintScenarioFSM(ScenarioFSM):
     """
 
     name = "complaint"
-    states = [
+    states: ClassVar[list[str]] = [
         "idle", "received", "classified", "investigating",
         "resolving", "resolved", "escalated",
     ]
     timeout_seconds = 600
 
-    VALID_CATEGORIES = {"quality", "service", "logistics", "other"}
+    VALID_CATEGORIES: ClassVar[set[str]] = {"quality", "service", "logistics", "other"}
 
     def __init__(self) -> None:
         self.transitions: list[Transition] = [

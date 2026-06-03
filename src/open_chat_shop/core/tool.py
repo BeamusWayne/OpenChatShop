@@ -9,7 +9,7 @@ from __future__ import annotations
 import fnmatch
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar
 
 import jsonschema
 
@@ -37,7 +37,7 @@ class BaseTool(ABC):
     name: str
     description: str
     category: str = "general"
-    params_schema: dict[str, Any]
+    params_schema: ClassVar[dict[str, Any]]
     permissions: ToolPermission
 
     @abstractmethod

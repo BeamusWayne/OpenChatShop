@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +87,12 @@ class CostTracker:
     """Track token consumption and costs per model."""
 
     # Approximate cost per 1K tokens (USD)
-    COST_TABLE: dict[str, dict[str, float]] = {
+    COST_TABLE: ClassVar[dict[str, dict[str, float]]] = {
         "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
         "gpt-4o": {"input": 0.005, "output": 0.015},
         "claude-sonnet": {"input": 0.003, "output": 0.015},
     }
-    DEFAULT_COST: dict[str, float] = {"input": 0.001, "output": 0.003}
+    DEFAULT_COST: ClassVar[dict[str, float]] = {"input": 0.001, "output": 0.003}
 
     def __init__(self) -> None:
         self._usage: list[dict] = []

@@ -1,6 +1,8 @@
 """WeChat Mini Program channel adapter — rich message rendering."""
 from __future__ import annotations
 
+from typing import ClassVar
+
 from open_chat_shop.channel.base import ChannelAdapter
 from open_chat_shop.core.types import (
     AgentMessage,
@@ -18,7 +20,7 @@ class MiniProgramAdapter(ChannelAdapter):
     Unsupported types fall back to plain text via *downgrade*.
     """
 
-    SUPPORTED_TYPES = [
+    SUPPORTED_TYPES: ClassVar[list[str]] = [
         "text",
         "product_card",
         "order_card",
@@ -138,7 +140,7 @@ class MiniProgramAdapter(ChannelAdapter):
         }
 
     # Map message_type -> render method
-    _RENDERERS: dict[str, object] = {
+    _RENDERERS: ClassVar[dict[str, object]] = {
         "text": _render_text,
         "product_card": _render_product_card,
         "order_card": _render_order_card,

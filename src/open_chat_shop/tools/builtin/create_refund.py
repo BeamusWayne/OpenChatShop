@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import CheckResult, SessionContext, ToolPermission, ToolResult
@@ -19,7 +19,7 @@ class CreateRefundTool(BaseTool):
     name: str = "create_refund"
     description: str = "Create a refund request. Requires confirmation for amounts over 500."
     category: str = "refund"
-    params_schema: dict[str, Any] = {
+    params_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
             "order_id": {"type": "string", "description": "The order ID to refund"},
@@ -79,7 +79,7 @@ class CreateRefundTool(BaseTool):
         """Cancel the refund on failure by removing it from the store."""
         self._refund_repo.delete_processing_by_order(params["order_id"])
 
-    _REFUND_STATUS_MAP: dict[str, str] = {
+    _REFUND_STATUS_MAP: ClassVar[dict[str, str]] = {
         "processing": "处理中",
         "approved": "已批准",
         "rejected": "已拒绝",

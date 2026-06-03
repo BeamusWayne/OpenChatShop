@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import SessionContext, ToolPermission, ToolResult
@@ -16,7 +16,7 @@ class HandoffToHumanTool(BaseTool):
     name: str = "handoff_to_human"
     description: str = "Transfer to a human agent. Returns estimated wait time."
     category: str = "support"
-    params_schema: dict[str, Any] = {
+    params_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
             "reason": {"type": "string", "description": "Optional reason for handoff"},

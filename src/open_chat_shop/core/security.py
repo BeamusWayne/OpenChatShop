@@ -15,7 +15,7 @@ import base64
 import logging
 import re
 from dataclasses import replace
-from typing import Any
+from typing import Any, ClassVar
 
 from open_chat_shop.core.exceptions import SecurityError
 from open_chat_shop.core.types import UserMessage
@@ -79,10 +79,7 @@ class PromptInjectionDetector:
         if self._check_base64(text):
             return True
 
-        if self._check_special_char_ratio(text):
-            return True
-
-        return False
+        return bool(self._check_special_char_ratio(text))
 
     def _check_patterns(self, text: str) -> bool:
         """Match text against known injection patterns."""
@@ -140,7 +137,7 @@ _PII_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 class ContentSafetyFilter:
     """Filters content for PII and sensitive words."""
 
-    PII_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _PII_PATTERNS]
+    PII_PATTERNS: ClassVar[list[re.Pattern[str]]] = [p for p, _ in _PII_PATTERNS]
 
     def check(self, text: str) -> tuple[bool, str]:
         """Return (is_safe, masked_text).
@@ -192,10 +189,7 @@ class PermissionChecker:
 
     def __init__(self, config: dict | list) -> None:
         self._role_tools: dict[str, set[str]] = {}
-        if isinstance(config, list):
-            roles = config
-        else:
-            roles = config.get("roles", _DEFAULT_RBAC["roles"])
+        roles = config if isinstance(config, list) else config.get("roles", _DEFAULT_RBAC["roles"])
         for role_entry in roles:
             name = role_entry.get("name", "")
             tools = role_entry.get("tools", [])

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from typing import ClassVar
 
 from open_chat_shop.core.types import SessionContext, Transition
 
@@ -22,7 +23,7 @@ class ScenarioFSM(ABC):
     """
 
     name: str
-    states: list[str]
+    states: ClassVar[list[str]]
     transitions: list[Transition]
     timeout_seconds: int = 300
 
@@ -46,9 +47,8 @@ class ScenarioFSM(ABC):
         only when both trigger matches and the guard passes.
         """
         for t in self.get_allowed_transitions(current_state):
-            if t.trigger == trigger:
-                if t.guard is None or t.guard(context):
-                    return True
+            if t.trigger == trigger and (t.guard is None or t.guard(context)):
+                return True
         return False
 
     async def execute_transition(
@@ -101,7 +101,7 @@ class RefundScenarioFSM(ScenarioFSM):
     """
 
     name = "refund"
-    states = ["initiated", "confirmed", "processing", "completed", "cancelled"]
+    states: ClassVar[list[str]] = ["initiated", "confirmed", "processing", "completed", "cancelled"]
     timeout_seconds = 300
 
     def __init__(self) -> None:

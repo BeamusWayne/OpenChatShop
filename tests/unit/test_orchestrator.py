@@ -1,6 +1,8 @@
 """Integration tests for DialogueOrchestrator with mock components."""
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 from open_chat_shop.core.context import InMemoryContextManager
@@ -22,7 +24,7 @@ class MockQueryOrderTool(BaseTool):
     name = "query_order"
     description = "查询订单"
     category = "order"
-    params_schema = {
+    params_schema: ClassVar[dict] = {
         "type": "object",
         "properties": {"order_id": {"type": "string"}},
         "required": ["order_id"],
@@ -40,7 +42,7 @@ class MockHandoffTool(BaseTool):
     name = "handoff_to_human"
     description = "转人工客服"
     category = "support"
-    params_schema = {"type": "object", "properties": {}}
+    params_schema: ClassVar[dict] = {"type": "object", "properties": {}}
     permissions = ToolPermission(required_roles=["customer"])
 
     async def execute(self, params, context):

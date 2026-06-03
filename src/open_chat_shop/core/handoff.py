@@ -5,6 +5,7 @@ session assignment, queue tracking, and timeout escalation.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -105,10 +106,8 @@ class HandoffQueue:
         self._queue.sort(key=lambda r: r.priority, reverse=True)
         position = self._queue.index(request) + 1
         for cb in self._on_enqueue:
-            try:
+            with contextlib.suppress(Exception):
                 cb(request, position)
-            except Exception:
-                pass
         return position
 
     def assign(self, request: TransferRequest) -> HumanAgent | None:
@@ -152,10 +151,8 @@ class HandoffQueue:
             request.session_id, agent.name,
         )
         for cb in self._on_assign:
-            try:
+            with contextlib.suppress(Exception):
                 cb(request, agent)
-            except Exception:
-                pass
         return agent
 
     def complete_transfer(self, session_id: str) -> None:
@@ -175,10 +172,8 @@ class HandoffQueue:
             agent.status = AgentStatus.ONLINE
 
         for cb in self._on_complete:
-            try:
+            with contextlib.suppress(Exception):
                 cb(transfer)
-            except Exception:
-                pass
 
     def get_queue_position(self, session_id: str) -> int | None:
         """Get the queue position for a session. None if not queued."""

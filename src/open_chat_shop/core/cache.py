@@ -6,6 +6,7 @@ cancellations, etc.) are never cached.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -77,10 +78,8 @@ class ResponseCache:
         key = self._make_key(intent, params)
         self._memory.pop(key, None)
         if self._redis:
-            try:
+            with contextlib.suppress(Exception):
                 self._redis.delete(key)
-            except Exception:
-                pass
 
     # -- internal helpers ---------------------------------------------------
 
