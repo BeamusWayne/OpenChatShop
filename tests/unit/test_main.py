@@ -121,3 +121,72 @@ class TestMainApp:
                 for r in app.routes
             )
             assert has_root_mount, "Expected static file mount when static/ dir exists"
+
+
+class TestResilienceWiring:
+    """Regression for the main.py resilience wiring bug.
+
+    The original code wrapped ``provider.generate`` — a method that does not
+    exist on LLMProvider (only chat/stream/embed). Evaluating it raised
+    AttributeError, which an ``except Exception: pass`` swallowed, silently
+    skipping ``orchestrator.set_provider`` in the same try block. Result: zero
+    circuit-breaker/retry protection AND the orchestrator never received the
+    provider. These tests encode *why* the wiring must target ``chat`` and why
+    ``set_provider`` must run unconditionally.
+    """
+
+    def test_set_provider_runs_and_chat_is_wrapped_with_retry(self, monkeypatch) -> None:
+        import asyncio
+
+        import main as main_mod
+        from open_chat_shop.core.provider import LLMProvider
+        from open_chat_shop.core.types import (
+            LLMResponse,
+            ProviderCapabilities,
+        )
+
+        calls = {"n": 0}
+
+        class _FlakyProvider(LLMProvider):
+            name = "flaky"
+
+            async def chat(self, messages, tools=None, config=None):
+                calls["n"] += 1
+                if calls["n"] <= 2:
+                    raise TimeoutError("transient")
+                return LLMResponse(content="ok")
+
+            async def stream(self, messages, tools=None, config=None):
+                yield  # pragma: no cover
+
+            async def embed(self, texts):
+                return [[0.0] for _ in texts]
+
+            def get_capabilities(self):
+                return ProviderCapabilities(
+                    tool_calling=False,
+                    streaming=False,
+                    vision=False,
+                    max_context_tokens=8192,
+                )
+
+            def estimate_tokens(self, text):
+                return len(text)
+
+        fake = _FlakyProvider()
+        monkeypatch.setattr(main_mod, "_build_provider", lambda: fake)
+        monkeypatch.setenv("DEV_MODE", "true")
+
+        orch = main_mod.build_orchestrator()
+
+        # 1. set_provider must have run (the bug skipped it entirely).
+        assert orch._provider is fake, "orchestrator never received the provider"
+
+        # 2. chat must be wrapped — instance attribute now shadows the method.
+        assert fake.chat.__name__ == "_resilient_chat", "chat was not wrapped"
+
+        # 3. The wrapper must retry transient TimeoutError and then succeed,
+        #    proving the resilience layer is actually on the call path.
+        result = asyncio.run(fake.chat([]))
+        assert result.content == "ok"
+        assert calls["n"] == 3, "expected 2 retries before success"

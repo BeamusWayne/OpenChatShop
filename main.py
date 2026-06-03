@@ -310,21 +310,27 @@ def build_orchestrator() -> DialogueOrchestrator:
     )
 
     if provider is not None:
+        # Always register the provider so the orchestrator can reach the LLM,
+        # independent of whether resilience wrapping succeeds.
+        orchestrator.set_provider(provider)
         try:
-            # Wrap provider with circuit breaker and retry for resilience
+            # Wrap provider.chat (the method the orchestrator actually calls) with
+            # circuit breaker + retry for resilience. NOTE: LLMProvider exposes
+            # chat/stream/embed — there is no `generate` method.
             circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=30.0)
             retry_policy = RetryPolicy(max_retries=3)
-            original_generate = provider.generate
+            original_chat = provider.chat
 
-            async def _resilient_generate(*args, **kwargs):
+            async def _resilient_chat(*args, **kwargs):
                 async def _call():
-                    return await original_generate(*args, **kwargs)
+                    return await original_chat(*args, **kwargs)
                 return await retry_policy.execute(circuit_breaker.call, _call)
 
-            provider.generate = _resilient_generate
-            orchestrator.set_provider(provider)
+            provider.chat = _resilient_chat
         except Exception:
-            pass
+            logger.exception(
+                "Resilience wiring failed; provider runs without circuit breaker/retry"
+            )
 
     # Wire observability: audit logger and cost tracker
     try:
