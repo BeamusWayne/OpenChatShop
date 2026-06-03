@@ -1,7 +1,6 @@
 """Tests for the middleware pipeline (feat-033)."""
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -18,7 +17,6 @@ from open_chat_shop.core.middleware import (
 from open_chat_shop.core.rate_limiter import InMemoryRateLimiter, RateLimitGuard, RateLimitRule
 from open_chat_shop.core.slot_tracker import SlotDefinition, SlotTracker
 from open_chat_shop.core.types import AgentMessage, SessionContext, UserMessage
-
 
 # ---------------------------------------------------------------------------
 # Helpers

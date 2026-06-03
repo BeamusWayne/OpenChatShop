@@ -15,7 +15,6 @@ import re
 from abc import ABC, abstractmethod
 from typing import Any
 
-from open_chat_shop.core.exceptions import IntentError
 from open_chat_shop.core.types import (
     Intent,
     IntentInfo,

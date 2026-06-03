@@ -6,12 +6,10 @@ RefundScenarioFSM implementation.
 """
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
-from typing import Awaitable, Callable
 
 from open_chat_shop.core.types import SessionContext, Transition
-
-import logging
 
 logger = logging.getLogger(__name__)
 

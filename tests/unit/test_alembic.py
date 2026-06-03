@@ -16,8 +16,6 @@ import configparser
 import importlib
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = REPO_ROOT / "alembic.ini"
 ALEMBIC_DIR = REPO_ROOT / "src" / "open_chat_shop" / "storage" / "alembic"

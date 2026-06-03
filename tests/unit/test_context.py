@@ -11,14 +11,13 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import datetime
 import time
+from datetime import datetime
 
 import pytest
 
 from open_chat_shop.core.context import InMemoryContextManager
 from open_chat_shop.core.types import AgentMessage, Message, SessionContext
-
 
 # ---------------------------------------------------------------------------
 # Helpers

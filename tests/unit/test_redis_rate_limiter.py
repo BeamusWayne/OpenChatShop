@@ -9,7 +9,6 @@ from open_chat_shop.core.rate_limiter import (
     InMemoryRateLimiter,
     RateLimitGuard,
     RateLimitRule,
-    RateLimitResult,
     RedisRateLimiter,
 )
 

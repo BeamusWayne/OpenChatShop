@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -10,13 +10,12 @@ from pydantic import BaseModel, Field
 from open_chat_shop.core.handoff import AgentStatus, HandoffQueue, HumanAgent
 from open_chat_shop.core.types import AgentMessage, SessionMode
 
-
 # ---- Request / Response models ----
 
 class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
     department: str = Field("general", max_length=50)
-    secret: Optional[str] = Field(None, max_length=128)
+    secret: str | None = Field(None, max_length=128)
 
 
 class RegisterResponse(BaseModel):

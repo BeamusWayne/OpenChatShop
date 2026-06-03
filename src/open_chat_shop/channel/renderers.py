@@ -5,7 +5,7 @@ for each of the 11 defined message types.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from open_chat_shop.core.types import AgentMessage
@@ -55,7 +55,7 @@ def _require(payload: dict, key: str) -> Any:
 @register("text")
 def _render_text(payload: dict) -> dict:
     content = _require(payload, "content")
-    return {"content": content, "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"content": content, "timestamp": datetime.now(UTC).isoformat()}
 
 
 @register("product_card")

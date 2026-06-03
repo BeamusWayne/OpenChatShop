@@ -3,17 +3,16 @@ from __future__ import annotations
 
 import pytest
 
+from open_chat_shop.core.exceptions import ProviderError
+from open_chat_shop.core.provider import (
+    CascadeStrategy,
+    FailingProvider,
+    MockProvider,
+)
 from open_chat_shop.core.types import (
     Message,
-    GenerateConfig,
     ToolDefinition,
 )
-from open_chat_shop.core.provider import (
-    MockProvider,
-    FailingProvider,
-    CascadeStrategy,
-)
-from open_chat_shop.core.exceptions import ProviderError
 
 
 @pytest.fixture

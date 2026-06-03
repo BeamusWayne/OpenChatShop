@@ -32,7 +32,6 @@ from open_chat_shop.tools.builtin import (
     SearchProductTool,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helper: build a fully-wired orchestrator with real modules
 # ---------------------------------------------------------------------------

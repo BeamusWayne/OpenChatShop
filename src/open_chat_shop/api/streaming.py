@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any
 
-from open_chat_shop.core.types import AgentMessage, LLMChunk, UserMessage
+from open_chat_shop.core.types import AgentMessage, UserMessage
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ class StreamingOrchestrator:
                 },
             )
 
-        except Exception as exc:
+        except Exception:
             logger.exception("Streaming error", extra={"session_id": message.session_id})
             yield StreamEvent(
                 type="error",

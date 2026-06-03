@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import os
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-import pytest
 
 
 def _get_app() -> FastAPI:
@@ -112,6 +112,7 @@ class TestMainApp:
     def test_static_files_mounted(self) -> None:
         app = _get_app()
         from pathlib import Path
+
         from starlette.routing import Mount
 
         static_dir = Path(__file__).parent.parent.parent / "static"
@@ -139,6 +140,7 @@ class TestResilienceWiring:
         import asyncio
 
         import main as main_mod
+
         from open_chat_shop.core.provider import LLMProvider
         from open_chat_shop.core.types import (
             LLMResponse,

@@ -7,19 +7,14 @@ import textwrap
 import pytest
 
 from open_chat_shop.core.config import (
-    CascadeConfigModel,
-    CascadeLevelModel,
     ChannelsFileModel,
     ConfigLoader,
     ConfigValidationError,
-    ProviderConfigModel,
     ProvidersFileModel,
-    ScenarioConfigModel,
     ScenariosFileModel,
     SecurityFileModel,
     ToolRoutingFileModel,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures: sample YAML content as strings

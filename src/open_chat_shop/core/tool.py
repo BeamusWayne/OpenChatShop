@@ -6,9 +6,9 @@ Implements contracts.md sections 4-5:
 """
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import fnmatch
 import logging
+from abc import ABC, abstractmethod
 from typing import Any
 
 import jsonschema
@@ -23,7 +23,6 @@ from open_chat_shop.core.types import (
     ToolResult,
     ValidationResult,
 )
-from open_chat_shop.core.exceptions import ToolError
 
 logger = logging.getLogger(__name__)
 
@@ -205,9 +204,7 @@ class ToolInjector:
         """Keep only tools whose ``required_roles`` allow *role*."""
         result: list[BaseTool] = []
         for tool in tools:
-            if not tool.permissions.required_roles:
-                result.append(tool)
-            elif (
+            if not tool.permissions.required_roles or (
                 role in tool.permissions.required_roles
                 or "*" in tool.permissions.required_roles
             ):

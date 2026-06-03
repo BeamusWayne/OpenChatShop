@@ -20,10 +20,8 @@ from open_chat_shop.core.types import (
     LLMResponse,
     Message,
     ProviderCapabilities,
-    TokenUsage,
     ToolDefinition,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

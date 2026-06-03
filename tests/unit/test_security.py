@@ -21,7 +21,6 @@ from open_chat_shop.core.security import (
 )
 from open_chat_shop.core.types import UserMessage
 
-
 # -- Fixtures ----------------------------------------------------------------
 
 @pytest.fixture()

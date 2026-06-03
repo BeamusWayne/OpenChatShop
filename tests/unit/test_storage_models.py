@@ -36,7 +36,6 @@ from open_chat_shop.storage.models import (
     User,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -113,10 +112,9 @@ class TestDatabaseUtilities:
 
     def test_get_session_rollback_on_exception(self, engine) -> None:
         user_name = "_rollback_test_"
-        with pytest.raises(ValueError):
-            with get_session(engine) as sess:
-                sess.add(User(name=user_name))
-                raise ValueError("force rollback")
+        with pytest.raises(ValueError), get_session(engine) as sess:
+            sess.add(User(name=user_name))
+            raise ValueError("force rollback")
         with get_session(engine) as sess:
             result = sess.exec(select(User).where(User.name == user_name)).first()
             assert result is None

@@ -5,11 +5,9 @@ budgets and trigger alerts when spending exceeds configured thresholds.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
-
-import logging
 
 logger = logging.getLogger(__name__)
 

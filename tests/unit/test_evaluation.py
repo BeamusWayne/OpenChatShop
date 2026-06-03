@@ -3,15 +3,13 @@ from __future__ import annotations
 
 import json
 import tempfile
-from pathlib import Path
 
 import pytest
 
-from open_chat_shop.evaluation.golden_dataset import GoldenDataset, GoldenSample
-from open_chat_shop.evaluation.regression import RegressionRunner, RegressionResult
-from open_chat_shop.evaluation.llm_judge import LLMJudge, JudgeDimension, JudgeResult
 from open_chat_shop.core.provider import MockProvider
-
+from open_chat_shop.evaluation.golden_dataset import GoldenDataset, GoldenSample
+from open_chat_shop.evaluation.llm_judge import JudgeDimension, LLMJudge
+from open_chat_shop.evaluation.regression import RegressionResult, RegressionRunner
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures

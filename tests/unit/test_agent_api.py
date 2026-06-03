@@ -1,18 +1,16 @@
 """Tests for Agent API endpoints."""
-import pytest
-from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 
-from open_chat_shop.core.handoff import HandoffQueue, HumanAgent, TransferRequest
-from open_chat_shop.api.agent import create_agent_router
 from open_chat_shop.api.app import create_app
+from open_chat_shop.core.context import InMemoryContextManager
+from open_chat_shop.core.handoff import HandoffQueue, TransferRequest
+from open_chat_shop.core.intent import CascadeIntentEngine, RuleBasedMatcher
 from open_chat_shop.core.orchestrator import DialogueOrchestrator
 from open_chat_shop.core.security import SecurityGuard
-from open_chat_shop.core.context import InMemoryContextManager
-from open_chat_shop.core.intent import CascadeIntentEngine, RuleBasedMatcher
-from open_chat_shop.core.tool import ToolInjector
 from open_chat_shop.core.strategy import RuleBasedStrategy
+from open_chat_shop.core.tool import ToolInjector
 
 
 @pytest.fixture
@@ -94,7 +92,6 @@ class TestQueueManagement:
         assert resp.json() == []
 
     def test_queue_with_items(self, agent_client, handoff_queue):
-        from datetime import datetime, timezone
         req = TransferRequest(
             request_id="tr-001",
             session_id="sess-001",

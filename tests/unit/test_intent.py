@@ -6,13 +6,11 @@ import pytest
 from open_chat_shop.core.intent import CascadeIntentEngine, RuleBasedMatcher
 from open_chat_shop.core.provider import MockProvider
 from open_chat_shop.core.types import (
-    Intent,
     IntentInfo,
     Message,
     SessionContext,
     UserMessage,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures

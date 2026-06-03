@@ -20,9 +20,9 @@ import pytest
 
 from open_chat_shop.core.exceptions import (
     ChannelError,
-    OpenChatShopError,
     ContextError,
     IntentError,
+    OpenChatShopError,
     ProviderError,
     SecurityError,
     ToolError,

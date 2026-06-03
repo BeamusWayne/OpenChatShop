@@ -3,18 +3,15 @@ from __future__ import annotations
 
 import pytest
 
+from open_chat_shop.core.tool import BaseTool, ToolInjector
 from open_chat_shop.core.types import (
-    CheckResult,
     Intent,
     RoutingRule,
     SessionContext,
     ToolDefinition,
     ToolPermission,
     ToolResult,
-    ValidationResult,
 )
-from open_chat_shop.core.tool import BaseTool, ToolInjector
-
 
 # ---------------------------------------------------------------------------
 # Concrete test tool

@@ -8,33 +8,32 @@ from contextlib import nullcontext as _nullcontext
 from dataclasses import replace
 from typing import Any
 
-from open_chat_shop.core.types import (
-    Message,
-    UserMessage,
-    AgentMessage,
-    SessionContext,
-    Action,
-    Intent,
-    SessionMode,
-)
 from open_chat_shop.core.exceptions import (
-    SecurityError,
     ContextError,
+    SecurityError,
     ToolError,
-    OpenChatShopError,
 )
 from open_chat_shop.core.intent import _extract_entities
 from open_chat_shop.core.tool_response_mapper import ToolResponseMapper
+from open_chat_shop.core.types import (
+    Action,
+    AgentMessage,
+    Intent,
+    Message,
+    SessionContext,
+    SessionMode,
+    UserMessage,
+)
 
 # Tracing — safe no-op if opentelemetry is not installed
 try:
     from open_chat_shop.observability.tracing import (
-        trace_orchestrator_handle,
-        trace_security_check,
         trace_context_load,
         trace_intent_classify,
-        trace_tool_inject,
+        trace_orchestrator_handle,
+        trace_security_check,
         trace_tool_execute,
+        trace_tool_inject,
     )
     _TRACING_AVAILABLE = True
 except ImportError:

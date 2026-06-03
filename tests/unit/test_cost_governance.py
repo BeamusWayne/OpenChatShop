@@ -7,7 +7,6 @@ from open_chat_shop.core.cost_governance import (
     AlertLevel,
     BudgetConfig,
     BudgetStatus,
-    CostAlert,
     CostAlertEngine,
     SessionBudgetManager,
 )

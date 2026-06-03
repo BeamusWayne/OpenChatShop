@@ -1,22 +1,20 @@
 """LLM Provider abstraction layer with cascade strategy."""
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import AsyncIterator
-
-from open_chat_shop.core.types import (
-    Message,
-    ToolDefinition,
-    GenerateConfig,
-    LLMResponse,
-    LLMChunk,
-    TokenUsage,
-    ProviderCapabilities,
-)
-from open_chat_shop.core.exceptions import ProviderError
-
 import logging
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+
+from open_chat_shop.core.exceptions import ProviderError
+from open_chat_shop.core.types import (
+    GenerateConfig,
+    LLMChunk,
+    LLMResponse,
+    Message,
+    ProviderCapabilities,
+    TokenUsage,
+    ToolDefinition,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -1,17 +1,18 @@
 """Strategy engine — decides the next action based on intent and context."""
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import logging
+from abc import ABC, abstractmethod
 
-from open_chat_shop.core.types import Intent, SessionContext, Action
+from open_chat_shop.core.types import Action, Intent, SessionContext
 
 logger = logging.getLogger(__name__)
 
 # Avoid circular import — BaseTool is defined in tool.py
 from typing import TYPE_CHECKING, Any
+
 if TYPE_CHECKING:
-    from open_chat_shop.core.tool import BaseTool
+    pass
 
 
 class Strategy(ABC):

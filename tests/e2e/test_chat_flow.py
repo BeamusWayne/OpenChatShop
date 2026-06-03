@@ -20,7 +20,6 @@ from open_chat_shop.core.security import SecurityGuard
 from open_chat_shop.core.strategy import RuleBasedStrategy
 from open_chat_shop.core.tool import ToolInjector
 
-
 # ---------------------------------------------------------------------------
 # Shared fixture helpers
 # ---------------------------------------------------------------------------

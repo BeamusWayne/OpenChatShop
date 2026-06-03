@@ -5,11 +5,10 @@ in-memory counters or Redis-backed sorted sets with Lua scripts.
 """
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
-
 import logging
+import time
+from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

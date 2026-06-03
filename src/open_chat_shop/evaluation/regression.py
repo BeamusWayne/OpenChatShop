@@ -1,7 +1,6 @@
 """Regression test runner — compares actual vs expected outputs."""
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass, field
 
 from open_chat_shop.evaluation.golden_dataset import GoldenDataset, GoldenSample

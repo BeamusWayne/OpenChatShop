@@ -1,14 +1,12 @@
 """Tests for rate limiter — sliding window and rate limit guard."""
 from __future__ import annotations
 
-import time
 import pytest
 
 from open_chat_shop.core.rate_limiter import (
     InMemoryRateLimiter,
-    RateLimitRule,
-    RateLimitResult,
     RateLimitGuard,
+    RateLimitRule,
 )
 
 

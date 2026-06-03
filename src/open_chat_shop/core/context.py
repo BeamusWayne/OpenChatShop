@@ -5,16 +5,16 @@ Implements contracts.md S8: ContextManager ABC and InMemoryContextManager.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from datetime import datetime, timezone
 import logging
 import time
+from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 
 from open_chat_shop.core.types import (
     AgentMessage,
     SessionContext,
-    TokenBudget,
     SessionMode,
+    TokenBudget,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ class InMemoryContextManager(ContextManager):
         """Load or create a session context."""
         self._evict_expired()
         if session_id not in self._sessions:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             self._sessions[session_id] = SessionContext(
                 session_id=session_id,
                 user_id=None,
@@ -111,7 +111,7 @@ class InMemoryContextManager(ContextManager):
             token_usage=context.token_usage,
             user_role=context.user_role,
             created_at=context.created_at,
-            last_active_at=datetime.now(timezone.utc),
+            last_active_at=datetime.now(UTC),
             mode=context.mode,
             human_agent_id=context.human_agent_id,
         )
@@ -150,7 +150,7 @@ class InMemoryContextManager(ContextManager):
             token_usage=context.token_usage,
             user_role=context.user_role,
             created_at=context.created_at,
-            last_active_at=datetime.now(timezone.utc),
+            last_active_at=datetime.now(UTC),
             mode=context.mode,
             human_agent_id=context.human_agent_id,
         )

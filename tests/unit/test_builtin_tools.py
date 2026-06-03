@@ -7,10 +7,10 @@ the security matrix (requires_confirmation) for all 8 tools.
 from __future__ import annotations
 
 import copy
+
 import pytest
 
-from open_chat_shop.core.types import CheckResult, SessionContext, ToolResult
-
+from open_chat_shop.core.types import SessionContext, ToolResult
 from open_chat_shop.tools.builtin import (
     ALL_TOOLS,
     CancelOrderTool,
@@ -21,9 +21,8 @@ from open_chat_shop.tools.builtin import (
     QueryLogisticsTool,
     QueryOrderTool,
     SearchProductTool,
+    _mock_data,
 )
-from open_chat_shop.tools.builtin import _mock_data
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -1,27 +1,28 @@
 """FastAPI application — REST + WebSocket endpoints."""
 from __future__ import annotations
 
+import asyncio
 import importlib.metadata
+import json
 import logging
 import os
-from typing import Any, Callable, Optional
+from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-import asyncio
-import json
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from jose import JWTError, jwt as jose_jwt
+from jose import JWTError
+from jose import jwt as jose_jwt
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware as _BaseMiddleware
 
+from open_chat_shop.api.agent import create_agent_router
 from open_chat_shop.api.auth import AuthMiddleware
-from open_chat_shop.core.types import AgentMessage, UserMessage, SessionMode
-from open_chat_shop.core.orchestrator import DialogueOrchestrator
-from open_chat_shop.channel.registry import default_registry
 from open_chat_shop.api.streaming import StreamEvent, StreamingOrchestrator
 from open_chat_shop.api.wechat import setup_wechat_routes
-from open_chat_shop.api.agent import create_agent_router
+from open_chat_shop.channel.registry import default_registry
+from open_chat_shop.core.orchestrator import DialogueOrchestrator
+from open_chat_shop.core.types import AgentMessage, SessionMode, UserMessage
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ class ChatRequest(BaseModel):
     session_id: str = Field(..., max_length=128)
     content: str = Field(..., min_length=1, max_length=2000)
     channel: str = Field("web", max_length=32)
-    user_id: Optional[str] = Field(None, max_length=128)
+    user_id: str | None = Field(None, max_length=128)
 
 
 class ChatResponse(BaseModel):
@@ -217,6 +218,7 @@ def create_app(
             return CheckDetail(status="ok", latency_ms=0)
         try:
             import time
+
             from sqlalchemy import text
             t0 = time.monotonic()
             with engine.connect() as conn:
@@ -326,7 +328,7 @@ def create_app(
         session_id: str = Query(..., max_length=128),
         content: str = Query(..., max_length=2000),
         channel: str = Query("web", max_length=32),
-        user_id: Optional[str] = Query(None),
+        user_id: str | None = Query(None),
     ) -> StreamingResponse:
         if _orchestrator is None:
             raise HTTPException(status_code=503, detail="Service not configured")

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["CircuitState", "CircuitBreaker", "RetryPolicy"]
+__all__ = ["CircuitBreaker", "CircuitState", "RetryPolicy"]
 
 
 class CircuitState(str, enum.Enum):

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from open_chat_shop.core.types import Message, SessionContext, AgentMessage, SessionMode
+from open_chat_shop.core.types import AgentMessage, Message, SessionContext, SessionMode
 from open_chat_shop.storage.db_context import DatabaseContextManager
 
 

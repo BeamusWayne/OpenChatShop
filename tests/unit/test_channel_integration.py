@@ -9,12 +9,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from open_chat_shop.api.wechat import setup_wechat_routes
 from open_chat_shop.channel.miniprogram import MiniProgramAdapter
 from open_chat_shop.channel.registry import ChannelRegistry, default_registry
 from open_chat_shop.channel.web import WebAdapter, WechatAdapter
 from open_chat_shop.core.config import ChannelsFileModel, ConfigLoader
-from open_chat_shop.api.wechat import wechat_router, setup_wechat_routes
-
 
 # ---------------------------------------------------------------------------
 # Helpers

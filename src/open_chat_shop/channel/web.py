@@ -1,13 +1,12 @@
 """Web and WeChat channel adapters."""
 from __future__ import annotations
 
+from open_chat_shop.channel.base import ChannelAdapter
 from open_chat_shop.core.types import (
     AgentMessage,
     ChannelCapabilities,
     ChannelMessage,
 )
-
-from open_chat_shop.channel.base import ChannelAdapter
 
 
 class WebAdapter(ChannelAdapter):

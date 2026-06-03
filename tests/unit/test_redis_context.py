@@ -1,16 +1,15 @@
 """Tests for RedisContextManager with mocked Redis client."""
 from __future__ import annotations
 
-import json
 import pytest
 
-from open_chat_shop.core.types import Message, SessionContext, AgentMessage, SessionMode
+from open_chat_shop.core.exceptions import ContextError
+from open_chat_shop.core.types import AgentMessage, Message, SessionContext, SessionMode
 from open_chat_shop.storage.redis_context import (
     RedisContextManager,
-    _serialize_context,
     _deserialize_context,
+    _serialize_context,
 )
-from open_chat_shop.core.exceptions import ContextError
 
 
 def _make_ctx(**overrides) -> SessionContext:

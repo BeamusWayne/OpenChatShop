@@ -14,15 +14,14 @@ Defines persistent data structures mapped to database tables:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlmodel import Field, SQLModel
 
 
 def _utc_now() -> datetime:
     """Return the current UTC time (timezone-aware)."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _new_id() -> str:
@@ -40,8 +39,8 @@ class User(SQLModel, table=True):
 
     id: str = Field(default_factory=_new_id, primary_key=True)
     name: str
-    phone: Optional[str] = Field(default=None)
-    email: Optional[str] = Field(default=None)
+    phone: str | None = Field(default=None)
+    email: str | None = Field(default=None)
     level: str = Field(default="normal")  # normal / vip / svip
     created_at: datetime = Field(default_factory=_utc_now)
     last_active_at: datetime = Field(default_factory=_utc_now)
@@ -59,10 +58,10 @@ class Product(SQLModel, table=True):
     name: str
     category: str
     price: float
-    original_price: Optional[float] = Field(default=None)
+    original_price: float | None = Field(default=None)
     stock: int = Field(default=0)
-    description: Optional[str] = Field(default=None)
-    image_url: Optional[str] = Field(default=None)
+    description: str | None = Field(default=None)
+    image_url: str | None = Field(default=None)
     rating: float = Field(default=0.0)
     tags: str = Field(default="")  # comma-separated
     is_active: bool = Field(default=True)
@@ -82,7 +81,7 @@ class Order(SQLModel, table=True):
     status: str = Field(default="pending")  # pending/paid/shipped/delivered/cancelled/refunded
     total_amount: float
     items_json: str  # JSON-encoded list of order items
-    address_json: Optional[str] = Field(default=None)  # JSON-encoded address
+    address_json: str | None = Field(default=None)  # JSON-encoded address
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
 
@@ -115,11 +114,11 @@ class ConversationLog(SQLModel, table=True):
 
     id: str = Field(default_factory=_new_id, primary_key=True)
     session_id: str = Field(index=True)
-    user_id: Optional[str] = Field(default=None, index=True)
+    user_id: str | None = Field(default=None, index=True)
     role: str  # user / assistant / system / tool
     content: str
-    intent_name: Optional[str] = Field(default=None)
-    tool_calls_json: Optional[str] = Field(default=None)
+    intent_name: str | None = Field(default=None)
+    tool_calls_json: str | None = Field(default=None)
     tokens_used: int = Field(default=0)
     latency_ms: int = Field(default=0)
     created_at: datetime = Field(default_factory=_utc_now)
@@ -135,11 +134,11 @@ class AuditRecord(SQLModel, table=True):
 
     id: str = Field(default_factory=_new_id, primary_key=True)
     session_id: str = Field(index=True)
-    user_id: Optional[str] = Field(default=None)
+    user_id: str | None = Field(default=None)
     action_type: str  # tool_call / security_event / permission_check
     action_detail: str
     risk_level: str = Field(default="low")  # low / medium / high / critical
-    metadata_json: Optional[str] = Field(default=None)
+    metadata_json: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=_utc_now)
 
 

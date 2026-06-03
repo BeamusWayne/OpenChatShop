@@ -55,14 +55,14 @@ class TestGoldenDatasetStructure:
     @pytest.mark.unit
     def test_all_10_intents_covered(self, dataset: list[GoldenSample]) -> None:
         intents = {s.expected_intent for s in dataset}
-        assert ALL_INTENTS <= intents, (
+        assert intents >= ALL_INTENTS, (
             f"Missing intents: {ALL_INTENTS - intents}"
         )
 
     @pytest.mark.unit
     def test_all_3_scenario_types_covered(self, dataset: list[GoldenSample]) -> None:
         types = {s.scenario_type for s in dataset}
-        assert ALL_SCENARIO_TYPES <= types, (
+        assert types >= ALL_SCENARIO_TYPES, (
             f"Missing scenario types: {ALL_SCENARIO_TYPES - types}"
         )
 

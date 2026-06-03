@@ -161,8 +161,8 @@ async def receive_message(request: Request) -> Response:
 # ---------------------------------------------------------------------------
 
 
-def setup_wechat_routes(app: "FastAPI", orchestrator: object) -> None:  # noqa: F821
+def setup_wechat_routes(app: FastAPI, orchestrator: object) -> None:  # noqa: F821
     """Store the orchestrator reference and mount the WeChat router."""
-    global _orchestrator  # noqa: PLW0603
+    global _orchestrator
     _orchestrator = orchestrator
     app.include_router(wechat_router, prefix="/api/v1/wechat")

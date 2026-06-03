@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import random
 
-from locust import HttpUser, task, between
+from locust import HttpUser, between, task
 
 # ---------------------------------------------------------------------------
 # Intent message templates

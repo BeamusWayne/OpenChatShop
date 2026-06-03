@@ -6,7 +6,7 @@ that the in-memory repositories expose via ``_mock_data.py``.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import Engine, text
 from sqlmodel import Session
@@ -83,4 +83,4 @@ def _parse_iso(s: str) -> datetime:
     try:
         return datetime.fromisoformat(s)
     except ValueError:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)

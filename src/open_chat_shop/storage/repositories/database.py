@@ -8,10 +8,9 @@ from __future__ import annotations
 import copy
 import json
 import uuid
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine
 from sqlmodel import Session, select
 
 from open_chat_shop.storage.models import (
@@ -97,7 +96,7 @@ class DatabaseOrderRepository(OrderRepository):
             for k, v in extras.items():
                 if hasattr(row, k):
                     setattr(row, k, v)
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
             session.add(row)
             session.commit()
             session.refresh(row)
@@ -119,7 +118,7 @@ class DatabaseOrderRepository(OrderRepository):
             if phone is not None:
                 new_data["phone"] = phone
             row.address_json = json.dumps(new_data, ensure_ascii=False)
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
             session.add(row)
             session.commit()
             session.refresh(row)
@@ -143,7 +142,7 @@ class DatabaseOrderRepository(OrderRepository):
             row.items_json = json.dumps(snapshot["items"], ensure_ascii=False)
             addr = {"full": snapshot.get("address", ""), "phone": snapshot.get("phone", "")}
             row.address_json = json.dumps(addr, ensure_ascii=False)
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
             session.add(row)
             session.commit()
         return True
@@ -219,7 +218,7 @@ class DatabaseRefundRepository(RefundRepository):
 
     def create(self, order_id: str, amount: float, reason: str) -> dict:
         refund_id = f"REF-{uuid.uuid4().hex[:8].upper()}"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         row = RefundRecord(
             id=refund_id,
             order_id=order_id,

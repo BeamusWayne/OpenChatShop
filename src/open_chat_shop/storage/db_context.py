@@ -8,10 +8,10 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import replace
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 from open_chat_shop.core.context import ContextManager
+from open_chat_shop.core.exceptions import ContextError
 from open_chat_shop.core.types import (
     AgentMessage,
     Message,
@@ -19,9 +19,8 @@ from open_chat_shop.core.types import (
     SessionMode,
     TokenBudget,
 )
-from open_chat_shop.core.exceptions import ContextError
+from open_chat_shop.storage.database import create_tables, get_engine, get_session
 from open_chat_shop.storage.models import ConversationLog
-from open_chat_shop.storage.database import get_engine, create_tables, get_session
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +62,7 @@ class DatabaseContextManager(ContextManager):
                 last_active_at = datetime.fromisoformat(meta["last_active_at"])
             else:
                 meta = {}
-                created_at = datetime.now(timezone.utc)
+                created_at = datetime.now(UTC)
                 last_active_at = created_at
 
             logs = session.exec(
@@ -126,7 +125,7 @@ class DatabaseContextManager(ContextManager):
                         "current_scenario": context.current_scenario,
                         "user_role": context.user_role,
                         "created_at": context.created_at.isoformat(),
-                        "last_active_at": datetime.now(timezone.utc).isoformat(),
+                        "last_active_at": datetime.now(UTC).isoformat(),
                         "mode": context.mode.value,
                         "human_agent_id": context.human_agent_id,
                     },
@@ -179,7 +178,7 @@ class DatabaseContextManager(ContextManager):
             context,
             history=kept,
             summary=new_summary,
-            last_active_at=datetime.now(timezone.utc),
+            last_active_at=datetime.now(UTC),
         )
 
     def get_token_budget(self, context: SessionContext) -> TokenBudget:
