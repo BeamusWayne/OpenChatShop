@@ -27,25 +27,31 @@
 
 **审计产物：** `docs/code-health-audit-2026-06-03.md`（健康度 52/100，4 CRITICAL + 6 HIGH + ~50 MEDIUM/LOW，全部带 file:line）。
 
-**修复分支：** `fix/audit-remediation`（从 main@afcc202 切出，未合并）。基线：890 passed → 现 898 passed, 3 skipped。
+**修复分支：** `fix/audit-remediation`（从 main@afcc202 切出，未合并）。基线：890 passed → 现 **908 passed, 3 skipped**。
 
-**本会话已完成（已提交、已验证）：**
+**本会话已完成（已提交、已验证）—— 4 个 CRITICAL 全清 + 2 HIGH + hygiene：**
 | commit | 内容 | 验证 |
 |--------|------|------|
 | 4c9760f | checkpoint 既有未提交 WIP（README 重写/app CSP/main 注释） | — |
-| cc879a3 | CRITICAL-2 弹性接线：包装 provider.chat 而非不存在的 generate，set_provider 无条件执行，except:pass→logger.exception | +1 回归测试 |
-| c9c242c | CRITICAL-1 IDOR：订单加 customer_id，OrderRepository.get_for_user 归属校验，JWT sub 绑定 request.state，6 工具全改 | +7 回归测试 |
-| da6c57e | CRITICAL-3 docker build：提交 entrypoint.sh/deploy/，.dockerignore 只排 frontend-agent/node_modules，迁移失败改为致命（ALLOW_MIGRATION_SKIP 兜底） | docker build 验证中 |
+| cc879a3 | **CRITICAL-2** 弹性接线：包装 provider.chat 而非不存在的 generate，set_provider 无条件执行，except:pass→logger.exception | +1 回归测试 |
+| c9c242c | **CRITICAL-1** IDOR：订单加 customer_id，OrderRepository.get_for_user 归属校验，JWT sub 绑定 request.state，6 工具全改 | +7 回归测试 |
+| da6c57e | **CRITICAL-3** docker build：提交 entrypoint.sh/deploy/，.dockerignore 只排 frontend-agent/node_modules，迁移失败改为致命 | 仅检视（环境无 docker daemon，未真 build；CI 会验） |
+| ecad2d3 | 审计报告落盘 docs/code-health-audit-2026-06-03.md | — |
+| f6a045e | **HIGH-6** mode/human_agent_id 丢失：redis/db_context 序列化补字段 + dataclasses.replace() | +4 回归测试 |
+| 2d1e649 | **HIGH-8** Level-2 中文语义：_tokenize 改字符 bigram∪空格分词 | +6 回归测试 |
+| c2fd651 | hygiene：logging.py 3处 except:pass→ERROR、cache.py 安全键、.gitignore +.vite/、README 839→898 | — |
+| 4cf26e2 | **CRITICAL-4** 评测飞轮：AgentMessage.meta 单点注入 intent/tool，eval 从 meta 读，CI gate 在 intent_accuracy（≈0.83）而非 LLM-依赖的 pass_rate，修误导性测试 | +1 e2e 测试 |
 
-**剩余未做（下一会话按此优先级）：**
-1. **CRITICAL-4** 评测飞轮 0/500：AgentMessage 加结构化 meta 字段（intent_name/tool_name），evaluation 从 meta 读，ci.yml 加 regression step。**注意**会动 orchestrator.py（与下面多项同文件，需串行）。
-2. **HIGH-6** mode/human_agent_id 丢失：redis_context.py + db_context.py 序列化补两字段，统一 dataclasses.replace()。（独立文件，可并行）
-3. **HIGH** 四层安全真接线、confirm 二次确认闭环、成本治理真实 token、Level-2 中文化、原生 FC——用户选了"尽量都接成真功能"，这些是 P1 "wire to real" 大波，多数压在 orchestrator.py 上需串行，跨多会话。
-4. **hygiene**：logging.py 3处 except:pass、cache.py 键、.gitignore 加 .vite/、README 839→898 徽章、109 个既有 ruff lint 债（CI lint job 当前红）。
+**剩余未做（下一会话）—— P1 "wire to real" 大波（用户选了"尽量都接成真功能"，全压在 orchestrator.py 需串行）：**
+1. **HIGH-5** 四层安全真接线：security.py 的 check_permission/sanitize_output 当前零调用；PII 只记日志不脱敏 → orchestrator 真接线（check_input 回写 masked、工具前 check_permission、写操作 sanitize_output）。
+2. **HIGH-7** 成本治理真实 token：orchestrator._llm_enhance 读 response.usage 写入 meta['token_usage'] + cost_tracker.record(真实模型/token)，middleware 消费真值。（可借 4cf26e2 已建的 meta 通道）
+3. **HIGH-9** confirm 二次确认闭环：strategy 产出 confirm 时持久化 confirmation_token，下一轮检测肯定/否定意图执行或丢弃。
+4. **HIGH-10** 原生 function-calling：ToolDefinition 经 tools= 传 provider.chat，消费 LLMResponse.tool_calls，AnthropicProvider 实现真实 tool_use 解析。
+5. **P2 杂项**：golden_dataset.py 4204行违型、109 个既有 ruff lint 债（CI lint job 红）、两前端组件去重、OTel span 打 stdout 拖慢 eval。
 
-**已知残留：** WebSocket chat 入口暂未绑定身份（advisory 模式）；ci.yml 的 lint job 因既有 109 ruff 错误为红（非本次引入）。
+**已知残留：** WebSocket chat 入口未绑定身份（advisory 模式）；CRITICAL-4 的 pass_rate 需真实 LLM 才有意义（已 gate 在 LLM-无关的 intent_accuracy）；全 500 eval 因 OTel console span 极慢。
 
-**重启路径：** `git checkout fix/audit-remediation` → 读本文件 + 审计 doc → `PYTHONPATH=src .venv/bin/python -m pytest tests/ -q` 确认 898 绿 → 从剩余清单第 1 项继续。
+**重启路径：** `git checkout fix/audit-remediation` → 读本文件 + 审计 doc → `PYTHONPATH=src .venv/bin/python -m pytest tests/ -q` 确认 908 绿 → 从剩余清单第 1 项（HIGH-5 安全接线）继续。
 
 ### 2026-05-19 Session 2 (21:00-22:00)
 
