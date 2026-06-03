@@ -198,6 +198,24 @@ def _load_yaml_config() -> dict:
         return {}
 
 
+def _build_rbac_config(sec_rbac: Any) -> dict:
+    """Translate parsed security.yaml RBAC into the shape PermissionChecker parses.
+
+    PermissionChecker expects ``{"roles": [{"name": .., "tools": ..}]}`` and
+    silently falls back to its built-in default when the ``"roles"`` key is
+    absent. Returning the wrong shape (e.g. ``{role.name: {"tools": ..}}``) means
+    a custom security.yaml is ignored, so this MUST produce the role-dict list.
+    """
+    return {
+        "rbac": {
+            "roles": [
+                {"name": role.name, "tools": list(role.tools)}
+                for role in sec_rbac.roles
+            ]
+        }
+    }
+
+
 def build_orchestrator() -> DialogueOrchestrator:
     """Construct the full component pipeline and return a DialogueOrchestrator."""
     yaml_config = _load_yaml_config()
@@ -214,9 +232,7 @@ def build_orchestrator() -> DialogueOrchestrator:
             "enabled": sec.content_safety.enabled,
             "pii_masking": sec.content_safety.pii_masking,
         }
-        security_config["rbac"] = {
-            role.name: {"tools": role.tools} for role in sec.rbac.roles
-        }
+        security_config["rbac"] = _build_rbac_config(sec.rbac)["rbac"]
 
     security_guard = SecurityGuard(security_config)
 
