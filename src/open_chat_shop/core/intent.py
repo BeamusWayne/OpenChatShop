@@ -184,19 +184,38 @@ class CascadeIntentEngine(IntentEngine):
 
     # -- Level 2: semantic search ----------------------------------------
 
+    @staticmethod
+    def _tokenize(text: str) -> set[str]:
+        """Return a token set suitable for Jaccard similarity.
+
+        Uses the union of whitespace tokens and character bigrams so that
+        both English/space-separated text and Chinese (which has no spaces)
+        produce meaningful overlap.  Character bigrams alone handle Chinese;
+        whitespace tokens help when the caller already space-separated words.
+        """
+        lowered = text.lower()
+        space_tokens: set[str] = set(lowered.split())
+        bigrams: set[str] = {lowered[i] + lowered[i + 1] for i in range(len(lowered) - 1)}
+        return space_tokens | bigrams
+
     async def _semantic_search(self, text: str) -> Intent | None:
-        """Simplified semantic search using Jaccard-like word overlap."""
+        """Simplified semantic search using Jaccard-like word overlap.
+
+        Tokenisation uses character bigrams unioned with whitespace tokens so
+        that Chinese text (no spaces) produces non-zero Jaccard scores against
+        semantically similar samples.
+        """
         if not self._samples:
             return None
 
         best_intent: str | None = None
         best_score = 0.0
 
-        text_words = set(text.lower().split())
+        text_words = self._tokenize(text)
 
         for intent_name, samples in self._samples.items():
             for sample in samples:
-                sample_words = set(sample.lower().split())
+                sample_words = self._tokenize(sample)
                 overlap = len(sample_words & text_words)
                 total = len(sample_words | text_words)
                 score = overlap / total if total > 0 else 0.0

@@ -384,6 +384,99 @@ class TestIntentRegistry:
 
 
 # ===========================================================================
+# Level 2 — Chinese bigram tokenisation (HIGH-8 regression tests)
+# ===========================================================================
+
+
+class TestSemanticChineseBigram:
+    """Regression tests for HIGH-8: Level-2 must produce non-zero Jaccard
+    scores for natural Chinese text that shares no whitespace tokens with
+    its registered samples."""
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_chinese_query_order_hits_level2(self):
+        """'我想查询我的订单' shares bigrams with sample '查询订单' → non-zero score
+        → Level-2 resolves without touching Level-3."""
+        engine = CascadeIntentEngine(
+            rule_matcher=RuleBasedMatcher(),  # no rules → must reach level 2
+            level1_threshold=0.99,
+            level2_threshold=0.1,  # low enough that bigram overlap clears it
+        )
+        await engine.add_samples("query_order", ["查询订单", "我的订单状态"])
+
+        msg = _make_message("我想查询我的订单")
+        ctx = _make_context()
+        result = await engine.classify(msg, ctx)
+
+        assert result is not None
+        assert result.name == "query_order"
+        assert result.source == "semantic"
+        assert result.confidence > 0.0
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_chinese_refund_phrase_hits_level2(self):
+        """'我要申请退款' shares bigrams with sample '退款申请' → non-zero score."""
+        engine = CascadeIntentEngine(
+            rule_matcher=RuleBasedMatcher(),
+            level1_threshold=0.99,
+            level2_threshold=0.1,
+        )
+        await engine.add_samples("refund", ["退款申请", "申请退货"])
+
+        msg = _make_message("我要申请退款")
+        ctx = _make_context()
+        result = await engine.classify(msg, ctx)
+
+        assert result is not None
+        assert result.name == "refund"
+        assert result.source == "semantic"
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_unrelated_chinese_phrase_does_not_hit(self):
+        """Completely unrelated text should not match a query_order sample."""
+        engine = CascadeIntentEngine(
+            rule_matcher=RuleBasedMatcher(),
+            level1_threshold=0.99,
+            level2_threshold=0.5,  # strict threshold — unrelated text must fall below
+        )
+        await engine.add_samples("query_order", ["查询订单", "订单状态"])
+
+        # "今天天气真好" shares no bigrams with any of the samples
+        msg = _make_message("今天天气真好")
+        ctx = _make_context()
+        result = await engine.classify(msg, ctx)
+
+        # Must not resolve to query_order at level 2
+        assert result.name != "query_order"
+
+    @pytest.mark.unit
+    def test_tokenize_chinese_produces_bigrams(self):
+        """_tokenize should return character bigrams for Chinese text."""
+        tokens = CascadeIntentEngine._tokenize("查询订单")
+        # Expected bigrams: '查询', '询订', '订单'
+        assert "查询" in tokens
+        assert "询订" in tokens
+        assert "订单" in tokens
+
+    @pytest.mark.unit
+    def test_tokenize_english_preserves_space_tokens(self):
+        """_tokenize should keep whitespace tokens for English text."""
+        tokens = CascadeIntentEngine._tokenize("hello world")
+        assert "hello" in tokens
+        assert "world" in tokens
+
+    @pytest.mark.unit
+    def test_tokenize_mixed_text(self):
+        """_tokenize handles mixed Chinese+English: both bigrams and space tokens."""
+        tokens = CascadeIntentEngine._tokenize("order 订单")
+        assert "order" in tokens   # whitespace token
+        assert "订单" in tokens    # bigram
+
+
+# ===========================================================================
 # Context-assisted disambiguation
 # ===========================================================================
 
