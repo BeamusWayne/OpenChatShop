@@ -41,7 +41,7 @@ class ResponseCache:
         self._memory: dict[str, tuple[float, AgentMessage]] = {}
 
     def _make_key(self, intent: str, params: dict[str, Any]) -> str:
-        h = hashlib.md5(json.dumps(params, sort_keys=True).encode()).hexdigest()[:12]
+        h = hashlib.md5(json.dumps(params, sort_keys=True, default=str).encode()).hexdigest()
         return f"cache:{intent}:{h}"
 
     def get(self, intent: str, params: dict[str, Any]) -> AgentMessage | None:

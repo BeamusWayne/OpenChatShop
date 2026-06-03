@@ -42,6 +42,7 @@ docker-compose.override.yml
 
 # Node (frontend)
 node_modules/
+.vite/
 
 # Data
 data/*.db

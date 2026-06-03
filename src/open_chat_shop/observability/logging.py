@@ -12,6 +12,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 
 class StructuredFormatter(logging.Formatter):
     """JSON structured log formatter.
@@ -183,7 +185,10 @@ class DatabaseAuditLogger:
                     metadata_json=json.dumps(_sanitize_params(params)),
                 ))
         except Exception:
-            pass
+            self._fallback._logger.error(
+                "Failed to persist audit tool_execution record to database",
+                exc_info=True,
+            )
 
     def log_security_event(self, event: str, session_id: str | None, details: dict) -> None:
         self._fallback.log_security_event(event, session_id, details)
@@ -199,7 +204,10 @@ class DatabaseAuditLogger:
                     metadata_json=json.dumps(details),
                 ))
         except Exception:
-            pass
+            self._fallback._logger.error(
+                "Failed to persist security_event record to database",
+                exc_info=True,
+            )
 
 
 class DatabaseCostTracker:
@@ -232,7 +240,7 @@ class DatabaseCostTracker:
                     cost_usd=round(cost, 6),
                 ))
         except Exception:
-            pass
+            logger.exception("Failed to persist cost record to database")
         return cost
 
     def get_summary(self) -> dict:
