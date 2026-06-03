@@ -25,6 +25,7 @@ CATEGORY_LABELS: dict[str, str] = {
 ORDERS: dict[str, dict] = {
     "ORD-001": {
         "order_id": "ORD-001",
+        "customer_id": "user-001",
         "status": "shipped",
         "items": [
             {"name": "无线鼠标", "quantity": 1, "price": 79.00},
@@ -37,6 +38,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-002": {
         "order_id": "ORD-002",
+        "customer_id": "user-001",
         "status": "pending",
         "items": [
             {"name": "机械键盘", "quantity": 1, "price": 399.00},
@@ -48,6 +50,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-003": {
         "order_id": "ORD-003",
+        "customer_id": "user-001",
         "status": "processing",
         "items": [
             {"name": "显示器支架", "quantity": 2, "price": 120.00},
@@ -59,6 +62,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-004": {
         "order_id": "ORD-004",
+        "customer_id": "user-001",
         "status": "refunded",
         "items": [
             {"name": "高清摄像头", "quantity": 1, "price": 199.00},
@@ -70,6 +74,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-005": {
         "order_id": "ORD-005",
+        "customer_id": "user-001",
         "status": "delivered",
         "items": [
             {"name": "笔记本电脑包", "quantity": 1, "price": 59.00},
@@ -82,6 +87,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-006": {
         "order_id": "ORD-006",
+        "customer_id": "user-001",
         "status": "pending",
         "items": [
             {"name": "智能手表", "quantity": 1, "price": 1299.00},
@@ -94,6 +100,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-007": {
         "order_id": "ORD-007",
+        "customer_id": "user-001",
         "status": "pending",
         "items": [
             {"name": "空气净化器", "quantity": 1, "price": 2399.00},
@@ -105,6 +112,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-008": {
         "order_id": "ORD-008",
+        "customer_id": "user-001",
         "status": "processing",
         "items": [
             {"name": "平板电脑", "quantity": 1, "price": 3299.00},
@@ -117,6 +125,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-009": {
         "order_id": "ORD-009",
+        "customer_id": "user-001",
         "status": "processing",
         "items": [
             {"name": "打印机", "quantity": 1, "price": 899.00},
@@ -129,6 +138,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-010": {
         "order_id": "ORD-010",
+        "customer_id": "user-001",
         "status": "shipped",
         "items": [
             {"name": "笔记本电脑", "quantity": 1, "price": 6999.00},
@@ -140,6 +150,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-011": {
         "order_id": "ORD-011",
+        "customer_id": "user-001",
         "status": "shipped",
         "items": [
             {"name": "降噪耳机", "quantity": 1, "price": 899.00},
@@ -152,6 +163,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-012": {
         "order_id": "ORD-012",
+        "customer_id": "user-001",
         "status": "delivered",
         "items": [
             {"name": "咖啡机", "quantity": 1, "price": 1599.00},
@@ -164,6 +176,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-013": {
         "order_id": "ORD-013",
+        "customer_id": "user-001",
         "status": "refunded",
         "items": [
             {"name": "纯棉T恤", "quantity": 3, "price": 89.00},
@@ -175,6 +188,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-014": {
         "order_id": "ORD-014",
+        "customer_id": "user-001",
         "status": "cancelled",
         "items": [
             {"name": "显示器", "quantity": 1, "price": 2499.00},
@@ -187,6 +201,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-015": {
         "order_id": "ORD-015",
+        "customer_id": "user-001",
         "status": "shipped",
         "items": [
             {"name": "冲锋衣", "quantity": 1, "price": 459.00},

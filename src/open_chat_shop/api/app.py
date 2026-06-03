@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Any, Callable, Optional
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 import asyncio
 import json
 from fastapi.middleware.cors import CORSMiddleware
@@ -252,7 +252,7 @@ def create_app(
     # ------------------------------------------------------------------
 
     @app.post("/api/v1/chat", response_model=ChatResponse)
-    async def chat(request: ChatRequest) -> ChatResponse:
+    async def chat(request: ChatRequest, http_request: Request) -> ChatResponse:
         if _orchestrator is None:
             raise HTTPException(status_code=503, detail="Service not configured")
 
@@ -271,11 +271,16 @@ def create_app(
                     detail="Session in human service mode",
                 )
 
+        # Trust the server-verified identity (JWT sub bound by AuthMiddleware)
+        # over any client-supplied user_id, so a caller cannot impersonate
+        # another user to reach their orders. Falls back to the request body
+        # only when no auth is configured (local/dev mode).
+        effective_user_id = getattr(http_request.state, "user_id", None) or request.user_id
         msg = UserMessage(
             session_id=request.session_id,
             content=request.content,
             channel=request.channel,
-            user_id=request.user_id,
+            user_id=effective_user_id,
         )
 
         response: AgentMessage = await _orchestrator.handle_message(msg)
@@ -296,6 +301,7 @@ def create_app(
 
     @app.get("/api/v1/chat/stream")
     async def chat_stream(
+        http_request: Request,
         session_id: str = Query(..., max_length=128),
         content: str = Query(..., max_length=2000),
         channel: str = Query("web", max_length=32),
@@ -319,11 +325,12 @@ def create_app(
                     detail="Session in human service mode",
                 )
 
+        effective_user_id = getattr(http_request.state, "user_id", None) or user_id
         msg = UserMessage(
             session_id=session_id,
             content=content,
             channel=channel,
-            user_id=user_id,
+            user_id=effective_user_id,
         )
         streaming = StreamingOrchestrator(_orchestrator)
         sse_adapter = _registry.get_adapter(channel)

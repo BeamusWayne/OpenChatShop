@@ -545,3 +545,73 @@ class TestCompensate:
 
         await tool.compensate({"order_id": "ORD-002", "reason": "test"}, ctx)
         assert refund_id not in _mock_data.REFUNDS
+
+
+class TestOrderOwnershipIDOR:
+    """Regression for the IDOR/BOLA fix (audit CRITICAL-1).
+
+    Seeded orders are owned by ``user-001``. Order tools reach them via
+    OrderRepository.get_for_user, so an authenticated user must not read or
+    mutate another user's order by guessing its ID. A non-owned order is
+    reported as 'not found' — no enumeration oracle, no mutation.
+    """
+
+    @pytest.fixture()
+    def attacker(self) -> SessionContext:
+        return SessionContext(
+            session_id="attacker-session",
+            user_id="user-999",  # owns none of the seeded orders
+            channel="web",
+            user_role="customer",
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_order_denies_other_users_order(self, attacker: SessionContext):
+        result = await QueryOrderTool().execute({"order_id": "ORD-001"}, attacker)
+        assert result.success is False
+        assert "ORD-001" in result.error  # surfaced as not-found, leaks nothing
+
+    @pytest.mark.asyncio
+    async def test_query_logistics_denies_other_users_order(self, attacker: SessionContext):
+        result = await QueryLogisticsTool().execute({"order_id": "ORD-001"}, attacker)
+        assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_cancel_order_denies_and_does_not_mutate(self, attacker: SessionContext):
+        result = await CancelOrderTool().execute(
+            {"order_id": "ORD-002", "reason": "malicious"}, attacker
+        )
+        assert result.success is False
+        assert _mock_data.ORDERS["ORD-002"]["status"] == "pending"  # untouched
+
+    @pytest.mark.asyncio
+    async def test_create_refund_denies_other_users_order(self, attacker: SessionContext):
+        result = await CreateRefundTool().execute(
+            {"order_id": "ORD-001", "reason": "malicious"}, attacker
+        )
+        assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_modify_address_denies_and_does_not_mutate(self, attacker: SessionContext):
+        before = _mock_data.ORDERS["ORD-001"]["address"]
+        result = await ModifyAddressTool().execute(
+            {"order_id": "ORD-001", "address": "attacker-controlled address"}, attacker
+        )
+        assert result.success is False
+        assert _mock_data.ORDERS["ORD-001"]["address"] == before  # untouched
+
+    @pytest.mark.asyncio
+    async def test_legitimate_owner_is_unaffected(self, ctx: SessionContext):
+        # Sanity: the real owner (user-001) still succeeds — no false positives.
+        result = await QueryOrderTool().execute({"order_id": "ORD-001"}, ctx)
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_no_identity_falls_back_to_advisory(self) -> None:
+        # When no identity is established (user_id=None, e.g. auth disabled),
+        # ownership is not enforced so the local/dev demo keeps working.
+        anon = SessionContext(
+            session_id="anon", user_id=None, channel="web", user_role="customer"
+        )
+        result = await QueryOrderTool().execute({"order_id": "ORD-001"}, anon)
+        assert result.success is True

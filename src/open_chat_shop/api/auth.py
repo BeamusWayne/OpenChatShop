@@ -5,6 +5,8 @@ import logging
 from typing import Any
 
 from fastapi import Request
+from jose import JWTError
+from jose import jwt as jose_jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
@@ -60,12 +62,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if auth_header.startswith("Bearer ") and self._jwt_secret:
             token = auth_header[7:]
             try:
-                from jose import jwt as jose_jwt
-
-                jose_jwt.decode(token, self._jwt_secret, algorithms=["HS256"])
-                # Token is valid
+                payload = jose_jwt.decode(
+                    token, self._jwt_secret, algorithms=["HS256"]
+                )
+                # Bind the *server-verified* identity to the request so handlers
+                # never have to trust a client-supplied user_id. This is the
+                # source of truth for order-ownership checks (prevents IDOR).
+                request.state.user_id = payload.get("sub")
                 return await call_next(request)
-            except Exception:
+            except JWTError:
                 logger.warning("JWT validation failed for path %s", request.url.path)
 
         # Auth required but no valid credentials

@@ -43,7 +43,7 @@ class QueryLogisticsTool(BaseTool):
     async def execute(self, params: dict, context: SessionContext) -> ToolResult:
         order_id = params["order_id"]
 
-        if self._order_repo.get(order_id) is None:
+        if self._order_repo.get_for_user(order_id, context.user_id) is None:
             return ToolResult(success=False, error=f"未找到订单 {order_id}")
 
         logistics = self._logistics_repo.get_by_order(order_id)

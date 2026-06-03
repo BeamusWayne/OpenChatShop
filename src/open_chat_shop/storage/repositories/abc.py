@@ -36,6 +36,27 @@ class OrderRepository(ABC):
     def restore_snapshot(self, order_id: str) -> bool:
         """Restore previously saved snapshot. Returns True if restored."""
 
+    def get_for_user(self, order_id: str, user_id: str | None) -> dict | None:
+        """Return the order only if it belongs to *user_id* (ownership check).
+
+        This is the access point tools must use instead of :meth:`get`, to
+        prevent IDOR/BOLA: an authenticated user must not read or mutate
+        another user's order by guessing its ID.
+
+        Ownership is enforced only when a caller identity is known (*user_id*
+        is not None) and the order records an owner (``customer_id``). When no
+        identity is established — e.g. auth disabled in local/dev mode — the
+        order is returned as-is. A non-owned order is reported as None,
+        indistinguishable from a missing one, to prevent order-ID enumeration.
+        """
+        order = self.get(order_id)
+        if order is None:
+            return None
+        owner = order.get("customer_id")
+        if user_id is not None and owner is not None and owner != user_id:
+            return None
+        return order
+
 
 class ProductRepository(ABC):
     """Access product catalogue."""

@@ -34,7 +34,7 @@ class QueryOrderTool(BaseTool):
 
     async def execute(self, params: dict, context: SessionContext) -> ToolResult:
         order_id = params["order_id"]
-        order = self._order_repo.get(order_id)
+        order = self._order_repo.get_for_user(order_id, context.user_id)
         if order is None:
             return ToolResult(success=False, error=f"未找到订单 {order_id}，请检查订单号是否正确")
         return ToolResult(

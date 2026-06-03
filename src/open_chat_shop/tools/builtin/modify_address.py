@@ -37,7 +37,7 @@ class ModifyAddressTool(BaseTool):
 
     async def pre_check(self, params: dict, context: SessionContext) -> CheckResult:
         order_id = params["order_id"]
-        order = self._order_repo.get(order_id)
+        order = self._order_repo.get_for_user(order_id, context.user_id)
         if order is None:
             return CheckResult(passed=False, reason=f"订单 {order_id} 不存在")
         shipped_statuses = ("shipped", "delivered")
@@ -53,7 +53,7 @@ class ModifyAddressTool(BaseTool):
         new_address = params["address"]
         new_phone = params.get("phone")
 
-        order = self._order_repo.get(order_id)
+        order = self._order_repo.get_for_user(order_id, context.user_id)
         if order is None:
             return ToolResult(success=False, error=f"Order {order_id} not found")
 

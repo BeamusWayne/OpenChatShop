@@ -36,7 +36,7 @@ class CancelOrderTool(BaseTool):
 
     async def pre_check(self, params: dict, context: SessionContext) -> CheckResult:
         order_id = params["order_id"]
-        order = self._order_repo.get(order_id)
+        order = self._order_repo.get_for_user(order_id, context.user_id)
         if order is None:
             return CheckResult(passed=False, reason=f"订单 {order_id} 不存在")
         if order["status"] not in ("pending", "processing"):
@@ -50,7 +50,7 @@ class CancelOrderTool(BaseTool):
         order_id = params["order_id"]
         reason = params["reason"]
 
-        order = self._order_repo.get(order_id)
+        order = self._order_repo.get_for_user(order_id, context.user_id)
         if order is None:
             return ToolResult(success=False, error=f"Order {order_id} not found")
 
