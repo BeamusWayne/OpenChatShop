@@ -215,6 +215,18 @@ class DialogueOrchestrator:
         context: SessionContext,
     ) -> AgentMessage:
         """Core processing: pending check, intent, tools, strategy, execution."""
+        # 2.4 Check if user is answering a pending high-risk confirmation.
+        # Runs before classification so an affirmative "确认" is not re-routed.
+        pending_confirmation = context.slots.get("_pending_confirmation")
+        if pending_confirmation is not None:
+            confirm_response = await self._resolve_pending_confirmation(
+                message, context, pending_confirmation,
+            )
+            if confirm_response is not None:
+                await self._context_manager.save(context, confirm_response)
+                return confirm_response
+            # Cleared (topic switch / ambiguous) — fall through to normal flow.
+
         # 2.5 Check if user is answering a previous clarification
         pending_action = context.slots.get("_pending_action")
         if pending_action is not None:
@@ -269,9 +281,11 @@ class DialogueOrchestrator:
         # 5. Strategy decision
         action = await self._strategy.decide(intent, context, tools)
 
-        # 5.5 Save pending action info to context when clarifying
+        # 5.5 Persist multi-turn state: clarify slots, or a high-risk confirmation
         if action.type == "clarify" and "_pending_action" in action.payload:
             context.slots["_pending_action"] = action.payload["_pending_action"]
+        elif action.type == "confirm" and "pending_action" in action.payload:
+            context.slots["_pending_confirmation"] = action.payload["pending_action"]
 
         # 6. Execute action
         response = await self._execute_action(action, context, tools)
@@ -302,6 +316,90 @@ class DialogueOrchestrator:
         await self._context_manager.save(context, response)
 
         return response
+
+    # ------------------------------------------------------------------
+    # High-risk confirmation loop (audit HIGH-9)
+    # ------------------------------------------------------------------
+
+    # Rule-based affirmation detection. Negation is checked first so that
+    # replies like "不确定"/"不可以" resolve to deny, never affirm (fail-safe).
+    _DENY_RE = _re.compile(r"不|否|取消|算了|别|放弃|拒绝|cancel|\bno\b", _re.IGNORECASE)
+    _AFFIRM_RE = _re.compile(
+        r"^(好|好的|是|是的|对|对的|嗯+|可以|行)$"
+        r"|确认|确定|同意|没错|执行|继续|\byes\b|\bok\b|\bsure\b",
+        _re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _detect_affirmation(text: str) -> str | None:
+        """Classify a confirmation reply as 'affirm', 'deny', or None.
+
+        Deterministic rule match (Rule 5: code answers what code can). A
+        non-affirmative reply never triggers the irreversible write.
+        """
+        stripped = text.strip()
+        if DialogueOrchestrator._DENY_RE.search(stripped):
+            return "deny"
+        if DialogueOrchestrator._AFFIRM_RE.search(stripped):
+            return "affirm"
+        return None
+
+    async def _resolve_pending_confirmation(
+        self,
+        message: UserMessage,
+        context: SessionContext,
+        pending: dict[str, Any],
+    ) -> AgentMessage | None:
+        """Resolve a persisted high-risk confirmation from the user's reply.
+
+        One-shot: the pending confirmation is always cleared. Returns the tool
+        result on affirmation, a cancellation message on explicit decline, or
+        None when the reply is unrelated (topic switch / ambiguous) so the
+        caller proceeds with normal classification. Because any non-affirmative
+        reply discards it, the confirmation is implicitly valid for a single
+        turn — no explicit TTL is needed.
+        """
+        signal = self._detect_affirmation(message.content)
+        context.slots.pop("_pending_confirmation", None)
+
+        if signal == "affirm":
+            tool_name = pending.get("tool_name", "")
+            tool = (
+                self._tool_injector.get_tool(tool_name)
+                if hasattr(self._tool_injector, "get_tool")
+                else None
+            )
+            if tool is None:
+                return self._error_response("抱歉，该操作已失效，请重新发起。")
+            logger.info(
+                "Pending confirmation accepted",
+                extra={
+                    **self._trace_extras(context.session_id),
+                    "tool_name": tool_name,
+                },
+            )
+            action = Action(
+                type="tool_call",
+                payload={
+                    "tool_name": tool_name,
+                    "params": pending.get("params", {}),
+                    "call_id": pending.get("call_id", f"call-{tool_name}"),
+                },
+            )
+            return await self._execute_action(action, context, [tool])
+
+        if signal == "deny":
+            logger.info(
+                "Pending confirmation declined",
+                extra={
+                    **self._trace_extras(context.session_id),
+                    "tool_name": pending.get("tool_name"),
+                },
+            )
+            return self._error_response("好的，已为您取消该操作。")
+
+        # Unrelated / ambiguous — discard and let normal classification run.
+        return None
 
     async def _try_resolve_pending(
         self,
