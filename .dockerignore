@@ -16,7 +16,7 @@ htmlcov/
 *.egg-info/
 dist/
 build/
-frontend-agent/
+frontend-agent/node_modules/
 docs/
 claude-progress.md
 feature_list.json
