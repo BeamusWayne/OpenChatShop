@@ -5,9 +5,11 @@ path of the agent's request handling pipeline.
 """
 from __future__ import annotations
 
+import os
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
@@ -20,14 +22,24 @@ from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProces
 
 _tracer: trace.Tracer | None = None
 
+_CONSOLE_ENV_TRUE = frozenset({"1", "true", "yes"})
+
 # ---------------------------------------------------------------------------
 # Setup helpers
 # ---------------------------------------------------------------------------
 
 
+def _console_enabled(console: bool | None) -> bool:
+    """Resolve whether to install the console exporter (explicit arg > env)."""
+    if console is not None:
+        return console
+    return os.environ.get("OTEL_CONSOLE_EXPORT", "").strip().lower() in _CONSOLE_ENV_TRUE
+
+
 def setup_tracing(
     service_name: str = "open-chat-shop",
     endpoint: str | None = None,
+    console: bool | None = None,
 ) -> trace.Tracer:
     """Create and install a global :class:`TracerProvider`.
 
@@ -36,12 +48,19 @@ def setup_tracing(
     service_name:
         Logical service name attached to every span.
     endpoint:
-        If provided, an ``OTLPSpanExporter`` is wired in.  When *None*
-        (the default) a ``ConsoleSpanExporter`` is used so that spans
-        appear on stdout during development.
+        If provided, an ``OTLPSpanExporter`` is wired in.
+    console:
+        If True, spans are exported to stdout via ``ConsoleSpanExporter``.
+        When *None* (the default) this is read from the
+        ``OTEL_CONSOLE_EXPORT`` environment variable.  Default **off** — by
+        default no exporter is installed, so spans are created but never
+        exported; tracing then adds no stdout noise or per-span export
+        latency (notably during evaluation runs over hundreds of samples).
     """
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)
+
+    console = _console_enabled(console)
 
     if endpoint is not None:
         # Lazy import — opentelemetry-exporter-otlp may not be installed.
@@ -49,14 +68,16 @@ def setup_tracing(
             OTLPSpanExporter,
         )
 
-        exporter = OTLPSpanExporter(endpoint=endpoint)
-    else:
-        exporter = ConsoleSpanExporter()
+        provider.add_span_processor(
+            SimpleSpanProcessor(OTLPSpanExporter(endpoint=endpoint))
+        )
+    elif console:
+        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    # else: no exporter installed — spans are created but never exported.
 
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
 
-    global _tracer  # noqa: PLW0603
+    global _tracer
     _tracer = trace.get_tracer(service_name)
     return _tracer
 
@@ -64,10 +85,10 @@ def setup_tracing(
 def get_tracer() -> trace.Tracer:
     """Return the global tracer.
 
-    Lazily initialises a default tracer (console exporter) if
+    Lazily initialises a default tracer (no exporter — quiet) if
     :func:`setup_tracing` has not been called yet.
     """
-    global _tracer  # noqa: PLW0603
+    global _tracer
     if _tracer is None:
         _tracer = setup_tracing()
     return _tracer
