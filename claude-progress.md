@@ -21,6 +21,32 @@
 
 ## 会话记录
 
+### 2026-06-03 Session — 审计驱动修复（audit remediation）
+
+**任务：** 全量扫描 + 业界对标审计（31-agent workflow），然后分波修复发现的"不和谐点"。
+
+**审计产物：** `docs/code-health-audit-2026-06-03.md`（健康度 52/100，4 CRITICAL + 6 HIGH + ~50 MEDIUM/LOW，全部带 file:line）。
+
+**修复分支：** `fix/audit-remediation`（从 main@afcc202 切出，未合并）。基线：890 passed → 现 898 passed, 3 skipped。
+
+**本会话已完成（已提交、已验证）：**
+| commit | 内容 | 验证 |
+|--------|------|------|
+| 4c9760f | checkpoint 既有未提交 WIP（README 重写/app CSP/main 注释） | — |
+| cc879a3 | CRITICAL-2 弹性接线：包装 provider.chat 而非不存在的 generate，set_provider 无条件执行，except:pass→logger.exception | +1 回归测试 |
+| c9c242c | CRITICAL-1 IDOR：订单加 customer_id，OrderRepository.get_for_user 归属校验，JWT sub 绑定 request.state，6 工具全改 | +7 回归测试 |
+| da6c57e | CRITICAL-3 docker build：提交 entrypoint.sh/deploy/，.dockerignore 只排 frontend-agent/node_modules，迁移失败改为致命（ALLOW_MIGRATION_SKIP 兜底） | docker build 验证中 |
+
+**剩余未做（下一会话按此优先级）：**
+1. **CRITICAL-4** 评测飞轮 0/500：AgentMessage 加结构化 meta 字段（intent_name/tool_name），evaluation 从 meta 读，ci.yml 加 regression step。**注意**会动 orchestrator.py（与下面多项同文件，需串行）。
+2. **HIGH-6** mode/human_agent_id 丢失：redis_context.py + db_context.py 序列化补两字段，统一 dataclasses.replace()。（独立文件，可并行）
+3. **HIGH** 四层安全真接线、confirm 二次确认闭环、成本治理真实 token、Level-2 中文化、原生 FC——用户选了"尽量都接成真功能"，这些是 P1 "wire to real" 大波，多数压在 orchestrator.py 上需串行，跨多会话。
+4. **hygiene**：logging.py 3处 except:pass、cache.py 键、.gitignore 加 .vite/、README 839→898 徽章、109 个既有 ruff lint 债（CI lint job 当前红）。
+
+**已知残留：** WebSocket chat 入口暂未绑定身份（advisory 模式）；ci.yml 的 lint job 因既有 109 ruff 错误为红（非本次引入）。
+
+**重启路径：** `git checkout fix/audit-remediation` → 读本文件 + 审计 doc → `PYTHONPATH=src .venv/bin/python -m pytest tests/ -q` 确认 898 绿 → 从剩余清单第 1 项继续。
+
 ### 2026-05-19 Session 2 (21:00-22:00)
 
 **任务：** 分层并行构建 OpenChatShop Phase 1 核心框架
