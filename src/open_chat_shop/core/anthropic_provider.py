@@ -15,6 +15,7 @@ from open_chat_shop.core.types import (
     Message,
     ProviderCapabilities,
     TokenUsage,
+    ToolCall,
     ToolDefinition,
 )
 
@@ -76,11 +77,40 @@ class AnthropicProvider(LLMProvider):
             if system_text.strip():
                 kwargs["system"] = system_text.strip()
 
+            # Native function calling: forward tool schemas so the model can
+            # select a tool and return structured tool_use blocks.
+            if tools:
+                kwargs["tools"] = [
+                    {
+                        "name": t.name,
+                        "description": t.description,
+                        "input_schema": t.parameters,
+                    }
+                    for t in tools
+                ]
+
             response = await client.messages.create(**kwargs)
 
+            # A response may interleave text and tool_use blocks. Parse both;
+            # do not assume the first block is text (tool_use-only is valid).
+            text_parts: list[str] = []
+            tool_calls: list[ToolCall] = []
+            for block in response.content or []:
+                block_type = getattr(block, "type", None)
+                if block_type == "text":
+                    text_parts.append(getattr(block, "text", "") or "")
+                elif block_type == "tool_use":
+                    tool_calls.append(
+                        ToolCall(
+                            tool_name=block.name,
+                            params=dict(block.input or {}),
+                            call_id=block.id,
+                        )
+                    )
+
             return LLMResponse(
-                content=response.content[0].text if response.content else "",
-                tool_calls=[],
+                content="".join(text_parts),
+                tool_calls=tool_calls,
                 usage=TokenUsage(
                     prompt_tokens=response.usage.input_tokens,
                     completion_tokens=response.usage.output_tokens,
@@ -139,7 +169,7 @@ class AnthropicProvider(LLMProvider):
 
     def get_capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
-            tool_calling=False,
+            tool_calling=True,
             streaming=True,
             vision=False,
             max_context_tokens=128000,
