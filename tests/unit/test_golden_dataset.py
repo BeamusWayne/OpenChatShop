@@ -1,13 +1,23 @@
 """Tests for built-in golden dataset — structure, coverage, filtering."""
 from __future__ import annotations
 
+import dataclasses
+import json
+from pathlib import Path
+
 import pytest
 
+import open_chat_shop.evaluation.golden_dataset as gd
 from open_chat_shop.evaluation.golden_dataset import (
     BUILT_IN_SAMPLES,
     GoldenSample,
     get_golden_dataset,
 )
+
+# The full curated dataset; the count is asserted explicitly so that a silent
+# loss of samples during the JSON migration (or any future edit) fails loudly
+# rather than degrading evaluation coverage unnoticed.
+EXPECTED_SAMPLE_COUNT = 500
 
 ALL_INTENTS = {
     "query_order",
@@ -164,6 +174,64 @@ class TestGoldenDatasetFiltering:
                 assert s.risk_level == "high", (
                     f"Attack sample {s.sample_id} should have risk_level='high'"
                 )
+
+
+# ---------------------------------------------------------------------------
+# JSON-backed loading (data lives in data/built_in_samples.json)
+# ---------------------------------------------------------------------------
+
+
+class TestGoldenDatasetJsonBacking:
+    """Samples are loaded from JSON; loading must be lossless and faithful."""
+
+    @pytest.mark.unit
+    def test_loaded_sample_count_matches_expected_total(
+        self, dataset: list[GoldenSample]
+    ) -> None:
+        assert len(dataset) == EXPECTED_SAMPLE_COUNT
+
+    @pytest.mark.unit
+    def test_json_file_record_count_matches_loaded_samples(
+        self, dataset: list[GoldenSample]
+    ) -> None:
+        raw = gd._DATA_FILE.read_text(encoding="utf-8")
+        records = json.loads(raw)
+        assert len(records) == EXPECTED_SAMPLE_COUNT
+        assert len(records) == len(dataset)
+
+    @pytest.mark.unit
+    def test_sample_fields_equivalent_to_json_source(
+        self, dataset: list[GoldenSample]
+    ) -> None:
+        """Spot-check a sample (incl. an attack sample) is reconstructed
+        field-for-field from the JSON, so expected/annotation values are not
+        silently altered by the migration."""
+        raw = gd._DATA_FILE.read_text(encoding="utf-8")
+        records = {r["sample_id"]: r for r in json.loads(raw)}
+        by_id = {s.sample_id: s for s in dataset}
+
+        for sample_id in ("BO-001", "AT-007"):
+            json_record = records[sample_id]
+            loaded = dataclasses.asdict(by_id[sample_id])
+            assert loaded == json_record, (
+                f"Sample {sample_id} differs between JSON and loaded object"
+            )
+
+        # The attack sample's expected payload must survive verbatim.
+        assert records["AT-007"]["expected_entities"] == {
+            "address": "../../../etc/passwd"
+        }
+        assert records["AT-007"]["scenario_type"] == "attack"
+        assert records["AT-007"]["risk_level"] == "high"
+
+    @pytest.mark.unit
+    def test_json_stored_with_literal_chinese(self) -> None:
+        """ensure_ascii=False keeps Chinese text human-readable in the data
+        file; a regression to escaped \\uXXXX would still parse but signals the
+        wrong serialization style."""
+        raw = Path(gd._DATA_FILE).read_text(encoding="utf-8")
+        assert "退款" in raw
+        assert "\\u9000" not in raw  # escaped form of 退
 
 
 # ---------------------------------------------------------------------------
