@@ -7,8 +7,8 @@
 - 标准验证路径：./init.sh verify
 - 当前最高优先级未完成功能：全部完成（Phase 1-7）
 - 当前 blocker：无
-- CI 状态：`ruff check src/ tests/` 已转绿（lint 债 114→0，2026-06-04）；**`mypy src/` 仍红——224 个既有错误（多为 `dict`/`list` 缺类型参数），属独立后续任务，本会话未引入**
-- 审计剩余（code-health-audit 2026-06-03）：HIGH-10 范围 B/C（orchestrator 原生 FC，独立会话）；两前端组件去重；真实 LLM 端到端 + docker build 冒烟（需人工）；mypy 转绿
+- CI 状态：**`ruff check`、`mypy src/`、pytest 三关全绿（2026-06-04）** —— lint 债 114→0、mypy 224→0、982 passed / 3 skipped
+- 审计剩余（code-health-audit 2026-06-03）：HIGH-10 范围 B/C（orchestrator 原生 FC，独立会话）；两前端组件去重；真实 LLM 端到端 + docker build 冒烟（需人工）
 
 ## 重启路径
 
@@ -22,6 +22,27 @@
 6. 继续处理 `feature_list.json` 中优先级最高的未完成功能
 
 ## 会话记录
+
+### 2026-06-04 Session 2 — mypy --strict 清零（224→0，9-agent 并行）
+
+**任务：** "尽可能全量并行修复" 上一会话发现的 mypy --strict 既有错误。
+
+**结果：mypy 224 → 0（"Success: no issues found in 74 source files"），982 passed / 3 skipped，ruff 仍全绿 —— CI 三关（ruff/mypy/pytest）现全绿。** 提交 `8c1791f`（+ pyproject import 豁免）。
+
+**方法（hybrid 编排）：**
+1. 内联先清 6 个 import-untyped（pyproject `[[tool.mypy.overrides]]` 豁免 jsonschema/yaml/defusedxml/jose），224→218。
+2. 把 218 错按**类型依赖闭包**切成 9 个不相交簇（基类与其子类同簇，避免并行改出 override 不一致），每簇错误清单写 /tmp。
+3. `Workflow` 9 agent 并行修（543k tokens / ~8 min），各自用隔离缓存跑 mypy + 相关测试自验。
+4. 主控做权威全量 `mypy src/` + 全量 pytest + ruff 收尾（agent 引入的 2 个 ruff 小问题已修）。
+
+**关键非机械改动（均验证零行为变化）：**
+- `LLMProvider.stream` 基类 `async def -> AsyncIterator`（被 mypy 读成 Coroutine）改为抽象 `def -> AsyncIterator[LLMChunk]`，与 Mock/Failing/Anthropic/LiteLLM 异步生成器子类对齐（修 4 个 override）。
+- LiteLLM 只读 `name` @property 改为 `__init__` 里 `self.name = model`（对齐其余 provider）。
+- litellm 响应 / SQLModel 列：`cast(Any, resp)`、`col(Model.col).ilike(...)`、`session.execute(text(...))` —— SQLModel/litellm 惯用法，运行时等价（agent 已 inspect 源码验证 `col(x) is x`）。
+- renderers `register` 装饰器 `-> Any` 改泛型 `Callable[[F], F]`，11 个渲染函数恢复类型。
+- 仅 1 处窄豁免 `# type: ignore[arg-type]`（orchestrator intent_source 运行时标记 "context" 不在 Intent.source 的 Literal 内，带注释说明）。
+
+**注：** 纯类型标注 + 惯用法替换,不改运行时行为,982 测试零回归佐证。type-arg(128) 是大头(bare dict/list→加类型参数)。
 
 ### 2026-06-04 Session — ruff lint 债清零（114→0，CI lint 转绿）
 
