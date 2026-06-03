@@ -27,9 +27,9 @@
 
 **审计产物：** `docs/code-health-audit-2026-06-03.md`（健康度 52/100，4 CRITICAL + 6 HIGH + ~50 MEDIUM/LOW，全部带 file:line）。
 
-**修复分支：** `fix/audit-remediation`（从 main@afcc202 切出，未合并）。基线：890 passed → 现 **921 passed, 3 skipped**。
+**修复分支：** `fix/audit-remediation`（从 main@afcc202 切出，未合并）。基线：890 passed → 现 **946 passed, 3 skipped**。
 
-**本会话已完成（已提交、已验证）—— 4 个 CRITICAL 全清 + 4 HIGH + hygiene：**
+**本会话已完成（已提交、已验证）—— 4 个 CRITICAL 全清 + 5 HIGH + hygiene：**
 | commit | 内容 | 验证 |
 |--------|------|------|
 | 4c9760f | checkpoint 既有未提交 WIP（README 重写/app CSP/main 注释） | — |
@@ -43,15 +43,15 @@
 | 4cf26e2 | **CRITICAL-4** 评测飞轮：AgentMessage.meta 单点注入 intent/tool，eval 从 meta 读，CI gate 在 intent_accuracy（≈0.83）而非 LLM-依赖的 pass_rate，修误导性测试 | +1 e2e 测试 |
 | e8b9bab | **HIGH-5** 四层安全真接线：check_input 回写 masked PII（→下游/LLM/历史，immutable replace）、_execute_tool 前置 check_permission RBAC 门（拒绝不执行、不泄露工具名）、成功结果 sanitize_output 脱敏。默认 RBAC 允许 customer 全部 8 工具、无内置工具返回敏感字段名 → 现网行为不变，仅"层真正运行" | +7 回归测试 |
 | da56ecd | **HIGH-7** 成本治理真实 token：新增 _record_llm_cost(读 response.usage、真实模型名归因)，_llm_enhance + _llm_enhance_tool_result（补上此前完全不记的遗漏）均改用之、删 unknown/0/0 假数据；token_usage 经 response.meta 冒泡（_core_handle 合并非覆盖），BudgetMiddleware 改从 meta 消费真值。4 个既有 middleware 测试迁移 payload→meta | +6 回归测试 |
+| 6ca423b | **HIGH-9** confirm 二次确认闭环：confirm 命中持久化 _pending_confirmation（镜像 _pending_action），_core_handle 分类前检测之；新增 _resolve_pending_confirmation（肯定→用持久化 params 执行、仍过 HIGH-5 权限门；否定→丢弃回"已取消"；模糊/话题切换→丢弃走正常流）+ _detect_affirmation（规则化、否定优先、fail-safe）。一次性+单轮有效替代显式 TTL | +25 回归测试 |
 
 **剩余未做（下一会话）—— P1 "wire to real" 大波（用户选了"尽量都接成真功能"，全压在 orchestrator.py 需串行）：**
-1. **HIGH-9** confirm 二次确认闭环：strategy 产出 confirm 时持久化 confirmation_token，下一轮检测肯定/否定意图执行或丢弃。
-2. **HIGH-10** 原生 function-calling：ToolDefinition 经 tools= 传 provider.chat，消费 LLMResponse.tool_calls，AnthropicProvider 实现真实 tool_use 解析。
-3. **P2 杂项**：golden_dataset.py 4204行违型、109 个既有 ruff lint 债（CI lint job 红）、两前端组件去重、OTel span 打 stdout 拖慢 eval。**HIGH-5 衍生**：main.py:217 的 YAML RBAC 结构 `{role.name:{tools}}` 与 PermissionChecker 期望的 `{roles:[...]}` 不匹配 → 静默回退 _DEFAULT_RBAC；check_permission 已接线但自定义 security.yaml 的角色当前不生效（默认 customer→全 8 工具仍正确）。
+1. **HIGH-10** 原生 function-calling：ToolDefinition 经 tools= 传 provider.chat，消费 LLMResponse.tool_calls，AnthropicProvider 实现真实 tool_use 解析。
+2. **P2 杂项**：golden_dataset.py 4204行违型、109 个既有 ruff lint 债（CI lint job 红）、两前端组件去重、OTel span 打 stdout 拖慢 eval。**HIGH-5 衍生**：main.py:217 的 YAML RBAC 结构 `{role.name:{tools}}` 与 PermissionChecker 期望的 `{roles:[...]}` 不匹配 → 静默回退 _DEFAULT_RBAC；check_permission 已接线但自定义 security.yaml 的角色当前不生效（默认 customer→全 8 工具仍正确）。
 
 **已知残留：** WebSocket chat 入口未绑定身份（advisory 模式）；CRITICAL-4 的 pass_rate 需真实 LLM 才有意义（已 gate 在 LLM-无关的 intent_accuracy）；全 500 eval 因 OTel console span 极慢。
 
-**重启路径：** `git checkout fix/audit-remediation` → 读本文件 + 审计 doc → `PYTHONPATH=src .venv/bin/python -m pytest tests/ -q` 确认 921 绿 → 从剩余清单第 1 项（HIGH-9 confirm 二次确认闭环）继续。
+**重启路径：** `git checkout fix/audit-remediation` → 读本文件 + 审计 doc → `PYTHONPATH=src .venv/bin/python -m pytest tests/ -q` 确认 946 绿 → 从剩余清单第 1 项（HIGH-10 原生 function-calling）继续。
 
 ### 2026-05-19 Session 2 (21:00-22:00)
 
