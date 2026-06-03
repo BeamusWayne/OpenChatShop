@@ -446,7 +446,10 @@ def create_main_app():
 
     app = create_app(orchestrator, lifespan=lifespan, agent_token=os.environ.get("AGENT_TOKEN"))
 
-    # Serve React frontend (built) if available, fall back to static/
+    # Serve React frontend (built) if available, fall back to static/.
+    # Mount AFTER create_app so API routes (/docs, /openapi.json, /health, etc.)
+    # are registered first. Starlette matches routes in order, so API routes
+    # take priority over the catch-all static mount.
     frontend_dist = Path(__file__).parent / "frontend" / "dist"
     static_dir = Path(__file__).parent / "static"
     serve_dir = frontend_dist if frontend_dist.is_dir() else static_dir

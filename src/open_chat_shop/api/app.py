@@ -80,9 +80,14 @@ class SecurityHeadersMiddleware(_BaseMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
-        )
+        csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+        if request.url.path in ("/docs", "/redoc"):
+            csp = (
+                "default-src 'self' cdn.jsdelivr.net unpkg.com; "
+                "script-src 'self' 'unsafe-inline' cdn.jsdelivr.net unpkg.com; "
+                "style-src 'self' 'unsafe-inline' cdn.jsdelivr.net unpkg.com"
+            )
+        response.headers["Content-Security-Policy"] = csp
         if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = (
                 "max-age=31536000; includeSubDomains"
