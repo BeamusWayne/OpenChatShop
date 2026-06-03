@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,6 +16,7 @@ from open_chat_shop.core.types import (
     AgentMessage,
     Message,
     SessionContext,
+    SessionMode,
     TokenBudget,
 )
 from open_chat_shop.core.exceptions import ContextError
@@ -40,6 +42,8 @@ def _serialize_context(ctx: SessionContext) -> dict[str, str]:
         "user_role": ctx.user_role,
         "created_at": ctx.created_at.isoformat(),
         "last_active_at": ctx.last_active_at.isoformat(),
+        "mode": ctx.mode.value,
+        "human_agent_id": ctx.human_agent_id or "",
     }
 
 
@@ -67,6 +71,8 @@ def _deserialize_context(data: dict[str, str]) -> SessionContext:
         user_role=data.get("user_role", "customer"),
         created_at=datetime.fromisoformat(data["created_at"]),
         last_active_at=datetime.fromisoformat(data["last_active_at"]),
+        mode=SessionMode(data.get("mode", SessionMode.AI_MODE.value)),
+        human_agent_id=data.get("human_agent_id") or None,
     )
 
 
@@ -128,18 +134,9 @@ class RedisContextManager(ContextManager):
 
     async def save(self, context: SessionContext, response: AgentMessage) -> None:
         """Save updated context to Redis with TTL refresh."""
-        updated = SessionContext(
-            session_id=context.session_id,
-            user_id=context.user_id,
-            channel=context.channel,
+        updated = replace(
+            context,
             history=[*context.history],
-            summary=context.summary,
-            slots=context.slots,
-            fsm_state=context.fsm_state,
-            current_scenario=context.current_scenario,
-            token_usage=context.token_usage,
-            user_role=context.user_role,
-            created_at=context.created_at,
             last_active_at=datetime.now(timezone.utc),
         )
         key = self._key(context.session_id)
@@ -169,18 +166,10 @@ class RedisContextManager(ContextManager):
         summary_prefix = f"[Previously compressed {len(dropped)} messages] "
         new_summary = (context.summary or "") + summary_prefix
 
-        return SessionContext(
-            session_id=context.session_id,
-            user_id=context.user_id,
-            channel=context.channel,
+        return replace(
+            context,
             history=kept,
             summary=new_summary,
-            slots=context.slots,
-            fsm_state=context.fsm_state,
-            current_scenario=context.current_scenario,
-            token_usage=context.token_usage,
-            user_role=context.user_role,
-            created_at=context.created_at,
             last_active_at=datetime.now(timezone.utc),
         )
 
@@ -204,17 +193,4 @@ class RedisContextManager(ContextManager):
         self, context: SessionContext, new_entities: dict
     ) -> SessionContext:
         merged_slots = {**context.slots, **new_entities}
-        return SessionContext(
-            session_id=context.session_id,
-            user_id=context.user_id,
-            channel=context.channel,
-            history=context.history,
-            summary=context.summary,
-            slots=merged_slots,
-            fsm_state=context.fsm_state,
-            current_scenario=context.current_scenario,
-            token_usage=context.token_usage,
-            user_role=context.user_role,
-            created_at=context.created_at,
-            last_active_at=context.last_active_at,
-        )
+        return replace(context, slots=merged_slots)

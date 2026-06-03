@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,6 +16,7 @@ from open_chat_shop.core.types import (
     AgentMessage,
     Message,
     SessionContext,
+    SessionMode,
     TokenBudget,
 )
 from open_chat_shop.core.exceptions import ContextError
@@ -96,6 +98,8 @@ class DatabaseContextManager(ContextManager):
             user_role=meta.get("user_role", "customer"),
             created_at=created_at,
             last_active_at=last_active_at,
+            mode=SessionMode(meta.get("mode", SessionMode.AI_MODE.value)),
+            human_agent_id=meta.get("human_agent_id"),
         )
 
     async def save(self, context: SessionContext, response: AgentMessage) -> None:
@@ -123,6 +127,8 @@ class DatabaseContextManager(ContextManager):
                         "user_role": context.user_role,
                         "created_at": context.created_at.isoformat(),
                         "last_active_at": datetime.now(timezone.utc).isoformat(),
+                        "mode": context.mode.value,
+                        "human_agent_id": context.human_agent_id,
                     },
                     ensure_ascii=False,
                 )
@@ -169,18 +175,10 @@ class DatabaseContextManager(ContextManager):
         summary_prefix = f"[Previously compressed {len(dropped)} messages] "
         new_summary = (context.summary or "") + summary_prefix
 
-        return SessionContext(
-            session_id=context.session_id,
-            user_id=context.user_id,
-            channel=context.channel,
+        return replace(
+            context,
             history=kept,
             summary=new_summary,
-            slots=context.slots,
-            fsm_state=context.fsm_state,
-            current_scenario=context.current_scenario,
-            token_usage=context.token_usage,
-            user_role=context.user_role,
-            created_at=context.created_at,
             last_active_at=datetime.now(timezone.utc),
         )
 
@@ -204,17 +202,4 @@ class DatabaseContextManager(ContextManager):
         self, context: SessionContext, new_entities: dict
     ) -> SessionContext:
         merged_slots = {**context.slots, **new_entities}
-        return SessionContext(
-            session_id=context.session_id,
-            user_id=context.user_id,
-            channel=context.channel,
-            history=context.history,
-            summary=context.summary,
-            slots=merged_slots,
-            fsm_state=context.fsm_state,
-            current_scenario=context.current_scenario,
-            token_usage=context.token_usage,
-            user_role=context.user_role,
-            created_at=context.created_at,
-            last_active_at=context.last_active_at,
-        )
+        return replace(context, slots=merged_slots)

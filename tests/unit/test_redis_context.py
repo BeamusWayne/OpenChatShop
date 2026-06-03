@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import pytest
 
-from open_chat_shop.core.types import Message, SessionContext, AgentMessage
+from open_chat_shop.core.types import Message, SessionContext, AgentMessage, SessionMode
 from open_chat_shop.storage.redis_context import (
     RedisContextManager,
     _serialize_context,
@@ -232,6 +232,35 @@ class TestRedisContextManager:
 
         assert updated.slots == {"a": "1", "b": "2"}
         assert ctx.slots == {"a": "1"}  # original unchanged
+
+    @pytest.mark.unit
+    def test_roundtrip_preserves_mode_and_human_agent_id(self):
+        """Regression: mode and human_agent_id must survive serialize→deserialize."""
+        ctx = _make_ctx(
+            mode=SessionMode.HUMAN_MODE,
+            human_agent_id="agent-7",
+        )
+        serialized = _serialize_context(ctx)
+        restored = _deserialize_context(serialized)
+        assert restored.mode == SessionMode.HUMAN_MODE
+        assert restored.human_agent_id == "agent-7"
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_save_load_preserves_mode_and_human_agent_id(self):
+        """Regression: mode=HUMAN_MODE and human_agent_id survive a full save→load cycle."""
+        redis = FakeRedis()
+        mgr = RedisContextManager(redis)
+
+        ctx = _make_ctx(mode=SessionMode.HUMAN_MODE, human_agent_id="agent-7")
+        response = AgentMessage(
+            message_type="text", payload={"content": "ok"}, text_fallback="ok",
+        )
+        await mgr.save(ctx, response)
+
+        loaded = await mgr.load("s1")
+        assert loaded.mode == SessionMode.HUMAN_MODE
+        assert loaded.human_agent_id == "agent-7"
 
     @pytest.mark.unit
     @pytest.mark.asyncio
