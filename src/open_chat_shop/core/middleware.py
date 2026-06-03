@@ -149,7 +149,7 @@ class BudgetMiddleware(Middleware):
         response: AgentMessage,
         context: SessionContext,
     ) -> AgentMessage:
-        cost = response.payload.get("token_usage", self._default_cost)
+        cost = response.meta.get("token_usage", self._default_cost)
         if isinstance(cost, int):
             self._budget.consume(message.session_id, cost)
         return response

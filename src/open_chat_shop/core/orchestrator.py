@@ -285,6 +285,7 @@ class DialogueOrchestrator:
             else ""
         )
         response.meta = {
+            **response.meta,  # preserve token_usage attached by the LLM layer
             "intent_name": intent.name,
             "intent_source": intent.source,
             "entities": dict(intent.entities),
@@ -642,7 +643,7 @@ class DialogueOrchestrator:
                 mapped = self._tool_response_mapper.map(tool.name, result, context)
                 if mapped is not None:
                     # Optionally enhance text_fallback with LLM
-                    enhanced = await self._llm_enhance_tool_result(
+                    enhanced, tokens = await self._llm_enhance_tool_result(
                         formatted, result.data, context,
                     )
                     if enhanced:
@@ -652,16 +653,18 @@ class DialogueOrchestrator:
                             text_fallback=enhanced,
                             suggestions=mapped.suggestions,
                             requires_confirmation=mapped.requires_confirmation,
+                            meta={"token_usage": tokens} if tokens else {},
                         )
                     return mapped
             # Fallback to original text behavior
-            enhanced = await self._llm_enhance_tool_result(
+            enhanced, tokens = await self._llm_enhance_tool_result(
                 formatted, result.data, context,
             )
             return AgentMessage(
                 message_type="text",
                 payload={"content": enhanced or formatted},
                 text_fallback=enhanced or formatted,
+                meta={"token_usage": tokens} if tokens else {},
             )
         else:
             return AgentMessage(
@@ -680,6 +683,32 @@ class DialogueOrchestrator:
     # ------------------------------------------------------------------
     # LLM enhancement helpers
     # ------------------------------------------------------------------
+
+    def _provider_model_name(self) -> str:
+        """Best-effort model identifier for cost attribution."""
+        return (
+            getattr(self._provider, "model", None)
+            or getattr(self._provider, "name", None)
+            or "unknown"
+        )
+
+    def _record_llm_cost(self, response: Any) -> int:
+        """Record real token usage from an LLM response; return total tokens.
+
+        Reads ``response.usage`` (set by the provider) and attributes the cost
+        to the real model. Returns 0 when no usage data is present, so callers
+        leave ``token_usage`` unset and the budget guard keeps its default.
+        """
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return 0
+        if self._cost_tracker is not None:
+            self._cost_tracker.record(
+                model=self._provider_model_name(),
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+            )
+        return usage.total_tokens
 
     async def _llm_enhance(
         self,
@@ -727,14 +756,13 @@ class DialogueOrchestrator:
             logger.warning("LLM enhancement failed, falling back to template")
             return None
 
-        # Track LLM cost (token counts unavailable at this layer)
-        if self._cost_tracker is not None:
-            self._cost_tracker.record(model="unknown", prompt_tokens=0, completion_tokens=0)
+        tokens = self._record_llm_cost(response)
 
         return AgentMessage(
             message_type=action.payload.get("message_type", "text"),
             payload=action.payload,
             text_fallback=response.content,
+            meta={"token_usage": tokens} if tokens else {},
         )
 
     async def _llm_enhance_tool_result(
@@ -742,13 +770,15 @@ class DialogueOrchestrator:
         formatted: str,
         data: dict[str, Any] | None,
         context: SessionContext,
-    ) -> str | None:
+    ) -> tuple[str | None, int]:
         """Use LLM to rewrite a formatted tool result in natural language.
 
-        Returns None when the provider is not available or the LLM call fails.
+        Returns ``(text, token_usage)``. ``text`` is None when the provider is
+        unavailable or the call fails; ``token_usage`` is the real token count
+        recorded against the cost tracker (0 when no LLM call was made).
         """
         if self._provider is None:
-            return None
+            return None, 0
 
         history_text = self._build_history_text(context)
 
@@ -778,10 +808,12 @@ class DialogueOrchestrator:
 
         try:
             response = await self._provider.chat(messages)
-            return response.content
         except Exception:
             logger.warning("LLM tool-result enhancement failed, using formatted text")
-            return None
+            return None, 0
+
+        tokens = self._record_llm_cost(response)
+        return response.content, tokens
 
     def _build_history_text(self, context: SessionContext) -> str:
         """Build a compact text representation of recent conversation history."""
