@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from dotenv import load_dotenv
+
+if TYPE_CHECKING:
+    from anthropic import AsyncAnthropic
 
 from open_chat_shop.core.exceptions import ProviderError
 from open_chat_shop.core.provider import LLMProvider
@@ -42,7 +46,7 @@ class AnthropicProvider(LLMProvider):
         if not self._api_key:
             raise ProviderError("ANTHROPIC_API_KEY not set", self.name)
 
-    def _get_client(self):
+    def _get_client(self) -> AsyncAnthropic:
         from anthropic import AsyncAnthropic
 
         return AsyncAnthropic(
@@ -69,7 +73,7 @@ class AnthropicProvider(LLMProvider):
                 if m.role == "system":
                     system_text += m.content + "\n"
 
-            kwargs: dict = {
+            kwargs: dict[str, Any] = {
                 "model": self._model,
                 "max_tokens": config.max_tokens if config else 2048,
                 "messages": api_messages,
@@ -140,7 +144,7 @@ class AnthropicProvider(LLMProvider):
                 if m.role == "system":
                     system_text += m.content + "\n"
 
-            kwargs: dict = {
+            kwargs: dict[str, Any] = {
                 "model": self._model,
                 "max_tokens": config.max_tokens if config else 2048,
                 "messages": api_messages,

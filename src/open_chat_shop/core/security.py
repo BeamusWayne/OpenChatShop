@@ -187,7 +187,7 @@ _DEFAULT_RBAC: dict[str, Any] = {
 class PermissionChecker:
     """RBAC permission checker for tool access."""
 
-    def __init__(self, config: dict | list) -> None:
+    def __init__(self, config: dict[str, Any] | list[Any]) -> None:
         self._role_tools: dict[str, set[str]] = {}
         roles = config if isinstance(config, list) else config.get("roles", _DEFAULT_RBAC["roles"])
         for role_entry in roles:
@@ -236,9 +236,9 @@ class OutputSanitizer:
 
     def sanitize(
         self,
-        data: dict,
+        data: dict[str, Any],
         sensitive_fields: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Return a new dict with sensitive field values replaced by ***."""
         fields_to_mask = (
             frozenset(sensitive_fields)
@@ -247,7 +247,7 @@ class OutputSanitizer:
         )
         return self._sanitize_dict(data, fields_to_mask)
 
-    def _sanitize_dict(self, data: dict, fields: frozenset[str]) -> dict:
+    def _sanitize_dict(self, data: dict[str, Any], fields: frozenset[str]) -> dict[str, Any]:
         """Recursively sanitize a dict, returning a new dict."""
         sanitized: dict[str, Any] = {}
         for key, value in data.items():
@@ -261,7 +261,7 @@ class OutputSanitizer:
                 sanitized[key] = value
         return sanitized
 
-    def _sanitize_list(self, items: list, fields: frozenset[str]) -> list:
+    def _sanitize_list(self, items: list[Any], fields: frozenset[str]) -> list[Any]:
         """Recursively sanitize list items."""
         result: list[Any] = []
         for item in items:
@@ -281,7 +281,7 @@ class OutputSanitizer:
 class SecurityGuard:
     """4-layer security chain: injection -> content -> permission -> output."""
 
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: dict[str, Any]) -> None:
         self.injection_detector = PromptInjectionDetector()
         self.content_filter = ContentSafetyFilter()
         self.permission_checker = PermissionChecker(config.get("rbac", {}))
@@ -330,8 +330,8 @@ class SecurityGuard:
 
     def sanitize_output(
         self,
-        data: dict,
+        data: dict[str, Any],
         sensitive_fields: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Sanitize output data, returning a new dict."""
         return self.output_sanitizer.sanitize(data, sensitive_fields)

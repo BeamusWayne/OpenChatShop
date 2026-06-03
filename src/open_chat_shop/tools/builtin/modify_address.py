@@ -38,7 +38,7 @@ class ModifyAddressTool(BaseTool):
     def __init__(self, order_repo: OrderRepository | None = None) -> None:
         self._order_repo = order_repo or InMemoryOrderRepository()
 
-    async def pre_check(self, params: dict, context: SessionContext) -> CheckResult:
+    async def pre_check(self, params: dict[str, Any], context: SessionContext) -> CheckResult:
         order_id = params["order_id"]
         order = self._order_repo.get_for_user(order_id, context.user_id)
         if order is None:
@@ -51,7 +51,7 @@ class ModifyAddressTool(BaseTool):
             )
         return CheckResult(passed=True)
 
-    async def execute(self, params: dict, context: SessionContext) -> ToolResult:
+    async def execute(self, params: dict[str, Any], context: SessionContext) -> ToolResult:
         order_id = params["order_id"]
         new_address = params["address"]
         new_phone = params.get("phone")
@@ -82,7 +82,7 @@ class ModifyAddressTool(BaseTool):
             },
         )
 
-    async def compensate(self, params: dict, context: SessionContext) -> None:
+    async def compensate(self, params: dict[str, Any], context: SessionContext) -> None:
         """Restore the order address on failure."""
         self._order_repo.restore_snapshot(params["order_id"])
 

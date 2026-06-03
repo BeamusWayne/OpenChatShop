@@ -56,7 +56,7 @@ class AgentInfoResponse(BaseModel):
 def create_agent_router(
     handoff_queue: HandoffQueue,
     context_manager: Any = None,
-    session_messages: dict[str, list[dict]] | None = None,
+    session_messages: dict[str, list[dict[str, Any]]] | None = None,
     agent_secret: str | None = None,
 ) -> APIRouter:
     """Build and return a FastAPI router with agent endpoints.
@@ -201,8 +201,9 @@ def create_agent_router(
             context_data["messages"] = session_messages.get(session_id, [])
         if context_manager is not None:
             ctx = await context_manager.load(session_id)
+            _msgs = session_messages or {}
             context_data["intents"] = list({
-                m.get("intent", "") for m in session_messages.get(session_id, [])
+                m.get("intent", "") for m in _msgs.get(session_id, [])
                 if m.get("intent")
             })
             context_data["duration_with_ai"] = int(

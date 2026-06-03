@@ -41,7 +41,7 @@ class BaseTool(ABC):
     permissions: ToolPermission
 
     @abstractmethod
-    async def execute(self, params: dict, context: SessionContext) -> ToolResult:
+    async def execute(self, params: dict[str, Any], context: SessionContext) -> ToolResult:
         """Execute tool logic.  Subclasses MUST implement."""
 
     def format_result(self, result: ToolResult) -> str:
@@ -57,7 +57,7 @@ class BaseTool(ABC):
     # Lifecycle hooks with sensible defaults
     # ------------------------------------------------------------------
 
-    def validate(self, params: dict) -> ValidationResult:
+    def validate(self, params: dict[str, Any]) -> ValidationResult:
         """Validate *params* against the tool's JSON Schema."""
         try:
             jsonschema.validate(params, self.params_schema)
@@ -65,11 +65,11 @@ class BaseTool(ABC):
         except jsonschema.ValidationError as exc:
             return ValidationResult(valid=False, errors=[exc.message])
 
-    async def pre_check(self, params: dict, context: SessionContext) -> CheckResult:
+    async def pre_check(self, params: dict[str, Any], context: SessionContext) -> CheckResult:
         """Business pre-check.  Default: always passes."""
         return CheckResult(passed=True)
 
-    async def compensate(self, params: dict, context: SessionContext) -> None:  # noqa: B027
+    async def compensate(self, params: dict[str, Any], context: SessionContext) -> None:  # noqa: B027
         """Compensation logic for failed writes.  Default: no-op (optional hook)."""
 
     # ------------------------------------------------------------------

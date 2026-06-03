@@ -43,7 +43,7 @@ async def _run_regression() -> int:
     orchestrator = build_orchestrator()
     runner = RegressionRunner(dataset)
 
-    batch: list[tuple[str, str, dict, str, list[str]]] = []
+    batch: list[tuple[str, str, dict[str, Any], str, list[str]]] = []
     for sample in dataset._samples:
         msg = UserMessage(
             session_id=f"eval-{sample.sample_id}",

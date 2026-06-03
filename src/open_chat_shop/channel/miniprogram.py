@@ -1,7 +1,8 @@
 """WeChat Mini Program channel adapter — rich message rendering."""
 from __future__ import annotations
 
-from typing import ClassVar
+from collections.abc import Callable
+from typing import Any, ClassVar
 
 from open_chat_shop.channel.base import ChannelAdapter
 from open_chat_shop.core.types import (
@@ -74,20 +75,20 @@ class MiniProgramAdapter(ChannelAdapter):
     # Per-type render helpers
     # ------------------------------------------------------------------
 
-    def _render_fallback_text(self, message: AgentMessage) -> dict:
+    def _render_fallback_text(self, message: AgentMessage) -> dict[str, Any]:
         """Render unsupported types as plain text using text_fallback."""
         return {
             "msgtype": "text",
             "text": {"content": message.text_fallback},
         }
 
-    def _render_text(self, message: AgentMessage) -> dict:
+    def _render_text(self, message: AgentMessage) -> dict[str, Any]:
         return {
             "msgtype": "text",
             "text": {"content": message.payload.get("content", "")},
         }
 
-    def _render_product_card(self, message: AgentMessage) -> dict:
+    def _render_product_card(self, message: AgentMessage) -> dict[str, Any]:
         p = message.payload
         return {
             "msgtype": "miniprogram_data",
@@ -99,7 +100,7 @@ class MiniProgramAdapter(ChannelAdapter):
             },
         }
 
-    def _render_order_card(self, message: AgentMessage) -> dict:
+    def _render_order_card(self, message: AgentMessage) -> dict[str, Any]:
         p = message.payload
         return {
             "msgtype": "miniprogram_data",
@@ -110,7 +111,7 @@ class MiniProgramAdapter(ChannelAdapter):
             },
         }
 
-    def _render_logistics_timeline(self, message: AgentMessage) -> dict:
+    def _render_logistics_timeline(self, message: AgentMessage) -> dict[str, Any]:
         p = message.payload
         return {
             "msgtype": "miniprogram_data",
@@ -120,7 +121,7 @@ class MiniProgramAdapter(ChannelAdapter):
             },
         }
 
-    def _render_rating(self, message: AgentMessage) -> dict:
+    def _render_rating(self, message: AgentMessage) -> dict[str, Any]:
         p = message.payload
         return {
             "msgtype": "miniprogram_data",
@@ -130,7 +131,7 @@ class MiniProgramAdapter(ChannelAdapter):
             },
         }
 
-    def _render_quick_replies(self, message: AgentMessage) -> dict:
+    def _render_quick_replies(self, message: AgentMessage) -> dict[str, Any]:
         p = message.payload
         return {
             "msgtype": "miniprogram_data",
@@ -140,7 +141,9 @@ class MiniProgramAdapter(ChannelAdapter):
         }
 
     # Map message_type -> render method
-    _RENDERERS: ClassVar[dict[str, object]] = {
+    _RENDERERS: ClassVar[
+        dict[str, Callable[[MiniProgramAdapter, AgentMessage], dict[str, Any]]]
+    ] = {
         "text": _render_text,
         "product_card": _render_product_card,
         "order_card": _render_order_card,

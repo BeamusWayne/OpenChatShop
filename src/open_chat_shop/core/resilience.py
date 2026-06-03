@@ -5,7 +5,9 @@ import asyncio
 import enum
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,12 @@ class CircuitBreaker:
     def state(self) -> CircuitState:
         return self._state
 
-    async def call(self, fn, *args, **kwargs):
+    async def call(
+        self,
+        fn: Callable[..., Awaitable[Any]],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
         """Wrap an async function with circuit-breaker logic."""
         async with self._lock:
             await self._maybe_transition()
@@ -133,7 +140,12 @@ class RetryPolicy:
     max_delay: float = 8.0
     exponential_base: float = 2.0
 
-    async def execute(self, fn, *args, **kwargs):
+    async def execute(
+        self,
+        fn: Callable[..., Awaitable[Any]],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
         """Execute *fn* with retry and exponential back-off."""
         last_error: Exception | None = None
 

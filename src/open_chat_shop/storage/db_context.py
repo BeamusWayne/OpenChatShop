@@ -9,6 +9,7 @@ import json
 import logging
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import Any, Literal, cast
 
 from open_chat_shop.core.context import ContextManager
 from open_chat_shop.core.exceptions import ContextError
@@ -47,7 +48,7 @@ class DatabaseContextManager(ContextManager):
     async def load(self, session_id: str, channel: str = "web") -> SessionContext:
         """Load session from database or create a new one."""
         with get_session(self._engine) as session:
-            from sqlmodel import select
+            from sqlmodel import col, select
 
             meta_entry = session.exec(
                 select(ConversationLog).where(
@@ -71,12 +72,14 @@ class DatabaseContextManager(ContextManager):
                     ConversationLog.session_id == session_id,
                     ConversationLog.role != "__session_meta__",
                 )
-                .order_by(ConversationLog.created_at)
+                .order_by(col(ConversationLog.created_at))
             ).all()
 
             history = [
                 Message(
-                    role=log.role,
+                    role=cast(
+                        Literal["system", "user", "assistant", "tool"], log.role
+                    ),
                     content=log.content,
                     timestamp=log.created_at,
                 )
@@ -198,7 +201,7 @@ class DatabaseContextManager(ContextManager):
         )
 
     async def update_slots(
-        self, context: SessionContext, new_entities: dict
+        self, context: SessionContext, new_entities: dict[str, Any]
     ) -> SessionContext:
         merged_slots = {**context.slots, **new_entities}
         return replace(context, slots=merged_slots)

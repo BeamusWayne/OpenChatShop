@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 
 class JudgeProvider(Protocol):
@@ -127,7 +127,7 @@ class LLMJudge:
 
         messages = [Message(role="user", content=prompt)]
         response = await self._provider.chat(messages)
-        return response.content
+        return cast(str, response.content)
 
     @staticmethod
     def _parse_response(raw: str) -> tuple[int, str]:

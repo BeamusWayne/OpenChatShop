@@ -34,7 +34,7 @@ class RuleBasedStrategy(Strategy):
     - Otherwise -> reply
     """
 
-    _MISSING_PARAM_PROMPTS: ClassVar[dict[str, dict[str, str]]] = {
+    _MISSING_PARAM_PROMPTS: ClassVar[dict[str, str]] = {
         "order_id": "请问您的订单号是多少？例如 ORD-001",
         "keyword": "请问您想搜索什么商品？",
         "new_address": "请问新的收货地址是什么？",

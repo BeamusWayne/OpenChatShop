@@ -36,7 +36,7 @@ class CheckRefundEligibilityTool(BaseTool):
     def __init__(self, order_repo: OrderRepository | None = None) -> None:
         self._order_repo = order_repo or InMemoryOrderRepository()
 
-    async def pre_check(self, params: dict, context: SessionContext) -> CheckResult:
+    async def pre_check(self, params: dict[str, Any], context: SessionContext) -> CheckResult:
         order_id = params["order_id"]
         order = self._order_repo.get_for_user(order_id, context.user_id)
         if order is None:
@@ -45,7 +45,7 @@ class CheckRefundEligibilityTool(BaseTool):
             return CheckResult(passed=False, reason=f"订单 {order_id} 已退款")
         return CheckResult(passed=True)
 
-    async def execute(self, params: dict, context: SessionContext) -> ToolResult:
+    async def execute(self, params: dict[str, Any], context: SessionContext) -> ToolResult:
         order_id = params["order_id"]
         order = self._order_repo.get_for_user(order_id, context.user_id)
         if order is None:

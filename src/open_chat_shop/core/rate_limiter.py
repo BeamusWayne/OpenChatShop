@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +196,7 @@ class RedisRateLimiter:
         now_ms = int(time.time() * 1000)
         try:
             self._redis.zremrangebyscore(key, "-inf", now_ms - window_seconds * 1000)
-            return self._redis.zcard(key)
+            return cast(int, self._redis.zcard(key))
         except Exception:
             return 0
 
@@ -230,6 +230,7 @@ class RateLimitGuard:
         rules: dict[str, RateLimitRule] | None = None,
         redis_client: Any | None = None,
     ) -> None:
+        self._limiter: InMemoryRateLimiter | RedisRateLimiter
         if redis_client is not None:
             self._limiter = RedisRateLimiter(redis_client)
         else:

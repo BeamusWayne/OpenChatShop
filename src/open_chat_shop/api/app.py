@@ -6,7 +6,8 @@ import importlib.metadata
 import json
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from typing import Any, cast
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,12 +16,16 @@ from jose import JWTError
 from jose import jwt as jose_jwt
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware as _BaseMiddleware
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.responses import Response as StarletteResponse
+from starlette.types import ASGIApp
 
 from open_chat_shop.api.agent import create_agent_router
 from open_chat_shop.api.auth import AuthMiddleware
 from open_chat_shop.api.streaming import StreamEvent, StreamingOrchestrator
 from open_chat_shop.api.wechat import setup_wechat_routes
 from open_chat_shop.channel.registry import default_registry
+from open_chat_shop.core.handoff import HumanAgent, TransferRequest
 from open_chat_shop.core.orchestrator import DialogueOrchestrator
 from open_chat_shop.core.types import AgentMessage, SessionMode, UserMessage
 
@@ -66,7 +71,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     message_type: str
-    payload: dict
+    payload: dict[str, Any]
     text_fallback: str
     suggestions: list[str] = []
     requires_confirmation: bool = False
@@ -96,7 +101,9 @@ class ReadyResponse(BaseModel):
 
 
 class SecurityHeadersMiddleware(_BaseMiddleware):
-    async def dispatch(self, request, call_next):
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> StarletteResponse:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -127,7 +134,7 @@ class SecurityHeadersMiddleware(_BaseMiddleware):
 
 def create_app(
     orchestrator: DialogueOrchestrator | None = None,
-    lifespan: Callable | None = None,
+    lifespan: Callable[..., Any] | None = None,
     agent_token: str | None = None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application.
@@ -184,7 +191,7 @@ def create_app(
     # Shared state for WebSocket tracking and session message history
     _agent_sockets: dict[str, WebSocket] = {}
     _customer_sockets: dict[str, WebSocket] = {}
-    _session_messages: dict[str, list[dict]] = {}
+    _session_messages: dict[str, list[dict[str, Any]]] = {}
 
     # Expose socket dicts for graceful shutdown via app.state
     app.state.agent_sockets = _agent_sockets
@@ -361,7 +368,7 @@ def create_app(
         streaming = StreamingOrchestrator(_orchestrator)
         sse_adapter = _registry.get_adapter(channel)
 
-        async def event_generator():
+        async def event_generator() -> AsyncIterator[str]:
             async for event in streaming.handle_streaming(msg):
                 if event.type == "done":
                     # Reconstruct AgentMessage from done event data and adapt
@@ -554,10 +561,10 @@ def create_app(
 
     if _handoff_queue is not None:
 
-        def _notify_agents(event_type: str, data: dict) -> None:
+        def _notify_agents(event_type: str, data: dict[str, Any]) -> None:
             """Broadcast an event to all connected agent WebSockets."""
             msg = json.dumps({"type": event_type, "data": data}, ensure_ascii=False)
-            dead = []
+            dead: list[str] = []
             for aid, ws in _agent_sockets.items():
                 try:
                     import asyncio as _aio
@@ -567,7 +574,7 @@ def create_app(
             for aid in dead:
                 _agent_sockets.pop(aid, None)
 
-        def _on_enqueue_cb(request, position: int) -> None:
+        def _on_enqueue_cb(request: TransferRequest, position: int) -> None:
             _notify_agents("new_request", {
                 "request_id": request.request_id,
                 "session_id": request.session_id,
@@ -576,7 +583,7 @@ def create_app(
                 "position": position,
             })
 
-        def _on_assign_cb(request, agent) -> None:
+        def _on_assign_cb(request: TransferRequest, agent: HumanAgent) -> None:
             # Update session context to HUMAN_MODE
             _session_modes[request.session_id] = SessionMode.HUMAN_MODE
             if _context_manager is not None:
@@ -623,7 +630,7 @@ def create_app(
                 "agent_name": agent.name,
             })
 
-        def _on_complete_cb(transfer) -> None:
+        def _on_complete_cb(transfer: TransferRequest) -> None:
             # Reset session context to AI_MODE
             _session_modes[transfer.session_id] = SessionMode.AI_MODE
             if _context_manager is not None:
@@ -750,7 +757,7 @@ def create_app(
         from open_chat_shop.observability.metrics import metrics_app as _metrics_app
 
         if _metrics_app is not None:
-            app.mount("/metrics", _metrics_app)
+            app.mount("/metrics", cast(ASGIApp, _metrics_app))
     except Exception:
         logger.debug("Prometheus metrics endpoint not mounted")
 

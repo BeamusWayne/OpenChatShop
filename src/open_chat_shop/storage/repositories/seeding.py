@@ -23,7 +23,7 @@ from open_chat_shop.tools.builtin import _mock_data as _md
 def seed_if_empty(engine: Engine) -> None:
     """Populate tables from ``_mock_data`` when the product table is empty."""
     with Session(engine) as session:
-        count = session.exec(text("SELECT COUNT(*) FROM product")).scalar()
+        count = session.execute(text("SELECT COUNT(*) FROM product")).scalar()
         if count and int(count) > 0:
             return
 

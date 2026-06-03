@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from typing import Any
 
 from open_chat_shop.core.exceptions import ProviderError
 from open_chat_shop.core.types import (
@@ -38,7 +39,7 @@ class LLMProvider(ABC):
         """Synchronous chat interface. tools=None disables function calling."""
 
     @abstractmethod
-    async def stream(
+    def stream(
         self,
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
@@ -129,10 +130,10 @@ class MockProvider(LLMProvider):
     ) -> None:
         self._default_response = default_response
         self._default_embeddings = default_embeddings or [[0.1] * 384]
-        self._call_log: list[dict] = []
+        self._call_log: list[dict[str, Any]] = []
 
     @property
-    def call_log(self) -> list[dict]:
+    def call_log(self) -> list[dict[str, Any]]:
         return list(self._call_log)
 
     async def chat(

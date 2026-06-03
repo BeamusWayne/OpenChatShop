@@ -6,6 +6,7 @@ import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 import litellm
 import yaml
@@ -48,10 +49,7 @@ class LiteLLMProvider(LLMProvider):
         self._api_key = api_key
         self._base_url = base_url
         self._capabilities = capabilities or _DEFAULT_CAPABILITIES
-
-    @property
-    def name(self) -> str:
-        return self._model
+        self.name = model
 
     async def chat(
         self,
@@ -97,7 +95,7 @@ class LiteLLMProvider(LLMProvider):
 
     def estimate_tokens(self, text: str) -> int:
         try:
-            return litellm.token_counter(model=self._model, text=text)
+            return int(litellm.token_counter(model=self._model, text=text))
         except Exception:
             return max(1, len(text) // 4)
 
@@ -108,11 +106,11 @@ class LiteLLMProvider(LLMProvider):
         config: GenerateConfig | None,
         *,
         stream: bool,
-    ) -> dict:
+    ) -> dict[str, Any]:
         formatted_messages = [
             {"role": m.role, "content": m.content} for m in messages
         ]
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": formatted_messages,
             "api_key": self._api_key,
@@ -141,7 +139,8 @@ class LiteLLMProvider(LLMProvider):
 
     @staticmethod
     def _parse_response(response: object) -> LLMResponse:
-        choice = response.choices[0]
+        resp = cast(Any, response)
+        choice = resp.choices[0]
         content = choice.message.content or ""
 
         tool_calls: list[ToolCall] = []
@@ -159,9 +158,9 @@ class LiteLLMProvider(LLMProvider):
                 )
 
         usage = TokenUsage(
-            prompt_tokens=response.usage.prompt_tokens,
-            completion_tokens=response.usage.completion_tokens,
-            total_tokens=response.usage.total_tokens,
+            prompt_tokens=resp.usage.prompt_tokens,
+            completion_tokens=resp.usage.completion_tokens,
+            total_tokens=resp.usage.total_tokens,
         )
         return LLMResponse(
             content=content,
@@ -172,11 +171,12 @@ class LiteLLMProvider(LLMProvider):
 
     @staticmethod
     def _parse_chunk(chunk: object) -> LLMChunk:
-        delta = chunk.choices[0].delta
+        ch = cast(Any, chunk)
+        delta = ch.choices[0].delta
         return LLMChunk(
             content_delta=delta.content or "",
             tool_call_delta=None,
-            finish_reason=chunk.choices[0].finish_reason,
+            finish_reason=ch.choices[0].finish_reason,
         )
 
     def _wrap_error(self, exc: Exception) -> ProviderError:

@@ -9,6 +9,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
+from typing import Any
 
 from open_chat_shop.core.types import (
     AgentMessage,
@@ -44,7 +45,9 @@ class ContextManager(ABC):
         ...
 
     @abstractmethod
-    async def update_slots(self, context: SessionContext, new_entities: dict) -> SessionContext:
+    async def update_slots(
+        self, context: SessionContext, new_entities: dict[str, Any]
+    ) -> SessionContext:
         """Merge new slot entities into the context."""
         ...
 
@@ -174,7 +177,7 @@ class InMemoryContextManager(ContextManager):
         )
 
     async def update_slots(
-        self, context: SessionContext, new_entities: dict
+        self, context: SessionContext, new_entities: dict[str, Any]
     ) -> SessionContext:
         """Merge new entities into existing slots. Returns a new SessionContext."""
         merged_slots = {**context.slots, **new_entities}

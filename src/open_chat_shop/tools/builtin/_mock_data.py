@@ -4,6 +4,8 @@ All tools use dict-based mock data -- no database required.
 """
 from __future__ import annotations
 
+from typing import Any
+
 # ---------------------------------------------------------------------------
 # Categories
 # ---------------------------------------------------------------------------
@@ -22,7 +24,7 @@ CATEGORY_LABELS: dict[str, str] = {
 # Orders
 # ---------------------------------------------------------------------------
 
-ORDERS: dict[str, dict] = {
+ORDERS: dict[str, dict[str, Any]] = {
     "ORD-001": {
         "order_id": "ORD-001",
         "customer_id": "user-001",
@@ -219,7 +221,7 @@ ORDERS: dict[str, dict] = {
 # Logistics
 # ---------------------------------------------------------------------------
 
-LOGISTICS: dict[str, dict] = {
+LOGISTICS: dict[str, dict[str, Any]] = {
     "ORD-001": {
         "order_id": "ORD-001",
         "carrier": "顺丰速运",
@@ -319,7 +321,7 @@ LOGISTICS: dict[str, dict] = {
 # Products
 # ---------------------------------------------------------------------------
 
-PRODUCTS: list[dict] = [
+PRODUCTS: list[dict[str, Any]] = [
     # --- existing P-001 through P-012 (unchanged) ---
     {"id": "P-001", "name": "无线鼠标", "price": 79.00, "category": "electronics", "image_url": "https://example.com/images/mouse.jpg"},
     {"id": "P-002", "name": "USB-C 扩展坞", "price": 149.00, "category": "electronics",
@@ -364,14 +366,14 @@ PRODUCTS: list[dict] = [
 # Refunds (mutable store for write operations)
 # ---------------------------------------------------------------------------
 
-REFUNDS: dict[str, dict] = {}
+REFUNDS: dict[str, dict[str, Any]] = {}
 REFUND_COUNTER: int = 0
 
 # ---------------------------------------------------------------------------
 # Human handoff
 # ---------------------------------------------------------------------------
 
-HANDOFF_RESPONSE: dict = {
+HANDOFF_RESPONSE: dict[str, Any] = {
     "transferred": True,
     "estimated_wait_seconds": 120,
     "queue_position": 3,

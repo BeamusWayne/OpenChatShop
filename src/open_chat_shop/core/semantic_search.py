@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -85,14 +85,14 @@ class EmbeddingService:
         """Get embedding for a single text string."""
         if self._provider is not None:
             embeddings = await self._provider.embed([text])
-            return embeddings[0]
+            return cast("list[float]", embeddings[0])
         # Fallback: simple bag-of-words hashing for testing
         return self._simple_hash_embedding(text)
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Get embeddings for multiple texts."""
         if self._provider is not None:
-            return await self._provider.embed(texts)
+            return cast("list[list[float]]", await self._provider.embed(texts))
         return [self._simple_hash_embedding(t) for t in texts]
 
     def _simple_hash_embedding(self, text: str) -> list[float]:

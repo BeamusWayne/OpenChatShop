@@ -55,7 +55,7 @@ class AuditLogger:
         tool_name: str,
         user_id: str | None,
         session_id: str,
-        params: dict,
+        params: dict[str, Any],
         result: str,  # "success" | "failure"
     ) -> None:
         self._logger.info(
@@ -75,7 +75,7 @@ class AuditLogger:
         self,
         event: str,
         session_id: str | None,
-        details: dict,
+        details: dict[str, Any],
     ) -> None:
         self._logger.warning(
             event,
@@ -95,7 +95,7 @@ class CostTracker:
     DEFAULT_COST: ClassVar[dict[str, float]] = {"input": 0.001, "output": 0.003}
 
     def __init__(self) -> None:
-        self._usage: list[dict] = []
+        self._usage: list[dict[str, Any]] = []
 
     def record(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
         costs = self.COST_TABLE.get(model, self.DEFAULT_COST)
@@ -112,7 +112,7 @@ class CostTracker:
         self._usage.append(entry)
         return cost
 
-    def get_summary(self) -> dict:
+    def get_summary(self) -> dict[str, Any]:
         if not self._usage:
             return {"total_requests": 0, "total_tokens": 0, "total_cost_usd": 0.0}
         return {
@@ -148,7 +148,7 @@ def setup_logging(level: str = "INFO") -> None:
     root.addHandler(handler)
 
 
-def _sanitize_params(params: dict) -> dict:
+def _sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
     """Remove sensitive fields from params for audit logging."""
     sensitive_keys = {"password", "token", "secret", "api_key", "credit_card", "cvv"}
     return {
@@ -168,7 +168,7 @@ class DatabaseAuditLogger:
         tool_name: str,
         user_id: str | None,
         session_id: str,
-        params: dict,
+        params: dict[str, Any],
         result: str,
     ) -> None:
         self._fallback.log_tool_execution(tool_name, user_id, session_id, params, result)
@@ -190,7 +190,9 @@ class DatabaseAuditLogger:
                 exc_info=True,
             )
 
-    def log_security_event(self, event: str, session_id: str | None, details: dict) -> None:
+    def log_security_event(
+        self, event: str, session_id: str | None, details: dict[str, Any]
+    ) -> None:
         self._fallback.log_security_event(event, session_id, details)
         try:
             from open_chat_shop.storage.database import get_session
@@ -215,7 +217,7 @@ class DatabaseCostTracker:
 
     def __init__(self, engine: Any) -> None:
         self._engine = engine
-        self._usage: list[dict] = []
+        self._usage: list[dict[str, Any]] = []
 
     def record(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
         costs = CostTracker.COST_TABLE.get(model, CostTracker.DEFAULT_COST)
@@ -243,7 +245,7 @@ class DatabaseCostTracker:
             logger.exception("Failed to persist cost record to database")
         return cost
 
-    def get_summary(self) -> dict:
+    def get_summary(self) -> dict[str, Any]:
         if not self._usage:
             return {"total_requests": 0, "total_tokens": 0, "total_cost_usd": 0.0}
         return {

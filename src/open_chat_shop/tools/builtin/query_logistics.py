@@ -43,7 +43,7 @@ class QueryLogisticsTool(BaseTool):
         self._order_repo = order_repo or InMemoryOrderRepository()
         self._logistics_repo = logistics_repo or InMemoryLogisticsRepository()
 
-    async def execute(self, params: dict, context: SessionContext) -> ToolResult:
+    async def execute(self, params: dict[str, Any], context: SessionContext) -> ToolResult:
         order_id = params["order_id"]
 
         if self._order_repo.get_for_user(order_id, context.user_id) is None:

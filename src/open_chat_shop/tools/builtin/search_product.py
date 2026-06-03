@@ -37,7 +37,7 @@ class SearchProductTool(BaseTool):
     def __init__(self, product_repo: ProductRepository | None = None) -> None:
         self._product_repo = product_repo or InMemoryProductRepository()
 
-    async def execute(self, params: dict, context: SessionContext) -> ToolResult:
+    async def execute(self, params: dict[str, Any], context: SessionContext) -> ToolResult:
         keyword = params["keyword"]
         category = params.get("category")
         limit = params.get("limit", 5)

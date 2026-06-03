@@ -96,3 +96,9 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+# Third-party libraries that ship no type stubs. Ignoring missing imports keeps
+# strict mode green without vendoring stubs into the runtime dependencies.
+[[tool.mypy.overrides]]
+module = ["jsonschema", "yaml", "defusedxml.*", "jose", "jose.*"]
+ignore_missing_imports = true

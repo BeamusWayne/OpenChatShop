@@ -32,7 +32,7 @@ class HandoffToHumanTool(BaseTool):
     def __init__(self, handoff_repo: HandoffRepository | None = None) -> None:
         self._handoff_repo = handoff_repo or InMemoryHandoffRepository()
 
-    async def execute(self, params: dict, context: SessionContext) -> ToolResult:
+    async def execute(self, params: dict[str, Any], context: SessionContext) -> ToolResult:
         reason = params.get("reason", "Customer requested human agent")
         return ToolResult(
             success=True,

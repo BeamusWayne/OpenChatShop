@@ -10,8 +10,9 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+from sqlmodel import SQLModel
 
-from open_chat_shop.storage.models import SQLModel
+import open_chat_shop.storage.models  # noqa: F401  (register models on metadata)
 
 config = context.config
 

@@ -4,9 +4,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import re as _re
+from contextlib import AbstractContextManager
 from contextlib import nullcontext as _nullcontext
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 from open_chat_shop.core.exceptions import (
     ContextError,
@@ -151,13 +152,13 @@ class DialogueOrchestrator:
             return await self._handle_internal(message)
 
     async def _handle_internal(self, message: UserMessage) -> AgentMessage:
-        outer_span = _nullcontext()
+        outer_span: AbstractContextManager[Any] = _nullcontext()
         if _TRACING_AVAILABLE:
             outer_span = trace_orchestrator_handle(message.session_id)
 
         with outer_span:
             # 1. Security check
-            sec_span = _nullcontext()
+            sec_span: AbstractContextManager[Any] = _nullcontext()
             if _TRACING_AVAILABLE:
                 sec_span = trace_security_check()
             with sec_span:
@@ -177,7 +178,7 @@ class DialogueOrchestrator:
                     return self._error_response("您的消息包含不当内容，请修改后重试。")
 
             # 2. Load context
-            ctx_span = _nullcontext()
+            ctx_span: AbstractContextManager[Any] = _nullcontext()
             if _TRACING_AVAILABLE:
                 ctx_span = trace_context_load(message.session_id)
             with ctx_span:
@@ -206,7 +207,12 @@ class DialogueOrchestrator:
             if self._middleware_pipeline is not None:
                 async def core_handler(msg: UserMessage) -> AgentMessage:
                     return await self._core_handle(msg, context)
-                return await self._middleware_pipeline.handle(message, context, core_handler)
+                return cast(
+                    AgentMessage,
+                    await self._middleware_pipeline.handle(
+                        message, context, core_handler
+                    ),
+                )
 
             return await self._core_handle(message, context)
 
@@ -257,7 +263,7 @@ class DialogueOrchestrator:
                     return pending_response
 
         # 3. Intent recognition
-        intent_span = _nullcontext()
+        intent_span: AbstractContextManager[Any] = _nullcontext()
         if _TRACING_AVAILABLE:
             intent_span = trace_intent_classify(source="cascade")
         with intent_span:
@@ -270,10 +276,10 @@ class DialogueOrchestrator:
             cached = self._response_cache.get(intent.name, params)
             if cached is not None:
                 await self._context_manager.save(context, cached)
-                return cached
+                return cast(AgentMessage, cached)
 
         # 4. Dynamic tool injection
-        inject_span = _nullcontext()
+        inject_span: AbstractContextManager[Any] = _nullcontext()
         if _TRACING_AVAILABLE:
             inject_span = trace_tool_inject(intent.name)
         with inject_span:
@@ -473,7 +479,11 @@ class DialogueOrchestrator:
             name=pending_intent_name,
             display_name=pending_intent_name,
             confidence=1.0,
-            source="context",
+            # Synthetic intent recovered from a persisted pending action; the
+            # "context" source is a deliberate runtime marker that flows into
+            # response meta (intent_source) and is outside the Intent.source
+            # Literal owned by core/types.py.
+            source="context",  # type: ignore[arg-type]
             entities=merged_params,
         )
         tools = await self._tool_injector.inject(pending_intent, context)
@@ -696,7 +706,7 @@ class DialogueOrchestrator:
             )
 
         # Execute with compensation on failure
-        exec_span = _nullcontext()
+        exec_span: AbstractContextManager[Any] = _nullcontext()
         if _TRACING_AVAILABLE:
             exec_span = trace_tool_execute(tool_name)
         with exec_span:
@@ -810,7 +820,7 @@ class DialogueOrchestrator:
                 prompt_tokens=usage.prompt_tokens,
                 completion_tokens=usage.completion_tokens,
             )
-        return usage.total_tokens
+        return cast(int, usage.total_tokens)
 
     async def _llm_enhance(
         self,

@@ -99,7 +99,8 @@ class StreamingOrchestrator:
         from open_chat_shop.core.types import Message
 
         messages = [Message(role="assistant", content=response.text_fallback)]
-        async for chunk in self._provider.stream(messages):
+        provider: Any = self._provider
+        async for chunk in provider.stream(messages):
             if chunk.content_delta:
                 yield StreamEvent(
                     type="chunk",

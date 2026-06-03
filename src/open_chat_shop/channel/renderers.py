@@ -5,8 +5,9 @@ for each of the 11 defined message types.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from open_chat_shop.core.types import AgentMessage
 
@@ -26,10 +27,12 @@ VALID_FIELD_TYPES = frozenset({
 
 RENDERERS: dict[str, Any] = {}  # populated by @register
 
+F = TypeVar("F", bound=Callable[..., dict[str, Any]])
 
-def register(name: str) -> Any:
+
+def register(name: str) -> Callable[[F], F]:
     """Decorator that registers a render function by message type name."""
-    def decorator(fn: Any) -> Any:
+    def decorator(fn: F) -> F:
         RENDERERS[name] = fn
         return fn
     return decorator
@@ -40,7 +43,7 @@ def register(name: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _require(payload: dict, key: str) -> Any:
+def _require(payload: dict[str, Any], key: str) -> Any:
     """Return *key* from *payload* or raise KeyError."""
     if key not in payload:
         raise KeyError(f"Missing required field: {key!r}")
@@ -53,13 +56,13 @@ def _require(payload: dict, key: str) -> Any:
 
 
 @register("text")
-def _render_text(payload: dict) -> dict:
+def _render_text(payload: dict[str, Any]) -> dict[str, Any]:
     content = _require(payload, "content")
     return {"content": content, "timestamp": datetime.now(UTC).isoformat()}
 
 
 @register("product_card")
-def _render_product_card(payload: dict) -> dict:
+def _render_product_card(payload: dict[str, Any]) -> dict[str, Any]:
     product_id = _require(payload, "product_id")
     name = _require(payload, "name")
     price = _require(payload, "price")
@@ -75,7 +78,7 @@ def _render_product_card(payload: dict) -> dict:
 
 
 @register("product_list")
-def _render_product_list(payload: dict) -> dict:
+def _render_product_list(payload: dict[str, Any]) -> dict[str, Any]:
     products = _require(payload, "products")
     total = _require(payload, "total")
     if not isinstance(products, list):
@@ -88,7 +91,7 @@ def _render_product_list(payload: dict) -> dict:
 
 
 @register("order_card")
-def _render_order_card(payload: dict) -> dict:
+def _render_order_card(payload: dict[str, Any]) -> dict[str, Any]:
     order_id = _require(payload, "order_id")
     status = _require(payload, "status")
     if status not in VALID_ORDER_STATUSES:
@@ -103,7 +106,7 @@ def _render_order_card(payload: dict) -> dict:
 
 
 @register("logistics_timeline")
-def _render_logistics_timeline(payload: dict) -> dict:
+def _render_logistics_timeline(payload: dict[str, Any]) -> dict[str, Any]:
     order_id = _require(payload, "order_id")
     steps = _require(payload, "steps")
     if not isinstance(steps, list) or len(steps) == 0:
@@ -118,7 +121,7 @@ def _render_logistics_timeline(payload: dict) -> dict:
 
 
 @register("confirm")
-def _render_confirm(payload: dict) -> dict:
+def _render_confirm(payload: dict[str, Any]) -> dict[str, Any]:
     title = _require(payload, "title")
     description = _require(payload, "description")
     return {
@@ -130,7 +133,7 @@ def _render_confirm(payload: dict) -> dict:
 
 
 @register("form")
-def _render_form(payload: dict) -> dict:
+def _render_form(payload: dict[str, Any]) -> dict[str, Any]:
     fields = _require(payload, "fields")
     if not isinstance(fields, list):
         raise ValueError("fields must be a list")
@@ -149,7 +152,7 @@ def _render_form(payload: dict) -> dict:
 
 
 @register("rating")
-def _render_rating(payload: dict) -> dict:
+def _render_rating(payload: dict[str, Any]) -> dict[str, Any]:
     prompt = _require(payload, "prompt")
     return {
         "prompt": prompt,
@@ -159,7 +162,7 @@ def _render_rating(payload: dict) -> dict:
 
 
 @register("transfer")
-def _render_transfer(payload: dict) -> dict:
+def _render_transfer(payload: dict[str, Any]) -> dict[str, Any]:
     reason = _require(payload, "reason")
     result: dict[str, Any] = {"reason": reason}
     for opt in ("estimated_wait_seconds", "department"):
@@ -169,7 +172,7 @@ def _render_transfer(payload: dict) -> dict:
 
 
 @register("carousel")
-def _render_carousel(payload: dict) -> dict:
+def _render_carousel(payload: dict[str, Any]) -> dict[str, Any]:
     items = _require(payload, "items")
     if not isinstance(items, list):
         raise ValueError("items must be a list")
@@ -181,7 +184,7 @@ def _render_carousel(payload: dict) -> dict:
 
 
 @register("quick_replies")
-def _render_quick_replies(payload: dict) -> dict:
+def _render_quick_replies(payload: dict[str, Any]) -> dict[str, Any]:
     options = _require(payload, "options")
     if not isinstance(options, list) or len(options) == 0:
         raise ValueError("options must be a non-empty list")

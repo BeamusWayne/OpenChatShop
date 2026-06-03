@@ -190,7 +190,7 @@ class RedisContextManager(ContextManager):
         )
 
     async def update_slots(
-        self, context: SessionContext, new_entities: dict
+        self, context: SessionContext, new_entities: dict[str, Any]
     ) -> SessionContext:
         merged_slots = {**context.slots, **new_entities}
         return replace(context, slots=merged_slots)

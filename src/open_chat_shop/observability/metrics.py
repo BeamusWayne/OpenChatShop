@@ -5,6 +5,9 @@ tool invocations, cache hits, and session state.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     Counter,
@@ -137,9 +140,9 @@ try:
 
         async def __call__(
             self,
-            scope: dict,
-            receive: callable,  # type: ignore[type-arg]
-            send: callable,  # type: ignore[type-arg]
+            scope: dict[str, Any],
+            receive: Callable[..., Any],
+            send: Callable[..., Any],
         ) -> None:
             if scope["type"] == "http":
                 body = generate_latest()

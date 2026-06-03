@@ -5,26 +5,26 @@ import hashlib
 import logging
 import os
 import time
+import xml.etree.ElementTree as ET
+
+from fastapi import APIRouter, FastAPI, Query, Request, Response
+
+from open_chat_shop.core.orchestrator import DialogueOrchestrator
+from open_chat_shop.core.types import UserMessage
 
 try:
     from defusedxml.ElementTree import fromstring as _safe_fromstring
 except ImportError:
     import xml.etree.ElementTree as _unsafe_et  # noqa: N813
-    def _safe_fromstring(data):  # type: ignore[misc]
+    def _safe_fromstring(data: str | bytes) -> ET.Element:
         return _unsafe_et.fromstring(data)
-
-import xml.etree.ElementTree as ET
-
-from fastapi import APIRouter, Query, Request, Response
-
-from open_chat_shop.core.types import UserMessage
 
 logger = logging.getLogger(__name__)
 
 wechat_router = APIRouter()
 
 # Module-level orchestrator reference, set via setup_wechat_routes().
-_orchestrator: object | None = None
+_orchestrator: DialogueOrchestrator | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +161,7 @@ async def receive_message(request: Request) -> Response:
 # ---------------------------------------------------------------------------
 
 
-def setup_wechat_routes(app: FastAPI, orchestrator: object) -> None:  # noqa: F821
+def setup_wechat_routes(app: FastAPI, orchestrator: DialogueOrchestrator) -> None:
     """Store the orchestrator reference and mount the WeChat router."""
     global _orchestrator
     _orchestrator = orchestrator

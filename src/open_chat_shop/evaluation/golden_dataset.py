@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -50,7 +51,7 @@ class GoldenDataset:
         data = json.loads(raw)
         self._load_list(data)
 
-    def load_from_dict(self, data: list[dict]) -> None:
+    def load_from_dict(self, data: list[dict[str, Any]]) -> None:
         self._load_list(data)
 
     def get_by_intent(self, intent: str) -> list[GoldenSample]:
@@ -109,7 +110,7 @@ class GoldenDataset:
 
     # -- internal helpers ---------------------------------------------------
 
-    def _load_list(self, data: list[dict]) -> None:
+    def _load_list(self, data: list[dict[str, Any]]) -> None:
         for item in data:
             self.add_sample(GoldenSample(**item))
 

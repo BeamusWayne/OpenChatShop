@@ -4,17 +4,20 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import uvicorn
 from dotenv import load_dotenv
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
 from open_chat_shop.api.app import create_app
-from open_chat_shop.core.context import InMemoryContextManager
+from open_chat_shop.core.context import ContextManager, InMemoryContextManager
+from open_chat_shop.core.provider import LLMProvider
 from open_chat_shop.core.handoff import HandoffQueue
 from open_chat_shop.core.intent import CascadeIntentEngine, RuleBasedMatcher
 from open_chat_shop.core.orchestrator import DialogueOrchestrator
@@ -92,7 +95,7 @@ def _build_context_manager() -> Any:
     if _database_url:
         try:
             from open_chat_shop.storage.db_context import DatabaseContextManager
-            context_manager = DatabaseContextManager(_database_url)
+            context_manager: ContextManager = DatabaseContextManager(_database_url)
             safe_url = _database_url.split("@")[-1] if "@" in _database_url else "sqlite"
             logger.info("Using database context manager (%s)", safe_url)
             return context_manager
@@ -118,7 +121,7 @@ def _build_provider() -> Any:
     """Try Anthropic provider first, then LiteLLM, then return None."""
     if _LLM_AVAILABLE:
         try:
-            provider = AnthropicProvider()
+            provider: LLMProvider = AnthropicProvider()
             logger.info("LLM provider (Anthropic/GLM) connected")
             return provider
         except Exception as e:
@@ -178,7 +181,7 @@ def _build_repositories() -> dict[str, Any]:
     return create_in_memory_repositories()
 
 
-def _load_yaml_config() -> dict:
+def _load_yaml_config() -> dict[str, Any]:
     """Load YAML config files from configs/ directory if available."""
     config_dir = Path(__file__).parent / "configs"
     if not config_dir.is_dir():
@@ -198,7 +201,7 @@ def _load_yaml_config() -> dict:
         return {}
 
 
-def _build_rbac_config(sec_rbac: Any) -> dict:
+def _build_rbac_config(sec_rbac: Any) -> dict[str, Any]:
     """Translate parsed security.yaml RBAC into the shape PermissionChecker parses.
 
     PermissionChecker expects ``{"roles": [{"name": .., "tools": ..}]}`` and
@@ -221,7 +224,7 @@ def build_orchestrator() -> DialogueOrchestrator:
     yaml_config = _load_yaml_config()
 
     # Build security config from YAML or fallback to empty defaults
-    security_config: dict = {"rbac": {}}
+    security_config: dict[str, Any] = {"rbac": {}}
     if "security" in yaml_config:
         sec = yaml_config["security"]
         security_config["injection_detection"] = {
@@ -337,8 +340,8 @@ def build_orchestrator() -> DialogueOrchestrator:
             retry_policy = RetryPolicy(max_retries=3)
             original_chat = provider.chat
 
-            async def _resilient_chat(*args, **kwargs):
-                async def _call():
+            async def _resilient_chat(*args: Any, **kwargs: Any) -> Any:
+                async def _call() -> Any:
                     return await original_chat(*args, **kwargs)
                 return await retry_policy.execute(circuit_breaker.call, _call)
 
@@ -427,7 +430,7 @@ def _check_auth_config() -> None:
         raise SystemExit(1)
 
 
-def create_main_app():
+def create_main_app() -> FastAPI:
     """Build the app with orchestrator wired in and static files mounted."""
     from contextlib import asynccontextmanager
     import time
@@ -437,7 +440,7 @@ def create_main_app():
     orchestrator = build_orchestrator()
 
     @asynccontextmanager
-    async def lifespan(app):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.start_time = time.monotonic()
         app.state.orchestrator = orchestrator
         logger.info("OpenChatShop starting up")

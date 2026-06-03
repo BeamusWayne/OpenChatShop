@@ -94,8 +94,11 @@ class ResponseCache:
         return msg
 
     def _get_redis(self, key: str) -> AgentMessage | None:
+        redis = self._redis
+        if redis is None:
+            return None
         try:
-            raw = self._redis.get(key)
+            raw = redis.get(key)
         except Exception:
             return None
         if raw is None:
@@ -108,6 +111,9 @@ class ResponseCache:
             return None
 
     def _set_redis(self, key: str, response: AgentMessage, ttl: int) -> None:
+        redis = self._redis
+        if redis is None:
+            return
         try:
             payload = json.dumps(
                 {
@@ -118,6 +124,6 @@ class ResponseCache:
                     "requires_confirmation": response.requires_confirmation,
                 }
             )
-            self._redis.setex(key, ttl, payload)
+            redis.setex(key, ttl, payload)
         except Exception:
             logger.warning("Failed to write response cache to Redis", exc_info=True)

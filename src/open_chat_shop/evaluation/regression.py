@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from open_chat_shop.evaluation.golden_dataset import GoldenDataset, GoldenSample
 
@@ -29,7 +30,7 @@ class RegressionRunner:
         self,
         sample: GoldenSample,
         actual_intent: str,
-        actual_entities: dict,
+        actual_entities: dict[str, Any],
         actual_response: str,
         actual_tool_calls: list[str],
     ) -> RegressionResult:
@@ -88,7 +89,7 @@ class RegressionRunner:
 
     async def run_batch(
         self,
-        results: list[tuple[str, str, dict, str, list[str]]],
+        results: list[tuple[str, str, dict[str, Any], str, list[str]]],
     ) -> list[RegressionResult]:
         """Run regression for a batch of (sample_id, intent, entities, response, tools)."""
         out: list[RegressionResult] = []
@@ -112,7 +113,7 @@ class RegressionRunner:
             out.append(result)
         return out
 
-    def generate_report(self, results: list[RegressionResult]) -> dict:
+    def generate_report(self, results: list[RegressionResult]) -> dict[str, Any]:
         """Produce summary statistics from regression results."""
         total = len(results)
         if total == 0:
@@ -125,7 +126,7 @@ class RegressionRunner:
         passed = sum(1 for r in results if r.passed)
         intent_ok = sum(1 for r in results if r.intent_match)
 
-        report: dict = {
+        report: dict[str, Any] = {
             "total": total,
             "passed": passed,
             "failed": total - passed,
@@ -146,7 +147,7 @@ class RegressionRunner:
         return report
 
 
-def _entities_match(expected: dict, actual: dict) -> bool:
+def _entities_match(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     """Check that every expected key-value pair is present in actual."""
     for key, value in expected.items():
         if key not in actual:
