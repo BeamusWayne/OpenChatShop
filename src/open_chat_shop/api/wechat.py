@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 
 try:
     from defusedxml.ElementTree import fromstring as _safe_fromstring
@@ -87,18 +88,21 @@ def _parse_xml_body(body: bytes) -> dict[str, str]:
 
 
 def _build_reply_xml(to_user: str, from_user: str, content: str) -> str:
-    """Format a text reply in WeChat XML envelope."""
-    import time
+    """Format a text reply in WeChat XML envelope.
 
-    return (
-        "<xml>"
-        f"<ToUserName><![CDATA[{to_user}]]></ToUserName>"
-        f"<FromUserName><![CDATA[{from_user}]]></FromUserName>"
-        f"<CreateTime>{int(time.time())}</CreateTime>"
-        "<MsgType><![CDATA[text]]></MsgType>"
-        f"<Content><![CDATA[{content}]]></Content>"
-        "</xml>"
-    )
+    Built with ElementTree so that all text (the routing fields and the
+    user/business-supplied ``content``) is XML-escaped automatically. This
+    prevents a stray ``]]>`` terminator or raw ``<``/``&`` in the content from
+    breaking the envelope or injecting markup, which naive CDATA string
+    concatenation allowed.
+    """
+    root = ET.Element("xml")
+    ET.SubElement(root, "ToUserName").text = to_user
+    ET.SubElement(root, "FromUserName").text = from_user
+    ET.SubElement(root, "CreateTime").text = str(int(time.time()))
+    ET.SubElement(root, "MsgType").text = "text"
+    ET.SubElement(root, "Content").text = content
+    return ET.tostring(root, encoding="unicode")
 
 
 @wechat_router.post("/callback")
