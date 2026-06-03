@@ -133,7 +133,9 @@ class TestChat:
     @pytest.mark.asyncio
     async def test_passes_messages_in_correct_format(self, provider: LiteLLMProvider) -> None:
         mock_resp = _mock_completion_response()
-        with patch("litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp) as mock_ac:
+        with patch(
+            "litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp
+        ) as mock_ac:
             await provider.chat(_make_messages())
 
         call_kwargs = mock_ac.call_args[1]
@@ -152,7 +154,9 @@ class TestChat:
             description="Search for products",
             parameters={"type": "object", "properties": {"query": {"type": "string"}}},
         )]
-        with patch("litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp) as mock_ac:
+        with patch(
+            "litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp
+        ) as mock_ac:
             await provider.chat(_make_messages(), tools=tools)
 
         call_kwargs = mock_ac.call_args[1]
@@ -164,7 +168,9 @@ class TestChat:
     async def test_omits_tools_when_not_capable(self, no_tool_provider: LiteLLMProvider) -> None:
         mock_resp = _mock_completion_response()
         tools = [ToolDefinition(name="search", description="search", parameters={"type": "object"})]
-        with patch("litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp) as mock_ac:
+        with patch(
+            "litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp
+        ) as mock_ac:
             await no_tool_provider.chat(_make_messages(), tools=tools)
 
         assert "tools" not in mock_ac.call_args[1]
@@ -174,7 +180,9 @@ class TestChat:
     async def test_applies_generate_config(self, provider: LiteLLMProvider) -> None:
         mock_resp = _mock_completion_response()
         config = GenerateConfig(temperature=0.7, max_tokens=100, timeout_seconds=60)
-        with patch("litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp) as mock_ac:
+        with patch(
+            "litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp
+        ) as mock_ac:
             await provider.chat(_make_messages(), config=config)
 
         kw = mock_ac.call_args[1]
@@ -185,9 +193,12 @@ class TestChat:
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_raises_provider_error_on_exception(self, provider: LiteLLMProvider) -> None:
-        with patch("litellm.acompletion", new_callable=AsyncMock, side_effect=Exception("API error")):
-            with pytest.raises(ProviderError) as exc_info:
-                await provider.chat(_make_messages())
+        err = Exception("API error")
+        with (
+            patch("litellm.acompletion", new_callable=AsyncMock, side_effect=err),
+            pytest.raises(ProviderError) as exc_info,
+        ):
+            await provider.chat(_make_messages())
 
         assert exc_info.value.provider == "gpt-4o-mini"
         assert "API error" in exc_info.value.message
@@ -214,9 +225,12 @@ class TestStream:
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_stream_raises_provider_error(self, provider: LiteLLMProvider) -> None:
-        with patch("litellm.acompletion", new_callable=AsyncMock, side_effect=Exception("Stream error")):
-            with pytest.raises(ProviderError):
-                _ = [c async for c in provider.stream(_make_messages())]
+        err = Exception("Stream error")
+        with (
+            patch("litellm.acompletion", new_callable=AsyncMock, side_effect=err),
+            pytest.raises(ProviderError),
+        ):
+            _ = [c async for c in provider.stream(_make_messages())]
 
 
 # ---------------------------------------------------------------------------
@@ -240,9 +254,12 @@ class TestEmbed:
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_embed_raises_provider_error(self, provider: LiteLLMProvider) -> None:
-        with patch("litellm.aembedding", new_callable=AsyncMock, side_effect=Exception("Embed error")):
-            with pytest.raises(ProviderError) as exc_info:
-                await provider.embed(["test"])
+        err = Exception("Embed error")
+        with (
+            patch("litellm.aembedding", new_callable=AsyncMock, side_effect=err),
+            pytest.raises(ProviderError) as exc_info,
+        ):
+            await provider.embed(["test"])
 
         assert "Embed error" in exc_info.value.message
 
@@ -394,10 +411,14 @@ class TestProviderFactory:
 class TestCapabilityDegradation:
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_tools_not_sent_when_not_supported(self, no_tool_provider: LiteLLMProvider) -> None:
+    async def test_tools_not_sent_when_not_supported(
+        self, no_tool_provider: LiteLLMProvider
+    ) -> None:
         mock_resp = _mock_completion_response()
         tools = [ToolDefinition(name="search", description="search", parameters={"type": "object"})]
-        with patch("litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp) as mock_ac:
+        with patch(
+            "litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp
+        ) as mock_ac:
             await no_tool_provider.chat(_make_messages(), tools=tools)
 
         kw = mock_ac.call_args[1]

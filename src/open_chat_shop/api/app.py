@@ -102,7 +102,10 @@ class SecurityHeadersMiddleware(_BaseMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+        csp = (
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'"
+        )
         if request.url.path in ("/docs", "/redoc"):
             csp = (
                 "default-src 'self' cdn.jsdelivr.net unpkg.com; "
@@ -511,8 +514,9 @@ def create_app(
                             "message_type": event.data.get("message_type"),
                             "payload": event.data.get("payload"),
                         })
-                        if len(_session_messages[session_id]) > _msg_history_cap:
-                            _session_messages[session_id] = _session_messages[session_id][-_msg_history_cap:]
+                        msgs = _session_messages[session_id]
+                        if len(msgs) > _msg_history_cap:
+                            _session_messages[session_id] = msgs[-_msg_history_cap:]
                     else:
                         await websocket.send_text(event.to_json())
         except WebSocketDisconnect:

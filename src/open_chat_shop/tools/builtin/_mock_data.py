@@ -228,7 +228,8 @@ LOGISTICS: dict[str, dict] = {
             {"time": "2026-05-15T11:00:00Z", "status": "picked_up", "location": "上海仓库"},
             {"time": "2026-05-16T03:00:00Z", "status": "in_transit", "location": "上海分拨中心"},
             {"time": "2026-05-16T18:00:00Z", "status": "in_transit", "location": "北京转运中心"},
-            {"time": "2026-05-17T08:00:00Z", "status": "out_for_delivery", "location": "北京配送站"},
+            {"time": "2026-05-17T08:00:00Z", "status": "out_for_delivery",
+             "location": "北京配送站"},
         ],
     },
     "ORD-005": {
@@ -250,7 +251,8 @@ LOGISTICS: dict[str, dict] = {
             {"time": "2026-05-14T02:00:00Z", "status": "in_transit", "location": "西安分拨中心"},
             {"time": "2026-05-15T06:00:00Z", "status": "in_transit", "location": "郑州转运中心"},
             {"time": "2026-05-17T10:00:00Z", "status": "in_transit", "location": "西安转运中心"},
-            {"time": "2026-05-18T09:30:00Z", "status": "out_for_delivery", "location": "雁塔区配送站"},
+            {"time": "2026-05-18T09:30:00Z", "status": "out_for_delivery",
+             "location": "雁塔区配送站"},
         ],
     },
     "ORD-011": {
@@ -261,7 +263,8 @@ LOGISTICS: dict[str, dict] = {
             {"time": "2026-05-14T16:30:00Z", "status": "picked_up", "location": "天津仓库"},
             {"time": "2026-05-15T08:00:00Z", "status": "in_transit", "location": "天津分拨中心"},
             {"time": "2026-05-16T11:00:00Z", "status": "in_transit", "location": "和平区营业部"},
-            {"time": "2026-05-18T07:30:00Z", "status": "out_for_delivery", "location": "南京路配送点"},
+            {"time": "2026-05-18T07:30:00Z", "status": "out_for_delivery",
+             "location": "南京路配送点"},
         ],
     },
     "ORD-012": {
@@ -271,7 +274,8 @@ LOGISTICS: dict[str, dict] = {
         "timeline": [
             {"time": "2026-05-05T15:00:00Z", "status": "picked_up", "location": "苏州仓库"},
             {"time": "2026-05-06T04:00:00Z", "status": "in_transit", "location": "苏州分拨中心"},
-            {"time": "2026-05-06T14:00:00Z", "status": "out_for_delivery", "location": "姑苏区配送站"},
+            {"time": "2026-05-06T14:00:00Z", "status": "out_for_delivery",
+             "location": "姑苏区配送站"},
             {"time": "2026-05-06T16:30:00Z", "status": "delivered", "location": "姑苏区配送站"},
         ],
     },
@@ -283,7 +287,8 @@ LOGISTICS: dict[str, dict] = {
             {"time": "2026-05-11T13:00:00Z", "status": "picked_up", "location": "青岛仓库"},
             {"time": "2026-05-12T05:00:00Z", "status": "in_transit", "location": "青岛分拨中心"},
             {"time": "2026-05-14T10:00:00Z", "status": "in_transit", "location": "济南转运中心"},
-            {"time": "2026-05-16T18:00:00Z", "status": "in_transit", "location": "青岛市南区营业部"},
+            {"time": "2026-05-16T18:00:00Z", "status": "in_transit",
+             "location": "青岛市南区营业部"},
         ],
     },
     "ORD-008": {
@@ -304,7 +309,8 @@ LOGISTICS: dict[str, dict] = {
             {"time": "2026-05-17T11:00:00Z", "status": "picked_up", "location": "重庆仓库"},
             {"time": "2026-05-18T03:00:00Z", "status": "in_transit", "location": "重庆分拨中心"},
             {"time": "2026-05-19T06:00:00Z", "status": "in_transit", "location": "渝北区营业部"},
-            {"time": "2026-05-20T08:00:00Z", "status": "out_for_delivery", "location": "金开大道配送点"},
+            {"time": "2026-05-20T08:00:00Z", "status": "out_for_delivery",
+             "location": "金开大道配送点"},
         ],
     },
 }
@@ -316,7 +322,8 @@ LOGISTICS: dict[str, dict] = {
 PRODUCTS: list[dict] = [
     # --- existing P-001 through P-012 (unchanged) ---
     {"id": "P-001", "name": "无线鼠标", "price": 79.00, "category": "electronics", "image_url": "https://example.com/images/mouse.jpg"},
-    {"id": "P-002", "name": "USB-C 扩展坞", "price": 149.00, "category": "electronics", "image_url": "https://example.com/images/hub.jpg"},
+    {"id": "P-002", "name": "USB-C 扩展坞", "price": 149.00, "category": "electronics",
+     "image_url": "https://example.com/images/hub.jpg"},
     {"id": "P-003", "name": "机械键盘", "price": 399.00, "category": "electronics", "image_url": "https://example.com/images/keyboard.jpg"},
     {"id": "P-004", "name": "显示器支架", "price": 120.00, "category": "office", "image_url": "https://example.com/images/stand.jpg"},
     {"id": "P-005", "name": "高清摄像头", "price": 199.00, "category": "electronics", "image_url": "https://example.com/images/webcam.jpg"},

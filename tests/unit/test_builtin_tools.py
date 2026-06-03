@@ -92,7 +92,9 @@ class TestSearchProductValidation:
         assert result.valid is True
 
     def test_valid_full(self):
-        result = SearchProductTool().validate({"keyword": "mouse", "category": "electronics", "limit": 3})
+        result = SearchProductTool().validate(
+            {"keyword": "mouse", "category": "electronics", "limit": 3}
+        )
         assert result.valid is True
 
     def test_missing_keyword(self):
@@ -106,7 +108,9 @@ class TestCreateRefundValidation:
         assert result.valid is True
 
     def test_valid_with_amount(self):
-        result = CreateRefundTool().validate({"order_id": "ORD-001", "reason": "defective", "amount": 100.0})
+        result = CreateRefundTool().validate(
+            {"order_id": "ORD-001", "reason": "defective", "amount": 100.0}
+        )
         assert result.valid is True
 
     def test_missing_reason(self):
@@ -140,7 +144,9 @@ class TestModifyAddressValidation:
         assert result.valid is True
 
     def test_valid_with_phone(self):
-        result = ModifyAddressTool().validate({"order_id": "ORD-002", "address": "999 New St", "phone": "13100131000"})
+        result = ModifyAddressTool().validate(
+            {"order_id": "ORD-002", "address": "999 New St", "phone": "13100131000"}
+        )
         assert result.valid is True
 
     def test_missing_address(self):
@@ -271,7 +277,9 @@ class TestCreateRefundExecute:
     @pytest.mark.asyncio
     async def test_create_refund_custom_amount(self, ctx: SessionContext):
         tool = CreateRefundTool()
-        result = await tool.execute({"order_id": "ORD-002", "reason": "partial issue", "amount": 50.0}, ctx)
+        result = await tool.execute(
+            {"order_id": "ORD-002", "reason": "partial issue", "amount": 50.0}, ctx
+        )
         assert result.success is True
         assert result.data["amount"] == 50.0
 

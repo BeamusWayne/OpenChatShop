@@ -182,7 +182,9 @@ class DialogueOrchestrator:
                 ctx_span = trace_context_load(message.session_id)
             with ctx_span:
                 try:
-                    context = await self._context_manager.load(message.session_id, channel=message.channel)
+                    context = await self._context_manager.load(
+                        message.session_id, channel=message.channel
+                    )
                 except ContextError:
                     return self._error_response("会话已过期，请重新开始。")
 
@@ -572,7 +574,10 @@ class DialogueOrchestrator:
                             context.human_agent_id = agent_id
                         else:
                             est_wait = self._handoff_queue.get_estimated_wait(context.session_id)
-                            msg = f"正在为您转接人工客服，当前排队位置：第{position}位，预计等待约{est_wait // 60}分钟。"
+                            msg = (
+                                f"正在为您转接人工客服，当前排队位置：第{position}位，"
+                                f"预计等待约{est_wait // 60}分钟。"
+                            )
                             action.payload["queue_position"] = position
                             action.payload["estimated_wait_seconds"] = est_wait
                             action.payload["status"] = "waiting"

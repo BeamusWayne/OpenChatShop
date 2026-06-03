@@ -39,7 +39,10 @@ class BudgetStatus:
 
     def __post_init__(self) -> None:
         self.remaining_tokens = max(0, self.max_tokens - self.used_tokens)
-        self.usage_percent = round(self.used_tokens / self.max_tokens * 100, 1) if self.max_tokens > 0 else 0.0
+        if self.max_tokens > 0:
+            self.usage_percent = round(self.used_tokens / self.max_tokens * 100, 1)
+        else:
+            self.usage_percent = 0.0
 
 
 @dataclass

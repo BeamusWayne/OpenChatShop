@@ -123,7 +123,9 @@ class TestRateLimitGuard:
     def test_independent_dimensions(self):
         limiter = InMemoryRateLimiter()
         rules = {
-            "user_messages": RateLimitRule(key="user:{user_id}:msg", window_seconds=60, max_requests=1),
+            "user_messages": RateLimitRule(
+                key="user:{user_id}:msg", window_seconds=60, max_requests=1
+            ),
             "ip_requests": RateLimitRule(key="ip:{ip}:req", window_seconds=60, max_requests=100),
         }
         guard = RateLimitGuard(limiter=limiter, rules=rules)

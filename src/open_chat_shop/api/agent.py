@@ -190,7 +190,10 @@ def create_agent_router(
             ctx = await context_manager.load(session_id)
             ctx.mode = SessionMode.HUMAN_MODE
             ctx.human_agent_id = agent.agent_id
-            await context_manager.save(ctx, AgentMessage(message_type="text", payload={}, text_fallback=""))
+            await context_manager.save(
+                ctx,
+                AgentMessage(message_type="text", payload={}, text_fallback=""),
+            )
 
         # Build context payload for the agent
         context_data: dict[str, Any] = {}

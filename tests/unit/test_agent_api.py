@@ -70,7 +70,9 @@ class TestAgentList:
 class TestAgentStatus:
     def test_update_status_offline(self, agent_client, handoff_queue):
         reg = agent_client.post("/api/v1/agent/register", json={"name": "客服B"}).json()
-        resp = agent_client.put(f"/api/v1/agent/{reg['agent_id']}/status", json={"status": "offline"})
+        resp = agent_client.put(
+            f"/api/v1/agent/{reg['agent_id']}/status", json={"status": "offline"}
+        )
         assert resp.status_code == 200
         agent = handoff_queue._agents[reg["agent_id"]]
         assert agent.status.value == "offline"
@@ -81,7 +83,9 @@ class TestAgentStatus:
 
     def test_update_status_invalid(self, agent_client):
         reg = agent_client.post("/api/v1/agent/register", json={"name": "客服C"}).json()
-        resp = agent_client.put(f"/api/v1/agent/{reg['agent_id']}/status", json={"status": "invalid"})
+        resp = agent_client.put(
+            f"/api/v1/agent/{reg['agent_id']}/status", json={"status": "invalid"}
+        )
         assert resp.status_code == 400
 
 

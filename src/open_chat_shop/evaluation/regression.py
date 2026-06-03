@@ -92,7 +92,8 @@ class RegressionRunner:
     ) -> list[RegressionResult]:
         """Run regression for a batch of (sample_id, intent, entities, response, tools)."""
         out: list[RegressionResult] = []
-        for sample_id, actual_intent, actual_entities, actual_response, actual_tool_calls in results:
+        for row in results:
+            sample_id, actual_intent, actual_entities, actual_response, actual_tool_calls = row
             sample = self._dataset.get_by_id(sample_id)
             if sample is None:
                 out.append(RegressionResult(

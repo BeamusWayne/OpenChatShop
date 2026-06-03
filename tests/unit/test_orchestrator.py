@@ -105,7 +105,11 @@ class TestOrchestrator:
         msg = UserMessage(session_id="s1", content="我的订单状态怎样了？", channel="web")
         response = await orchestrator.handle_message(msg)
         assert isinstance(response, AgentMessage)
-        assert "订单" in response.text_fallback or "参数" in response.text_fallback or "成功" in response.text_fallback
+        assert (
+            "订单" in response.text_fallback
+            or "参数" in response.text_fallback
+            or "成功" in response.text_fallback
+        )
 
     @pytest.mark.unit
     @pytest.mark.asyncio

@@ -66,7 +66,10 @@ class RuleBasedStrategy(Strategy):
             return Action(
                 type="reply",
                 payload={
-                    "content": "您好！我是智能客服助手，可以帮您查询订单、搜索商品、处理退换货等。请问有什么可以帮您？",
+                    "content": (
+                        "您好！我是智能客服助手，可以帮您查询订单、搜索商品、"
+                        "处理退换货等。请问有什么可以帮您？"
+                    ),
                     "message_type": "text",
                 },
             )
