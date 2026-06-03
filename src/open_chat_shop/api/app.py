@@ -11,6 +11,7 @@ import asyncio
 import json
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from jose import JWTError, jwt as jose_jwt
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware as _BaseMiddleware
 
@@ -28,6 +29,26 @@ try:
     _VERSION = importlib.metadata.version("open-chat-shop")
 except importlib.metadata.PackageNotFoundError:
     _VERSION = "0.1.0"
+
+
+def _resolve_ws_identity(token: str | None, jwt_secret: str | None) -> str | None:
+    """Return the server-verified ``sub`` for a customer WebSocket, else ``None``.
+
+    The WebSocket entry bypasses the HTTP ``AuthMiddleware``, so it must verify
+    the JWT itself (same jose/HS256/JWT_SECRET_KEY as the middleware). When auth
+    is disabled (no ``jwt_secret``) or the token is absent/invalid this returns
+    ``None`` so the caller falls back to advisory behaviour — matching the REST
+    entry's fail-open-when-auth-disabled posture, not refusing the connection.
+    """
+    if not jwt_secret or not token:
+        return None
+    try:
+        claims = jose_jwt.decode(token, jwt_secret, algorithms=["HS256"])
+    except JWTError:
+        logger.warning("WebSocket JWT validation failed")
+        return None
+    sub = claims.get("sub")
+    return sub if isinstance(sub, str) and sub else None
 
 
 # ---------------------------------------------------------------------------
@@ -375,10 +396,19 @@ def create_app(
         websocket: WebSocket,
         session_id: str,
         channel: str = Query("web"),
+        token: str | None = Query(None),
+        user_id: str | None = Query(None),
     ) -> None:
         await websocket.accept()
         _customer_sockets[session_id] = websocket
         ws_adapter = _registry.get_adapter(channel)
+
+        # Bind identity from the server-verified JWT 'sub' (this entry bypasses
+        # AuthMiddleware). The verified sub overrides any client-supplied
+        # user_id; absent/invalid/no-secret falls back to advisory, matching
+        # the REST entry's fail-open-when-auth-disabled posture.
+        verified_user_id = _resolve_ws_identity(token, jwt_secret or None)
+        effective_user_id = verified_user_id or user_id
         try:
             while True:
                 data = await websocket.receive_text()
@@ -446,6 +476,7 @@ def create_app(
                     session_id=session_id,
                     content=data,
                     channel=channel,
+                    user_id=effective_user_id,
                 )
                 streaming = StreamingOrchestrator(_orchestrator)
                 async for event in streaming.handle_streaming(msg):
