@@ -187,9 +187,9 @@ def create_app(
     app.state.agent_sockets = _agent_sockets
     app.state.customer_sockets = _customer_sockets
     _session_modes: dict[str, SessionMode] = {}
+    _background_tasks: set[asyncio.Task[None]] = set()
 
-    _MSG_HISTORY_CAP = 200
-    _DATA_RETENTION_SECONDS = int(os.environ.get("DATA_RETENTION_DAYS", "90")) * 86400
+    _msg_history_cap = 200
 
     async def _delayed_session_cleanup(sid: str, delay: float = 300.0) -> None:
         """Remove session message history after *delay* seconds.
@@ -453,15 +453,15 @@ def create_app(
                         }, ensure_ascii=False))
                     msgs = _session_messages.setdefault(session_id, [])
                     msgs.append({"role": "user", "content": data})
-                    if len(msgs) > _MSG_HISTORY_CAP:
-                        _session_messages[session_id] = msgs[-_MSG_HISTORY_CAP:]
+                    if len(msgs) > _msg_history_cap:
+                        _session_messages[session_id] = msgs[-_msg_history_cap:]
                     continue
 
                 if _mode == SessionMode.TRANSFER_PENDING:
                     msgs = _session_messages.setdefault(session_id, [])
                     msgs.append({"role": "user", "content": data})
-                    if len(msgs) > _MSG_HISTORY_CAP:
-                        _session_messages[session_id] = msgs[-_MSG_HISTORY_CAP:]
+                    if len(msgs) > _msg_history_cap:
+                        _session_messages[session_id] = msgs[-_msg_history_cap:]
                     await websocket.send_text(json.dumps({
                         "type": "transfer_status",
                         "data": {"status": "waiting"},
@@ -471,8 +471,8 @@ def create_app(
                 # Record user message
                 msgs = _session_messages.setdefault(session_id, [])
                 msgs.append({"role": "user", "content": data})
-                if len(msgs) > _MSG_HISTORY_CAP:
-                    _session_messages[session_id] = msgs[-_MSG_HISTORY_CAP:]
+                if len(msgs) > _msg_history_cap:
+                    _session_messages[session_id] = msgs[-_msg_history_cap:]
 
                 msg = UserMessage(
                     session_id=session_id,
@@ -511,15 +511,17 @@ def create_app(
                             "message_type": event.data.get("message_type"),
                             "payload": event.data.get("payload"),
                         })
-                        if len(_session_messages[session_id]) > _MSG_HISTORY_CAP:
-                            _session_messages[session_id] = _session_messages[session_id][-_MSG_HISTORY_CAP:]
+                        if len(_session_messages[session_id]) > _msg_history_cap:
+                            _session_messages[session_id] = _session_messages[session_id][-_msg_history_cap:]
                     else:
                         await websocket.send_text(event.to_json())
         except WebSocketDisconnect:
             _customer_sockets.pop(session_id, None)
             # Delayed cleanup: remove session messages after 300s so agent
             # dashboard can still fetch history after customer disconnects.
-            asyncio.create_task(_delayed_session_cleanup(session_id))
+            _cleanup_task = asyncio.create_task(_delayed_session_cleanup(session_id))
+            _background_tasks.add(_cleanup_task)
+            _cleanup_task.add_done_callback(_background_tasks.discard)
             logger.info(
                 "WebSocket disconnected",
                 extra={"session_id": session_id},

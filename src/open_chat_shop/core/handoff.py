@@ -9,19 +9,19 @@ import contextlib
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-class AgentStatus(str, Enum):
+class AgentStatus(StrEnum):
     OFFLINE = "offline"
     ONLINE = "online"
     BUSY = "busy"
 
 
-class TransferStatus(str, Enum):
+class TransferStatus(StrEnum):
     QUEUED = "queued"
     ASSIGNED = "assigned"
     ACTIVE = "active"

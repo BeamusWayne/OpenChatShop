@@ -5,6 +5,7 @@ import os
 from unittest.mock import patch
 
 import pytest
+from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from open_chat_shop.api.app import create_app
@@ -57,9 +58,10 @@ class TestAgentWebSocketToken:
     def test_ws_agent_rejects_wrong_token(self):
         app = create_app(agent_token="correct-secret")
         client = TestClient(app)
-        with pytest.raises(Exception):
-            with client.websocket_connect("/ws/agent/agent-test?token=wrong"):
-                pass
+        with pytest.raises(WebSocketDisconnect), client.websocket_connect(
+            "/ws/agent/agent-test?token=wrong"
+        ):
+            pass
 
     @pytest.mark.skip(reason="Sync TestClient blocks on WS close-before-accept")
     def test_ws_agent_accepts_correct_token(self):

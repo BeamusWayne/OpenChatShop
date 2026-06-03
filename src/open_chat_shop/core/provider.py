@@ -208,7 +208,7 @@ class FailingProvider(LLMProvider):
         config: GenerateConfig | None = None,
     ) -> AsyncIterator[LLMChunk]:
         raise ProviderError("Provider intentionally failed", self.name)
-        yield  # noqa: unreachable — makes this an async generator
+        yield  # makes this an async generator (unreachable by design)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise ProviderError("Provider intentionally failed", self.name)

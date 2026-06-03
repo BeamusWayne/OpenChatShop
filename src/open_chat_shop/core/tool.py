@@ -69,8 +69,8 @@ class BaseTool(ABC):
         """Business pre-check.  Default: always passes."""
         return CheckResult(passed=True)
 
-    async def compensate(self, params: dict, context: SessionContext) -> None:
-        """Compensation logic for failed writes.  Default: no-op."""
+    async def compensate(self, params: dict, context: SessionContext) -> None:  # noqa: B027
+        """Compensation logic for failed writes.  Default: no-op (optional hook)."""
 
     # ------------------------------------------------------------------
     # Introspection

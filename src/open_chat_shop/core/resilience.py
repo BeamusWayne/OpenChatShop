@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["CircuitBreaker", "CircuitState", "RetryPolicy"]
 
 
-class CircuitState(str, enum.Enum):
+class CircuitState(enum.StrEnum):
     """States of a circuit breaker."""
 
     CLOSED = "closed"

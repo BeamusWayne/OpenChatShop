@@ -159,7 +159,7 @@ class DatabaseContextManager(ContextManager):
             raise ContextError(
                 f"Failed to save context: {e}",
                 session_id=context.session_id,
-            )
+            ) from e
 
     async def compress(self, context: SessionContext) -> SessionContext:
         """Compress history when it exceeds the token budget."""

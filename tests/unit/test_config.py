@@ -450,5 +450,5 @@ def test_scenario_unknown_field_rejected(tmp_path):
 @pytest.mark.unit
 def test_non_dict_root_yaml(tmp_path):
     path = _write(tmp_path, "bad.yaml", "just a string")
-    with pytest.raises(ConfigValidationError, match="dictionary|mapping|valid"):
+    with pytest.raises(ConfigValidationError, match=r"dictionary|mapping|valid"):
         ConfigLoader.load_providers(path)

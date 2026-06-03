@@ -117,8 +117,10 @@ def create_agent_router(
             raise HTTPException(status_code=404, detail="Agent not found")
         try:
             agent.status = AgentStatus(body.status)
-        except ValueError:
-            raise HTTPException(status_code=400, detail=f"Invalid status: {body.status}")
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid status: {body.status}"
+            ) from exc
         return {"status": "ok"}
 
     @router.get("/queue", response_model=list[QueueItemResponse])

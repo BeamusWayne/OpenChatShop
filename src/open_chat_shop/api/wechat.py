@@ -9,7 +9,7 @@ import time
 try:
     from defusedxml.ElementTree import fromstring as _safe_fromstring
 except ImportError:
-    import xml.etree.ElementTree as _unsafe_et
+    import xml.etree.ElementTree as _unsafe_et  # noqa: N813
     def _safe_fromstring(data):  # type: ignore[misc]
         return _unsafe_et.fromstring(data)
 

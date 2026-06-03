@@ -130,7 +130,7 @@ class RedisContextManager(ContextManager):
             raise ContextError(
                 f"Failed to load session {session_id}: {e}",
                 session_id=session_id,
-            )
+            ) from e
 
     async def save(self, context: SessionContext, response: AgentMessage) -> None:
         """Save updated context to Redis with TTL refresh."""
@@ -151,7 +151,7 @@ class RedisContextManager(ContextManager):
             raise ContextError(
                 f"Failed to save session: {e}",
                 session_id=ctx.session_id,
-            )
+            ) from e
 
     async def compress(self, context: SessionContext) -> SessionContext:
         """Compress history when it exceeds the token budget."""

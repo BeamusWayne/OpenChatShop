@@ -18,11 +18,11 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 
-class SessionMode(str, Enum):
+class SessionMode(StrEnum):
     """Which entity is handling the session — bot or human."""
     AI_MODE = "ai_mode"
     TRANSFER_PENDING = "transfer_pending"
