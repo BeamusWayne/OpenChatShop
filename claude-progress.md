@@ -7,6 +7,8 @@
 - 标准验证路径：./init.sh verify
 - 当前最高优先级未完成功能：全部完成（Phase 1-7）
 - 当前 blocker：无
+- CI 状态：`ruff check src/ tests/` 已转绿（lint 债 114→0，2026-06-04）；**`mypy src/` 仍红——224 个既有错误（多为 `dict`/`list` 缺类型参数），属独立后续任务，本会话未引入**
+- 审计剩余（code-health-audit 2026-06-03）：HIGH-10 范围 B/C（orchestrator 原生 FC，独立会话）；两前端组件去重；真实 LLM 端到端 + docker build 冒烟（需人工）；mypy 转绿
 
 ## 重启路径
 
@@ -20,6 +22,29 @@
 6. 继续处理 `feature_list.json` 中优先级最高的未完成功能
 
 ## 会话记录
+
+### 2026-06-04 Session — ruff lint 债清零（114→0，CI lint 转绿）
+
+**任务：** 继续审计修复，从剩余清单接续——清掉 P1 遗留的 114 项 ruff 真实债，使 CI 的 `ruff check src/ tests/` 转绿。
+
+**结果：982 passed, 3 skipped（零回归），ruff 114 → 0（"All checks passed!"）。** 分 3 个提交，全程不改行为：
+
+| commit | 内容 | 范围 |
+|--------|------|------|
+| e64c47d | RUF012(28) ClassVar + SIM/B007/B905(13) safe-fix + E402(1) + I001(2) + 工具描述换行 | 114→65 |
+| a906f6c | B904(4) 异常链 + RUF006(1) 悬挂 task + UP042(5) StrEnum + N806(2) + F841(3) + B017/B027/N813/RUF043 + F401 | 65→45 |
+| 98f717f | E501(42) 长行换行 + SIM117(3) 合并 with | 45→0 |
+
+**关键决策（已验证）：**
+- **RUF012→ClassVar**：把工具/通道/场景/安全/日志类的类级 schema/常量字典标注 `ClassVar`。因 `mypy src/` 在 CI 中跑且 `BaseTool.params_schema`/`ScenarioFSM.states` 基类声明为实例变量，**同步把这两个基类也改 ClassVar**，避免 "override instance with class variable" 新错；改完该类 mypy 错误为 0。
+- **UP042→StrEnum**：`(str, Enum)` 五枚举（SessionMode/AgentStatus/TransferStatus/AlertLevel/CircuitState）转 `StrEnum`。先确认无 `str(枚举)` 调用、序列化全走 `.value`，故 `str()` 语义变化不影响行为，再转，全套测试验证。
+- **RUF006**：客户 WS 断连清理 task 此前 fire-and-forget 可能被 GC；改为存入 `_background_tasks` 集合 + done-callback 清理。
+- **N806**：删死代码 `_DATA_RETENTION_SECONDS`（赋值自 env 但从未读，清理用硬编码 300s）；`_MSG_HISTORY_CAP` 改小写局部。
+- **E501**：按上一会话"手动逐个改"意图全部换行修复（中文串隐式拼接、数据字面量换行），未用 per-file-ignore 规避。
+
+**⚠️ 本会话新发现（独立于 ruff，是 CI 另一处红灯）：`mypy src/` 预先就红，224 个错误（46 文件）**，绝大多数是 `dict`/`list` 缺类型参数（`def execute(self, params: dict, …)` 等，strict 的 `disallow_any_generics`）。属既有遗留、非本会话引入（本会话 mypy 净增 0）。此前进度只记了 ruff 红、未提 mypy——**mypy 转绿是独立的、体量不小的后续任务**。
+
+**顺带提交：** test_agent_auth.py（8 个 AGENT_SECRET 鉴权回归测试，此前未提交但已在绿色套件内）、production-hardening-audit.md（2026-05-20 架构审计；多数项已被 Phase 1-7 覆盖，多 Worker/Redis 状态项仍未做）。
 
 ### 2026-06-03 Session — 审计驱动修复（audit remediation）
 
