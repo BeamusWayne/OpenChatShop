@@ -27,9 +27,9 @@
 
 **审计产物：** `docs/code-health-audit-2026-06-03.md`（健康度 52/100，4 CRITICAL + 6 HIGH + ~50 MEDIUM/LOW，全部带 file:line）。
 
-**修复分支：** `fix/audit-remediation`（从 main@afcc202 切出，未合并）。基线：890 passed → 现 **960 passed, 3 skipped**。
+**修复分支：** `fix/audit-remediation`（从 main@afcc202 切出，未合并）。基线：890 passed → 现 **982 passed, 3 skipped**。
 
-**本会话已完成（已提交、已验证）—— 4 个 CRITICAL 全清 + 6 HIGH + 1 P2 + hygiene：**
+**本会话已完成（已提交、已验证）—— 4 个 CRITICAL 全清 + 6 HIGH + P2（OTel + 4 项并行修复 + lint 收口） + hygiene：**
 | commit | 内容 | 验证 |
 |--------|------|------|
 | 4c9760f | checkpoint 既有未提交 WIP（README 重写/app CSP/main 注释） | — |
@@ -46,14 +46,23 @@
 | 6ca423b | **HIGH-9** confirm 二次确认闭环：confirm 命中持久化 _pending_confirmation（镜像 _pending_action），_core_handle 分类前检测之；新增 _resolve_pending_confirmation（肯定→用持久化 params 执行、仍过 HIGH-5 权限门；否定→丢弃回"已取消"；模糊/话题切换→丢弃走正常流）+ _detect_affirmation（规则化、否定优先、fail-safe）。一次性+单轮有效替代显式 TTL | +25 回归测试 |
 | a487009 | **HIGH-10（范围 A）** 原生 FC provider 层：AnthropicProvider.chat 真实转发 tools schema 给 API + 解析 text/tool_use blocks→LLMResponse.tool_calls（修 content[0].text 在 tool_use 响应崩溃的 bug），get_capabilities tool_calling=True。首个 AnthropicProvider 测试 | +6 回归测试 |
 | a5debc0 | **P2 OTel stdout** 提速：setup_tracing 默认不装 exporter（span 创建但不导出，零 stdout 噪音/零 per-span 延迟），console 导出改 opt-in（console=True 或 OTEL_CONSOLE_EXPORT env），endpoint 仍走 OTLP；决策提纯函数 _console_enabled。顺带清两文件 fixable lint 债 | +8 回归测试 |
+| 28c5475 | **P2 golden→JSON** golden_dataset.py 4204→147 行,数据迁 evaluation/data/built_in_samples.json,500 样本等价 | 并行 worktree |
+| 6363e22 | **P2 WeChat CDATA** _build_reply_xml 改 xml.etree.ElementTree 自动转义,防 ]]>/标记注入 | 并行 +11 |
+| 353bbdb | **P2 YAML RBAC**（HIGH-5 衍生）_build_rbac_config 输出 {roles:[…]},自定义 security.yaml 角色真生效 | 并行 +4 |
+| d31e6f7 | **CRITICAL-1 残留 WS 身份** _resolve_ws_identity 自验 JWT(jose/HS256),sub 绑定 user_id 覆盖客户端,无 secret 回退 advisory | 并行 +3 |
+| 4a16616 | **P2 lint 收口** pyproject 豁免 RUF001/2/3 中文标点误报 + safe --fix 225 项,全仓债 ~450→114 | 982 零回归 |
 
-**P1 "wire to real" 大波已全部接线（HIGH-5/7/9/10）。剩余：**
-1. **HIGH-10 范围 B/C（独立会话）**：orchestrator 编排切原生 FC（tools= 传 chat 选工具、消费 tool_calls，按审计删 strategy if-else）。本会话完成范围 A（provider 层真实 tool_use + 能力翻真）；B/C 涉及 orchestrator 主流程重构 + MockProvider 测试涟漪（默认 tool_calling=True 但 chat 返回空 tool_calls），用户确认留独立会话。
-2. **P2 杂项（OTel stdout 已完成 a5debc0）**：golden_dataset.py 4204行违型、全仓 ~450 ruff lint 债（128 RUF001 中文标点误报可豁免 + F401/I001/E501/RUF012 等真实债，CI lint job 红，中等工程非快赢）、两前端组件去重。**HIGH-5 衍生**：main.py:217 的 YAML RBAC 结构 `{role.name:{tools}}` 与 PermissionChecker 期望的 `{roles:[...]}` 不匹配 → 静默回退 _DEFAULT_RBAC；check_permission 已接线但自定义 security.yaml 的角色当前不生效（默认 customer→全 8 工具仍正确）。
+> 表后 5 项中前 4 个修复经 Workflow 多 agent **并行**（worktree 隔离）产出,主控逐个 review diff→合并→全量验证。注:Workflow worktree base 是过时的 8c55f23（不含 c9c242c 等本分支修复）,故 golden cherry-pick 干净、其余 3 个手动应用并对齐当前 HEAD 的实际代码。第 5 项 lint 收口在 4 个合并后串行做。
 
-**已知残留：** WebSocket chat 入口未绑定身份（advisory 模式）；CRITICAL-4 的 pass_rate 需真实 LLM 才有意义（已 gate 在 LLM-无关的 intent_accuracy）；全 500 eval 因 OTel console span 极慢。
+**P1 "wire to real" 大波 + 多项 P2 已接线。剩余：**
+1. **HIGH-10 范围 B/C（独立会话）**：orchestrator 编排切原生 FC（tools= 传 chat 选工具、消费 tool_calls，按审计删 strategy if-else）。本会话完成范围 A（provider 层真实 tool_use + 能力翻真）；B/C 涉及主流程重构 + MockProvider 测试涟漪,用户确认留独立会话。
+2. **剩余 114 ruff 真实债**：E501 长行 49 + RUF012 mutable-class-default 28 + UP042/SIM/B904/F841 等,非自动修需手动逐个改;CI lint job 仍红（已从 ~450 降 75%）。
+3. **两前端组件去重**（frontend/ 与 frontend-agent/ 的 rich 组件），需前端上下文。
+4. **真实 LLM 端到端冒烟 + docker build 验证**：需真 API key / docker daemon,只能人来做。
 
-**重启路径：** `git checkout fix/audit-remediation` → 读本文件 + 审计 doc → `PYTHONPATH=src .venv/bin/python -m pytest tests/ -q` 确认 960 绿 → P1 大波已全清、P2 OTel stdout 已修；从 P2 剩余（golden_dataset 迁 JSON / 全仓 lint 收口 / 前端去重）或 HIGH-10 范围 B/C（orchestrator 编排切 FC）继续。
+**已知残留：** CRITICAL-4 的 pass_rate 需真实 LLM 才有意义（已 gate 在 LLM-无关的 intent_accuracy）；CI lint 仍红（剩 114 真实债）。WebSocket 身份(d31e6f7)、OTel console 拖慢(a5debc0)已修。
+
+**重启路径：** `git checkout fix/audit-remediation` → 读本文件 + 审计 doc → `PYTHONPATH=src .venv/bin/python -m pytest tests/ -q` 确认 982 绿 → 从剩余清单（HIGH-10 B/C / 114 lint 真实债 / 前端去重）继续。
 
 ### 2026-05-19 Session 2 (21:00-22:00)
 
