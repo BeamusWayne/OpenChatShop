@@ -268,6 +268,40 @@ class TestCascadeLevel3:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
+    async def test_llm_path_extracts_regex_entities(self):
+        """Regression: the level-3 LLM path must run the same ORD-xxx entity
+        extraction as the rule path, so an order_id already in the message is
+        not re-asked.
+
+        Before the fix, _llm_classify returned an Intent with empty entities,
+        so whenever rules/semantic missed and classification fell through to the
+        LLM, a provided order_id was dropped -- surfaced by a real GLM end-to-end
+        run where "查订单 ORD-001 到哪了" re-asked for the order number.
+        """
+        engine = _make_engine(
+            level1_threshold=0.99,
+            level2_threshold=0.99,
+            level3_threshold=0.5,
+            with_provider=True,
+        )
+        engine.register_intent(IntentInfo(
+            name="query_order",
+            display_name="查询订单",
+            description="User wants to check order status",
+            sample_count=0,
+        ))
+
+        # Phrased so levels 1-2 miss (same style as the test above) and it
+        # falls through to the level-3 LLM, but carries an order_id.
+        msg = _make_message("我的包裹到哪了 ORD-001")
+        ctx = _make_context()
+        result = await engine.classify(msg, ctx)
+
+        assert result.source == "llm"
+        assert result.entities["order_id"] == "ORD-001"
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
     async def test_llm_not_called_without_provider(self):
         """Without a provider, level 3 is skipped entirely."""
         engine = _make_engine(level1_threshold=0.99, level2_threshold=0.99)

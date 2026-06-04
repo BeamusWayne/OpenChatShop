@@ -262,6 +262,7 @@ class CascadeIntentEngine(IntentEngine):
                         display_name=registered_name,
                         confidence=0.75,
                         source="llm",
+                        entities=_extract_entities(message.content, registered_name),
                     )
 
             # Could not map the LLM response to a known intent
