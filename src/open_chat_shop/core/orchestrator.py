@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re as _re
+import time
 from contextlib import AbstractContextManager
 from contextlib import nullcontext as _nullcontext
 from dataclasses import replace
@@ -39,6 +40,20 @@ try:
     _TRACING_AVAILABLE = True
 except ImportError:
     _TRACING_AVAILABLE = False
+
+# Metrics — safe no-op if prometheus_client is not installed
+try:
+    from open_chat_shop.observability.metrics import (
+        ACTIVE_SESSIONS,
+        observe_chat_duration,
+        record_cache_hit,
+        record_chat_request,
+        record_llm_call,
+        record_tool_call,
+    )
+    _METRICS_AVAILABLE = True
+except ImportError:
+    _METRICS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +173,26 @@ class DialogueOrchestrator:
                     removed += 1
         lock = self._session_locks.setdefault(message.session_id, asyncio.Lock())
         async with lock:
-            return await self._handle_internal(message)
+            if _METRICS_AVAILABLE:
+                ACTIVE_SESSIONS.set(len(self._session_locks))
+            start = time.monotonic()
+            response: AgentMessage | None = None
+            try:
+                response = await self._handle_internal(message)
+                return response
+            finally:
+                if _METRICS_AVAILABLE:
+                    label = (
+                        str(response.meta.get("intent") or "unknown")
+                        if response is not None else "unknown"
+                    )
+                    status = (
+                        "success"
+                        if response is not None and response.message_type != "error"
+                        else "error"
+                    )
+                    record_chat_request(label, status)
+                    observe_chat_duration(label, time.monotonic() - start)
 
     async def _handle_internal(self, message: UserMessage) -> AgentMessage:
         outer_span: AbstractContextManager[Any] = _nullcontext()
@@ -314,6 +348,8 @@ class DialogueOrchestrator:
                 intent.name, params, user_id=context.user_id
             )
             if cached is not None:
+                if _METRICS_AVAILABLE:
+                    record_cache_hit(intent.name)
                 self._record_turn(context, message, cached)
                 await self._context_manager.save(context, cached)
                 return cast(AgentMessage, cached)
@@ -741,6 +777,8 @@ class DialogueOrchestrator:
                     "error": e.message,
                 },
             )
+            if _METRICS_AVAILABLE:
+                record_tool_call(tool_name, "blocked")
             return self._error_response("抱歉，您没有权限执行此操作。")
 
         # Parameter validation
@@ -778,6 +816,8 @@ class DialogueOrchestrator:
                         params=params,
                         result="failure",
                     )
+                if _METRICS_AVAILABLE:
+                    record_tool_call(tool_name, "error")
                 return AgentMessage(
                     message_type="text",
                     payload={"content": "操作暂时无法完成，请稍后重试"},
@@ -793,6 +833,8 @@ class DialogueOrchestrator:
                 params=params,
                 result="success" if result.success else "failure",
             )
+        if _METRICS_AVAILABLE:
+            record_tool_call(tool_name, "success" if result.success else "failure")
 
         # Build response from tool result
         if result.success:
@@ -875,6 +917,13 @@ class DialogueOrchestrator:
                 model=self._provider_model_name(),
                 prompt_tokens=usage.prompt_tokens,
                 completion_tokens=usage.completion_tokens,
+            )
+        if _METRICS_AVAILABLE:
+            record_llm_call(
+                self._provider_model_name(),
+                "success",
+                usage.prompt_tokens,
+                usage.completion_tokens,
             )
         return cast(int, usage.total_tokens)
 

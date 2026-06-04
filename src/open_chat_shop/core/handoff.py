@@ -12,6 +12,13 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+# Metrics gauge — safe no-op if prometheus_client is not installed
+try:
+    from open_chat_shop.observability.metrics import HANDOFF_QUEUE_SIZE
+    _METRICS_AVAILABLE = True
+except ImportError:
+    _METRICS_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -117,6 +124,8 @@ class HandoffQueue:
         """Add a transfer request to the queue. Returns queue position."""
         self._queue.append(request)
         self._queue.sort(key=lambda r: r.priority, reverse=True)
+        if _METRICS_AVAILABLE:
+            HANDOFF_QUEUE_SIZE.set(len(self._queue))
         position = self._queue.index(request) + 1
         for cb in self._on_enqueue:
             with contextlib.suppress(Exception):
@@ -158,6 +167,8 @@ class HandoffQueue:
         self._active_transfers[request.session_id] = request
         # Remove from queue if present
         self._queue = [r for r in self._queue if r.request_id != request.request_id]
+        if _METRICS_AVAILABLE:
+            HANDOFF_QUEUE_SIZE.set(len(self._queue))
 
         logger.info(
             "Assigned session %s to agent %s",
