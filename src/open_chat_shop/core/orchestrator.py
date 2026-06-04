@@ -183,7 +183,7 @@ class DialogueOrchestrator:
             finally:
                 if _METRICS_AVAILABLE:
                     label = (
-                        str(response.meta.get("intent") or "unknown")
+                        str(response.meta.get("intent_name") or "unknown")
                         if response is not None else "unknown"
                     )
                     status = (
@@ -350,9 +350,17 @@ class DialogueOrchestrator:
             if cached is not None:
                 if _METRICS_AVAILABLE:
                     record_cache_hit(intent.name)
-                self._record_turn(context, message, cached)
-                await self._context_manager.save(context, cached)
-                return cast(AgentMessage, cached)
+                # A cache hit spends ZERO new tokens. Serve a copy whose meta
+                # carries no token_usage, so neither the DB backend's cumulative
+                # nor the budget middleware re-bills the originally-cached cost
+                # each time the entry is served (audit: cache-hit double-bill).
+                served = replace(
+                    cached,
+                    meta={k: v for k, v in cached.meta.items() if k != "token_usage"},
+                )
+                self._record_turn(context, message, served)
+                await self._context_manager.save(context, served)
+                return cast(AgentMessage, served)
 
         # 4. Dynamic tool injection
         inject_span: AbstractContextManager[Any] = _nullcontext()

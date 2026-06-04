@@ -186,6 +186,10 @@ async def receive_message(request: Request) -> Response:
         session_id=from_user,
         content=content,
         channel="wechat",
+        # FromUserName is the WeChat OpenID — a signature-verified, per-user
+        # identity. Bind it as user_id so order tools enforce ownership
+        # (get_for_user) instead of running unauthenticated (audit IDOR/BOLA).
+        user_id=from_user,
     )
 
     # Hard 5s SLA: cap the turn at _WECHAT_DEADLINE_SECONDS. On timeout, ack with

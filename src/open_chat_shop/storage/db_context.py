@@ -309,17 +309,31 @@ class DatabaseContextManager(ContextManager):
                         )
                     )
 
-                db.add(
-                    ConversationLog(
-                        session_id=context.session_id,
-                        user_id=context.user_id,
-                        role="assistant",
-                        content=response.text_fallback,
-                        intent_name=None,
-                        tokens_used=response_tokens,
-                        created_at=reply_ts,
-                    )
+                # Append the assistant reply as a row ONLY if context.history
+                # does not already end with it. The orchestrator's _record_turn
+                # appends the reply to context.history BEFORE calling save (so it
+                # is already written by the history loop above); direct callers
+                # may pass history without it. Without this guard the DB backend
+                # stored the reply twice every turn — a regression where
+                # _record_turn and this append both ran across an untested seam.
+                last = context.history[-1] if context.history else None
+                already_appended = (
+                    last is not None
+                    and last.role == "assistant"
+                    and last.content == response.text_fallback
                 )
+                if not already_appended:
+                    db.add(
+                        ConversationLog(
+                            session_id=context.session_id,
+                            user_id=context.user_id,
+                            role="assistant",
+                            content=response.text_fallback,
+                            intent_name=None,
+                            tokens_used=response_tokens,
+                            created_at=reply_ts,
+                        )
+                    )
         except Exception as e:
             raise ContextError(
                 f"Failed to save context: {e}",
