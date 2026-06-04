@@ -106,6 +106,11 @@ class RedisContextManager(ContextManager):
 
     async def load(self, session_id: str, channel: str = "web") -> SessionContext:
         """Load session from Redis or create a new one."""
+        # Bound the write-through cache (a sync-get optimization; Redis is the
+        # source of truth, so dropping it is safe) to avoid unbounded growth
+        # across distinct sessions over a long-running process (audit MEDIUM).
+        if len(self._cache) > 10_000:
+            self._cache.clear()
         key = self._key(session_id)
         try:
             data = await self._redis.hgetall(key)

@@ -109,6 +109,11 @@ class DatabaseContextManager(ContextManager):
         The blocking SQLModel work runs on a worker thread so the event loop
         is not stalled while the query executes.
         """
+        # Bound the write-through cache (a sync-get optimization; the DB is the
+        # source of truth, so dropping it is safe) to avoid unbounded growth
+        # across distinct sessions over a long-running process (audit MEDIUM).
+        if len(self._cache) > 10_000:
+            self._cache.clear()
         ctx = await asyncio.to_thread(self._load_sync, session_id, channel)
         self._cache[session_id] = ctx
         return ctx

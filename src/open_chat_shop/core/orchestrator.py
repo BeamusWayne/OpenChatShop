@@ -55,6 +55,12 @@ try:
 except ImportError:
     _METRICS_AVAILABLE = False
 
+# Hard cap on in-process conversation history; only the last few turns are read
+# (intent window history[-3:], LLM prompt history[-6:]), so this bounds memory on
+# every backend without losing usable context. _record_turn is a staticmethod, so
+# this is a module constant rather than an instance attribute.
+_MAX_HISTORY_MESSAGES = 100
+
 logger = logging.getLogger(__name__)
 
 
@@ -1071,6 +1077,8 @@ class DialogueOrchestrator:
         context.history.append(
             Message(role="assistant", content=response.text_fallback)
         )
+        if len(context.history) > _MAX_HISTORY_MESSAGES:
+            del context.history[:-_MAX_HISTORY_MESSAGES]
 
     def _build_history_text(self, context: SessionContext) -> str:
         """Build a compact text representation of recent conversation history."""
