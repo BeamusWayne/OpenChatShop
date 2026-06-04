@@ -33,7 +33,7 @@
 
 - 关键非机械修复见 audit doc 修复状态节。IDOR 真接线（orchestrator 绑 message.user_id→context.user_id + 接管守卫；app.py 早已从 JWT 填 UserMessage.user_id，缺的只是这一步拷贝）。
 - **H4 指标埋点已补完**（commit 67dc7e6）：record_chat_request/duration + llm/tool/cache 计数器 + ACTIVE_SESSIONS/HANDOFF_QUEUE_SIZE gauge 接入 orchestrator/handoff，/metrics 实测有数据，+4 RED-GREEN 测试。1153→1157。
-- 剩余残留（已记录、非阻塞）：provider aclose 未接 lifespan、SSE PII（需 API 变更）、renderers 死代码、attack 样本期望、C3 多 worker（已 workers=1 + 文档缓解）。
+- **残留也一起收掉了**（commit 3931794）：provider aclose 接入 lifespan、SSE 改 POST（PII 离开 URL，3 个 e2e 改 POST）、attack 样本翻为安全期望（expected_tool_calls=[]）+ 2 回归测试（实测 8 个攻击全被系统拦截/中和）。仅剩 2 项刻意保留：renderers（评定为非 bug 的 §12 备用渲染器工具）、C3 多 worker（workers=1 + 文档缓解，真正跨 worker = Redis pub/sub 未来功能）。最终 **1159 passing，ruff/mypy/eval gate 全绿**。
 
 **要点重申：** 两轮都靠真实 LLM e2e 才暴露 level-3 路径与生产接线的真问题，单测（MockProvider/InMemory）覆盖不到。
 
