@@ -7,14 +7,22 @@
 - 标准验证路径：./init.sh verify
 - 当前最高优先级未完成功能：全部完成（Phase 1-7）
 - 当前 blocker：无
-- CI 状态：**ruff / mypy --strict / pytest（1271 passed）/ harness 四关全绿（2026-06-04）**
+- CI 状态：**ruff / mypy --strict / pytest（1282 passed）/ harness 四关全绿（2026-06-04，Session 5 直接复跑逐关确认，非仅凭文档）**
+  - ⚠️ Session 5 复跑时发现 **`./init.sh` 自 `aea5527` 起 bash 语法坏**（install/verify 两个 if/else 块各多一个 `fi`，line 47/62）——四关都直接跑、从不走 init.sh，故一直没暴露。已修（commit `2bf9c48`），`bash -n` 干净。固定工作循环 step 7「检查端到端路径是否损坏」正是为抓这类问题。
 - 已完成：lint 债 114→0、mypy 224→0、真实 LLM e2e 验证（GLM-5.1 via 智谱，chat/FC/streaming + 全管道）、**3 轮全量审计 + 修复**（审计1 53 项 → 再审 47 → 三审 20；所有 CRITICAL/HIGH 全清。报告：docs/code-health-audit-2026-06-03.md、docs/audit-2026-06-04.md、docs/reaudit-2026-06-04.md）
 
 ### 下一会话优先（按此顺序）
-1. **orchestrator god-object 重构**（core/orchestrator.py 1068 行 → 抽出 pending/confirm 机制 + SSE/WS done-重建 + _persist_turn helper；re-audit-2 登记的最大质量项，**必须带测试专注做，不并行**）
-2. 剩余 LOW/MEDIUM 硬化：create_refund 省 amount 可绕过 >500 确认门 · main.py 的 Redis 自有 async client 关机未关 · 微信签名无 replay/freshness 窗口（MEDIUM）· _try_resolve_pending 槽位边界（见 reaudit doc）
-3. 剩余优化（LOW）：OrderMutationTool pre_check/execute 双查 DB · db_context existing_rows 无上限 SELECT · _build_done_event adapter 类型 Any · 两个新测试脆弱性
-4. 需人工/环境：docker build 冒烟（需 daemon）· 两前端组件去重（frontend/ 与 frontend-agent/）
+1. **orchestrator god-object 重构**（core/orchestrator.py **1125 行** → 抽出 pending/confirm 机制（ConfirmationResolver）+ **pending-slot recovery（PendingSlotResolver：_try_resolve_pending/_slot_prompt）** + SSE/WS done-重建 + _persist_turn helper；re-audit-2 登记的最大质量项，**必须带测试专注做，不并行**。reaudit line 160-162 明确建议把这两个子机抽成独立 collaborator）
+   - ⚠️ **原"_try_resolve_pending 槽位边界"硬化项并入此处**：Session 5 细读后判定其没有精确定义的 bug（`break`/`still_missing`/`_slot_prompt[0]` 边界都已守好或属可辩护的 UX 逻辑），且正是 refactor 要抽取的脆弱簇。**不在重构外 piecemeal 改这块**（违背最简/精准/防契约打架的教训）——清理随 PendingSlotResolver 抽取一起做。
+2. 剩余优化（LOW/MEDIUM，独立小项）：cache-key 仍含 stale slot/内部键（reaudit LOW-1）· get() write-through cache 无上限淘汰（reaudit MEDIUM-2，与 _session_locks cap 不一致）· OrderMutationTool pre_check/execute 双查 DB · db_context existing_rows 无上限 SELECT · _build_done_event adapter 类型 Any · pending 路径规则匹配跑两遍（LOW perf）
+3. 需人工/环境：docker build 冒烟（需 daemon）· 两前端组件去重（frontend/ 与 frontend-agent/）
+
+### Session 5 完成（2026-06-04，本会话）
+- **init.sh 语法修复**（`2bf9c48`）——见上 CI 状态注。
+- **硬化项 1/3：create_refund >500 确认门** —— 复核为 **Session 4（d195007）已修**（`_needs_confirmation` 对缺失阈值字段 fail-safe 走确认），原清单项 **stale**。补 5 条守卫测试钉死契约（`9e71959`，含用真实 `CreateRefundTool.permissions`）。
+- **硬化项 2/3：RedisContextManager 自有 async client 泄漏** —— `_build_context_manager` 创建后从未注册关闭，现注册到 `resources["context_redis"]` 并在 lifespan `aclose()`（`5d0a6a1`）。+2 回归测试，改前实测 RED。
+- **硬化项 3/3：微信签名 replay/freshness 窗口** —— 新增 `_is_fresh()`，GET/POST 两个 callback 在验签后拒绝 timestamp 偏离 now > ±300s 的请求（`dad371e`）。+4 回归测试，改前实测 RED（stale 请求返回 200）。顺带把 4 处既有"有效签名"测试的硬编码旧 timestamp 改为当前时间（不是削弱，是让它们继续走 accept 路径）。
+- **硬化项 4（_try_resolve_pending 槽位边界）：判定为无精确 bug，并入上方 god-object 重构**（理由见 #1 注）。
 
 ### ⚠️ 关键教训（下一会话务必记住）
 - **DB-context（storage/db_context.py）的 diff-reconciliation 特别脆**：连续两轮并行修复都在这里引入回归（双写 → 时间戳打平写放大）。改动这块**必须**有 orchestrator↔DatabaseContextManager 的**集成测试**（tests/integration/test_db_orchestrator_seam.py），且测试数据要**模拟生产真实分布**（_record_turn 的打平时间戳），不能用理想的严格递增数据。
