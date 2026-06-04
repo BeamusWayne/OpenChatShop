@@ -7,8 +7,19 @@
 - 标准验证路径：./init.sh verify
 - 当前最高优先级未完成功能：全部完成（Phase 1-7）
 - 当前 blocker：无
-- CI 状态：**`ruff check`、`mypy src/`、pytest 三关全绿（2026-06-04）** —— lint 债 114→0、mypy 224→0、982 passed / 3 skipped
-- 审计剩余（code-health-audit 2026-06-03）：HIGH-10 范围 B/C（orchestrator 原生 FC，独立会话）；两前端组件去重；docker build 冒烟（需 daemon）。**真实 LLM 端到端已验证（2026-06-04，GLM-5.1 via 智谱，chat/FC/streaming + 全管道 3 轮），并修了由此暴露的 LLM 路径实体抽取 bug（commit 6d97d56）**
+- CI 状态：**ruff / mypy --strict / pytest（1271 passed）/ harness 四关全绿（2026-06-04）**
+- 已完成：lint 债 114→0、mypy 224→0、真实 LLM e2e 验证（GLM-5.1 via 智谱，chat/FC/streaming + 全管道）、**3 轮全量审计 + 修复**（审计1 53 项 → 再审 47 → 三审 20；所有 CRITICAL/HIGH 全清。报告：docs/code-health-audit-2026-06-03.md、docs/audit-2026-06-04.md、docs/reaudit-2026-06-04.md）
+
+### 下一会话优先（按此顺序）
+1. **orchestrator god-object 重构**（core/orchestrator.py 1068 行 → 抽出 pending/confirm 机制 + SSE/WS done-重建 + _persist_turn helper；re-audit-2 登记的最大质量项，**必须带测试专注做，不并行**）
+2. 剩余 LOW/MEDIUM 硬化：create_refund 省 amount 可绕过 >500 确认门 · main.py 的 Redis 自有 async client 关机未关 · 微信签名无 replay/freshness 窗口（MEDIUM）· _try_resolve_pending 槽位边界（见 reaudit doc）
+3. 剩余优化（LOW）：OrderMutationTool pre_check/execute 双查 DB · db_context existing_rows 无上限 SELECT · _build_done_event adapter 类型 Any · 两个新测试脆弱性
+4. 需人工/环境：docker build 冒烟（需 daemon）· 两前端组件去重（frontend/ 与 frontend-agent/）
+
+### ⚠️ 关键教训（下一会话务必记住）
+- **DB-context（storage/db_context.py）的 diff-reconciliation 特别脆**：连续两轮并行修复都在这里引入回归（双写 → 时间戳打平写放大）。改动这块**必须**有 orchestrator↔DatabaseContextManager 的**集成测试**（tests/integration/test_db_orchestrator_seam.py），且测试数据要**模拟生产真实分布**（_record_turn 的打平时间戳），不能用理想的严格递增数据。
+- **并行 agent 修复在"没有集成测试的接缝"上会各修各的、契约打架**——跨文件接缝必须由单一 agent 拥有，或主控自己做。
+- god-object 这种结构性重构**不要丢给并行 agent**，也不要"边 commit 边验证"（本会话踩过：提交了 staticmethod 用 self 的坏状态）。**先 ruff+mypy+全量测试通过，再 commit。**
 
 ## 重启路径
 
