@@ -442,6 +442,11 @@ class DialogueOrchestrator:
     # substring (audit HIGH). Question-form replies resolve to None so the
     # caller falls through to normal classification instead of executing.
     _QUESTION_RE = _re.compile(r"[?？]|吗|嘛|呢|哪|多少|几个|怎么|为什么|什么时候")
+    # "确认一下 / 看一下 / 核对一下" expresses a request to VERIFY, not consent —
+    # the affirm token is part of a check-request. Treated as non-consent so a
+    # reply like "我要先确认一下金额" does not execute the irreversible write
+    # (audit: the substring affirm match accepted declarative non-consent).
+    _VERIFY_HEDGE_RE = _re.compile(r"(确认|确定|核对|核实|看|检查|查|核)(一下|下)")
 
     @staticmethod
     def _detect_affirmation(text: str) -> str | None:
@@ -457,6 +462,9 @@ class DialogueOrchestrator:
         # A clarifying/interrogative reply is not a "yes" — bail out before the
         # affirm match so "确定吗？" / "能确认下金额吗" do not execute the write.
         if DialogueOrchestrator._QUESTION_RE.search(stripped):
+            return None
+        # A verify/check request ("确认一下金额") is not consent — bail out.
+        if DialogueOrchestrator._VERIFY_HEDGE_RE.search(stripped):
             return None
         if DialogueOrchestrator._AFFIRM_RE.search(stripped):
             return "affirm"
@@ -681,9 +689,16 @@ class DialogueOrchestrator:
                         )
                         position = self._handoff_queue.enqueue(request)
 
-                        # Try auto-assign to an available agent
+                        # Try auto-assign to an available agent. try_auto_assign
+                        # returns the highest-PRIORITY queued request, which may
+                        # be a DIFFERENT session than this one. Only connect THIS
+                        # caller to the agent when THIS session is the one that
+                        # got assigned — otherwise we'd strand this caller in
+                        # HUMAN_MODE with an agent that actually went elsewhere
+                        # (audit). A different session being assigned is handled
+                        # by that session's own turn / the queue callbacks.
                         assigned = self._handoff_queue.try_auto_assign()
-                        if assigned is not None:
+                        if assigned is not None and assigned.session_id == context.session_id:
                             agent_id = assigned.assigned_agent_id
                             agent = self._handoff_queue._agents.get(agent_id or "")
                             agent_name = agent.name if agent else "客服"
