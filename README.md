@@ -918,6 +918,8 @@ open-chat-shop/
 │   │   ├── tool.py             #   工具注册 + 动态注入（4 层过滤）
 │   │   ├── strategy.py         #   对话策略引擎
 │   │   ├── orchestrator.py     #   对话编排器（主流程）
+│   │   ├── confirmation_resolver.py  # 高风险确认环（HIGH-9，自 orchestrator 抽出）
+│   │   ├── pending_slot_resolver.py  # 多轮槽位填充恢复（自 orchestrator 抽出）
 │   │   ├── security.py         #   安全防护层（4 层防护）
 │   │   ├── scenario.py         #   通用状态机 FSM 框架
 │   │   ├── slot_tracker.py     #   多轮实体槽位追踪
