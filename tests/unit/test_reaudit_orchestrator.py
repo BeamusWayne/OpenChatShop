@@ -108,3 +108,19 @@ class TestRecordTurnTimestamps:
         ts = [m.timestamp for m in ctx.history]
         assert all(ts[i] < ts[i + 1] for i in range(len(ts) - 1)), ts
         assert ts[1] > future
+
+
+class TestSlotFillParamNames:
+    """Every required tool param (besides the regex-extracted order_id) must have
+    a slot-fill prompt, or it is a conversational dead-end. The audit found
+    modify_address required 'address' but the slot machinery only knew
+    'new_address', so the slot was never fillable."""
+
+    def test_required_tool_params_have_slot_fill_prompts(self) -> None:
+        from open_chat_shop.core.strategy import RuleBasedStrategy
+        from open_chat_shop.tools.builtin.modify_address import ModifyAddressTool
+
+        required = set(ModifyAddressTool.params_schema["required"])
+        prompts = set(RuleBasedStrategy._MISSING_PARAM_PROMPTS)
+        missing = required - prompts - {"order_id"}
+        assert not missing, f"required params with no slot-fill prompt: {missing}"

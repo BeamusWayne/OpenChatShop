@@ -66,7 +66,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not self._jwt_secret and not self._api_key:
             return await call_next(request)
 
-        # Check API Key
+        # Check API Key. This is a SERVICE-level credential (a shared server
+        # secret), NOT a per-user identity — so, unlike the JWT path below, it
+        # deliberately does not bind request.state.user_id. Per-user,
+        # ownership-sensitive actions (order tools) must authenticate with a JWT,
+        # whose verified `sub` becomes the authoritative user_id; a service
+        # holding the API key is trusted to act on behalf of users. Customer-
+        # facing chat must therefore use JWT, not the API key, or order-ownership
+        # falls back to the advisory client-supplied user_id (audit: hardening).
         api_key_header = request.headers.get("X-API-Key")
         if self._api_key and api_key_header is not None and hmac.compare_digest(
             api_key_header, self._api_key

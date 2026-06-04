@@ -569,8 +569,8 @@ class DialogueOrchestrator:
                     entities["keyword"] = message.content.strip()
                 elif slot == "reason":
                     entities["reason"] = message.content.strip()
-                elif slot == "new_address":
-                    entities["new_address"] = message.content.strip()
+                elif slot == "address":
+                    entities["address"] = message.content.strip()
                 break  # One generic slot per message
 
         still_missing = [s for s in missing_slots if s not in entities]
@@ -630,7 +630,7 @@ class DialogueOrchestrator:
             "order_id": "请问您的订单号是多少？例如 ORD-001",
             "keyword": "请问您想搜索什么商品？",
             "reason": "请问退款原因是什么？",
-            "new_address": "请问新的收货地址是什么？",
+            "address": "请问新的收货地址是什么？",
         }
         first = missing_slots[0]
         return prompts.get(first, f"请提供以下信息：{', '.join(missing_slots)}")
