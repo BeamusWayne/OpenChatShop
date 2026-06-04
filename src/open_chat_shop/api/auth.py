@@ -1,6 +1,7 @@
 """JWT and API Key authentication middleware."""
 from __future__ import annotations
 
+import hmac
 import logging
 from typing import Any
 
@@ -67,7 +68,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Check API Key
         api_key_header = request.headers.get("X-API-Key")
-        if self._api_key and api_key_header == self._api_key:
+        if self._api_key and api_key_header is not None and hmac.compare_digest(
+            api_key_header, self._api_key
+        ):
             return await call_next(request)
 
         # Check JWT Bearer token

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import importlib.metadata
 import json
 import logging
@@ -163,7 +164,7 @@ def create_app(
     ).split(",")
 
     deploy_env = os.environ.get("DEPLOY_ENV", "development")
-    if deploy_env == "production" and cors_origins == ["http://localhost:3000,http://localhost:8000"]:
+    if deploy_env == "production" and not os.environ.get("CORS_ORIGINS"):
         logger.warning(
             "CORS_ORIGINS not set in production — using localhost defaults. "
             "Set CORS_ORIGINS to your actual domain(s)."
@@ -694,7 +695,7 @@ def create_app(
         # Validate agent token when AGENT_TOKEN is configured
         if agent_token:
             ws_token = websocket.query_params.get("token", "")
-            if ws_token != agent_token:
+            if not hmac.compare_digest(ws_token, agent_token):
                 await websocket.close(code=4001, reason="Invalid agent token")
                 return
 
