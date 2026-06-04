@@ -173,10 +173,14 @@ def _wechat_isolation(monkeypatch: pytest.MonkeyPatch):
 
 
 def _valid_query() -> dict[str, str]:
-    """Signature params that pass _verify_signature for token 'test-token'."""
-    import hashlib
+    """Signature params that pass verification for token 'test-token'.
 
-    token, timestamp, nonce = "test-token", "1700000000", "abc"
+    A current timestamp is used so the request also clears the signature
+    freshness window (a stale timestamp is rejected as a replay)."""
+    import hashlib
+    import time
+
+    token, timestamp, nonce = "test-token", str(int(time.time())), "abc"
     sig = hashlib.sha1(
         "".join(sorted([token, timestamp, nonce])).encode()
     ).hexdigest()

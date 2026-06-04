@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import time
 
 import pytest
 
@@ -48,8 +49,11 @@ class _FakeRequest:
 
 
 def _valid_query() -> dict[str, str]:
-    """Signature params that pass _verify_signature for token 'test-token'."""
-    token, timestamp, nonce = "test-token", "1700000000", "abc"
+    """Signature params that pass verification for token 'test-token'.
+
+    A current timestamp is used so the request also clears the signature
+    freshness window (a stale timestamp is rejected as a replay)."""
+    token, timestamp, nonce = "test-token", str(int(time.time())), "abc"
     # SHA1 here matches WeChat's documented signature scheme (not security).
     sig = hashlib.sha1("".join(sorted([token, timestamp, nonce])).encode()).hexdigest()
     return {"signature": sig, "timestamp": timestamp, "nonce": nonce}
@@ -282,3 +286,55 @@ class TestFastPathUnchanged:
         # The done-callback removes the finished task; let it run, then assert.
         await asyncio.sleep(0)
         assert len(_inflight()) == 0
+
+
+# ---------------------------------------------------------------------------
+# Signature freshness (replay window)
+# ---------------------------------------------------------------------------
+
+
+class TestSignatureFreshness:
+    """A valid signature with a stale timestamp is rejected, bounding the window
+    in which a captured (signature, timestamp, nonce) tuple can be replayed."""
+
+    def test_is_fresh_window(self) -> None:
+        now = 1_000_000.0
+        edge = wechat._WECHAT_SIGNATURE_MAX_SKEW_SECONDS
+        assert wechat._is_fresh(str(int(now)), now=now) is True
+        # Exactly at the window edge is still fresh; one second past is not.
+        assert wechat._is_fresh(str(int(now) - edge), now=now) is True
+        assert wechat._is_fresh(str(int(now) - edge - 1), now=now) is False
+        assert wechat._is_fresh(str(int(now) + edge + 1), now=now) is False
+
+    def test_is_fresh_rejects_non_numeric(self) -> None:
+        assert wechat._is_fresh("not-a-number") is False
+        assert wechat._is_fresh("") is False
+
+    async def test_post_with_stale_but_valid_signature_is_forbidden(self) -> None:
+        # A correctly-signed request whose timestamp is far in the past must be
+        # rejected (403) before the orchestrator runs — it is a replay.
+        release = asyncio.Event()
+        release.set()
+        orch = _CommittingOrchestrator(release, reply="ok")
+        wechat._orchestrator = orch
+
+        token, nonce = "test-token", "abc"
+        stale_ts = str(int(time.time()) - 10_000)
+        sig = hashlib.sha1("".join(sorted([token, stale_ts, nonce])).encode()).hexdigest()
+        query = {"signature": sig, "timestamp": stale_ts, "nonce": nonce}
+
+        resp = await wechat.receive_message(_FakeRequest(query, _wechat_xml("在吗")))
+
+        assert resp.status_code == 403
+        assert orch.calls == 0  # rejected at the gate, turn never ran
+
+    async def test_get_verify_with_stale_signature_is_forbidden(self) -> None:
+        token, nonce = "test-token", "abc"
+        stale_ts = str(int(time.time()) - 10_000)
+        sig = hashlib.sha1("".join(sorted([token, stale_ts, nonce])).encode()).hexdigest()
+
+        resp = await wechat.verify(
+            signature=sig, timestamp=stale_ts, nonce=nonce, echostr="echo-123"
+        )
+
+        assert resp.status_code == 403

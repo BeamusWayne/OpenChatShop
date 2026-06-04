@@ -68,6 +68,13 @@ def _remember_msgid(msg_id: str, reply: str) -> None:
 # WeChat signature verification
 # ---------------------------------------------------------------------------
 
+# Reject signed requests whose WeChat timestamp is outside this window from now.
+# A valid signature proves the caller knows the token but never expires, so a
+# captured (signature, timestamp, nonce) tuple is replayable indefinitely.
+# Bounding the timestamp to ±5 minutes of now caps that replay surface while
+# tolerating clock skew and WeChat's within-seconds retry timing.
+_WECHAT_SIGNATURE_MAX_SKEW_SECONDS = 300
+
 
 def _verify_signature(token: str, timestamp: str, nonce: str, signature: str) -> bool:
     """Return True if the SHA1 signature matches WeChat's algorithm."""
@@ -75,6 +82,23 @@ def _verify_signature(token: str, timestamp: str, nonce: str, signature: str) ->
     joined = "".join(parts)
     digest = hashlib.sha1(joined.encode("utf-8")).hexdigest()
     return digest == signature
+
+
+def _is_fresh(timestamp: str, *, now: float | None = None) -> bool:
+    """Return True if *timestamp* is within the allowed skew of the current time.
+
+    The SHA1 signature proves token knowledge but carries no expiry, so a
+    captured (signature, timestamp, nonce) tuple replays forever. Requiring the
+    WeChat unix *timestamp* to be within ``_WECHAT_SIGNATURE_MAX_SKEW_SECONDS``
+    of now bounds that replay window. A missing or non-numeric timestamp is
+    treated as stale (reject).
+    """
+    try:
+        ts = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+    reference = time.time() if now is None else now
+    return abs(reference - ts) <= _WECHAT_SIGNATURE_MAX_SKEW_SECONDS
 
 
 def _get_token() -> str | None:
@@ -102,7 +126,7 @@ async def verify(
             status_code=503,
         )
 
-    if not _verify_signature(token, timestamp, nonce, signature):
+    if not _verify_signature(token, timestamp, nonce, signature) or not _is_fresh(timestamp):
         return Response(content="Forbidden", status_code=403)
 
     return Response(content=echostr, media_type="text/plain")
@@ -211,7 +235,7 @@ async def receive_message(request: Request) -> Response:
     timestamp = request.query_params.get("timestamp", "")
     nonce = request.query_params.get("nonce", "")
 
-    if not _verify_signature(token, timestamp, nonce, signature):
+    if not _verify_signature(token, timestamp, nonce, signature) or not _is_fresh(timestamp):
         return Response(content="Forbidden", status_code=403)
 
     # Parse XML body
