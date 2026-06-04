@@ -23,6 +23,19 @@
 
 ## 会话记录
 
+### 2026-06-04 Session 4 — 全量审查 + 全量并行修复（59-agent 审计 → 12-agent 修复）
+
+**任务：** "重新全量审查此项目"→"全量并行修复"。
+
+**审查：** 8 维度并行 finder + 每条对抗式复核（59 agents，3.5M tokens）。57 原始发现 → 驳回 4 → **53 确认，去重 45**（7C/13H/16M/9L）。报告 `docs/audit-2026-06-04.md`（含修复状态）。**核心主题：多个此前『已修复』的 CRITICAL 在生产接线路径上是死的**（IDOR 身份从未进 SessionContext.user_id、DB 丢 customer_id、ContextManager.get() 缺方法崩溃、缓存 key 不含 user 串单、prod compose 无 agent secret、auth 静态绕过）—— 我亲手复核了 7 个 CRITICAL。
+
+**修复：** 12 个文件不相交簇并行修（含跨簇契约 C1/C2/C4）+ 回归测试（12.agents，1.2M tokens）。**测试 983 → 1153（+170），ruff + mypy --strict 全绿，真实 LLM e2e 复验通过。** 提交 `d195007`（主体）+ `516055a`（计时安全比较 + CORS 守卫收尾）。
+
+- 关键非机械修复见 audit doc 修复状态节。IDOR 真接线（orchestrator 绑 message.user_id→context.user_id + 接管守卫；app.py 早已从 JWT 填 UserMessage.user_id，缺的只是这一步拷贝）。
+- 残留（已记录、非阻塞）：H4 指标埋点（模块已修、调用点未接）、provider aclose 未接 lifespan、SSE PII（需 API 变更）、renderers 死代码、attack 样本期望、C3 多 worker（已 workers=1 + 文档缓解）。
+
+**要点重申：** 两轮都靠真实 LLM e2e 才暴露 level-3 路径与生产接线的真问题，单测（MockProvider/InMemory）覆盖不到。
+
 ### 2026-06-04 Session 3 — 真实 LLM 端到端验证 + 修 LLM 路径实体抽取 bug
 
 **任务：** 用户问"配置了 LLM 没有，测一遍?" → 验证真实 LLM 并端到端冒烟。
