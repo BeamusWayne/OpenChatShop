@@ -519,6 +519,14 @@ def create_main_app() -> FastAPI:
                 logger.warning("Failed to close sync Redis client", exc_info=True)
         if hasattr(app.state, 'db_engine') and app.state.db_engine:
             app.state.db_engine.dispose()
+        # Release the LLM provider's HTTP connection pool (AnthropicProvider
+        # reuses a single AsyncAnthropic client; aclose closes it).
+        _prov = getattr(orchestrator, "_provider", None)
+        if _prov is not None and hasattr(_prov, "aclose"):
+            try:
+                await _prov.aclose()
+            except Exception:
+                logger.warning("Failed to close LLM provider", exc_info=True)
         logger.info("OpenChatShop shutdown complete")
 
     app = create_app(orchestrator, lifespan=lifespan, agent_token=os.environ.get("AGENT_TOKEN"))

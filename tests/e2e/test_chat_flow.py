@@ -179,10 +179,10 @@ class TestChatEndpoint:
 
 
 class TestSSEStreaming:
-    """GET /api/v1/chat/stream -- Server-Sent Events validation."""
+    """POST /api/v1/chat/stream -- Server-Sent Events validation (content in body, not URL)."""
 
     def test_stream_returns_sse_events(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/chat/stream", params={
+        resp = client.post("/api/v1/chat/stream", json={
             "session_id": "e2e-stream-1",
             "content": "你好",
             "channel": "web",
@@ -214,7 +214,7 @@ class TestSSEStreaming:
 
     def test_stream_yields_chunk_content(self, client: TestClient) -> None:
         """Non-LLM path: single chunk event with full text content."""
-        resp = client.get("/api/v1/chat/stream", params={
+        resp = client.post("/api/v1/chat/stream", json={
             "session_id": "e2e-stream-2",
             "content": "你好",
             "channel": "web",
@@ -237,7 +237,7 @@ class TestSSEStreaming:
 
     def test_stream_missing_params_rejected(self, client: TestClient) -> None:
         """Missing required query params should fail validation."""
-        resp = client.get("/api/v1/chat/stream", params={
+        resp = client.post("/api/v1/chat/stream", json={
             "session_id": "e2e-stream-missing",
         })
         assert resp.status_code == 422

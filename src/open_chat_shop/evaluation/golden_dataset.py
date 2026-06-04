@@ -82,6 +82,14 @@ class GoldenDataset:
 
         for sample in self._samples:
             for attr in _REQUIRED_FIELDS:
+                # Attack samples legitimately have empty expected_tool_calls /
+                # expected_response_contains: the security property is that the
+                # dangerous action does NOT run, so don't flag those as missing.
+                if sample.scenario_type == "attack" and attr in (
+                    "expected_tool_calls",
+                    "expected_response_contains",
+                ):
+                    continue
                 val = getattr(sample, attr, None)
                 if val is None or val == "" or val == []:
                     errors.append(

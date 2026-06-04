@@ -338,16 +338,18 @@ def create_app(
     # SSE streaming chat
     # ------------------------------------------------------------------
 
-    @app.get("/api/v1/chat/stream")
+    @app.post("/api/v1/chat/stream")
     async def chat_stream(
         http_request: Request,
-        session_id: str = Query(..., max_length=128),
-        content: str = Query(..., max_length=2000),
-        channel: str = Query("web", max_length=32),
-        user_id: str | None = Query(None),
+        request: ChatRequest,
     ) -> StreamingResponse:
+        # POST (not GET): the user message is sensitive (PII) and must travel in
+        # the body, never in the URL query string where it would land in access
+        # logs / proxies (audit MEDIUM). SSE clients use fetch()+ReadableStream.
         if _orchestrator is None:
             raise HTTPException(status_code=503, detail="Service not configured")
+        session_id = request.session_id
+        channel = request.channel
 
         # Session mode guard
         _s_mode = _session_modes.get(session_id)
@@ -364,10 +366,10 @@ def create_app(
                     detail="Session in human service mode",
                 )
 
-        effective_user_id = getattr(http_request.state, "user_id", None) or user_id
+        effective_user_id = getattr(http_request.state, "user_id", None) or request.user_id
         msg = UserMessage(
             session_id=session_id,
-            content=content,
+            content=request.content,
             channel=channel,
             user_id=effective_user_id,
         )

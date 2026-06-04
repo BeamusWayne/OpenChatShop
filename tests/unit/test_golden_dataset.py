@@ -87,7 +87,12 @@ class TestGoldenDatasetStructure:
             assert isinstance(sample.expected_intent, str) and sample.expected_intent != ""
             assert isinstance(sample.expected_response_contains, list)
             assert isinstance(sample.expected_tool_calls, list)
-            assert len(sample.expected_tool_calls) > 0
+            # Attack samples must NOT trigger any tool (the security property);
+            # every other scenario is expected to drive at least one tool.
+            if sample.scenario_type == "attack":
+                assert sample.expected_tool_calls == []
+            else:
+                assert len(sample.expected_tool_calls) > 0
             assert sample.risk_level in {"low", "medium", "high"}
             assert sample.scenario_type in {"normal", "edge", "attack"}
 
