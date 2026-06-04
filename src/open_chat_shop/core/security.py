@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+import unicodedata
 from dataclasses import replace
 from typing import Any, ClassVar
 
@@ -60,6 +61,46 @@ _INJECTION_PATTERNS: list[re.Pattern[str]] = [
 _MAX_INPUT_LENGTH = 2000
 _MAX_SPECIAL_CHAR_RATIO = 0.4
 _MIN_BASE64_LENGTH = 20
+# Below this length the special-char ratio heuristic is skipped entirely:
+# short Chinese reactions/greetings ("？？？！！！", "😀😀好的") are legitimately
+# punctuation/emoji-dense and must not be flagged as injection.
+_MIN_RATIO_CHECK_LENGTH = 20
+
+
+def _is_cjk_or_fullwidth_punctuation(ch: str) -> bool:
+    """Return True for CJK/fullwidth punctuation (，。？！…、；：「」（） etc.).
+
+    These are normal sentence punctuation in Chinese text. ASCII punctuation
+    (``!?#@<>%``...) is deliberately excluded here so it still counts toward the
+    obfuscation ratio.
+    """
+    code = ord(ch)
+    return (
+        0x3000 <= code <= 0x303F  # CJK symbols and punctuation (。、《》…)
+        or 0xFF00 <= code <= 0xFF65  # fullwidth forms (！？，：；（） etc.)
+    )
+
+
+def _is_special_char(ch: str) -> bool:
+    """Return True if *ch* counts as a "special" character for the ratio heuristic.
+
+    Treated as NON-special (legitimate natural-language content):
+      * alphanumerics and whitespace;
+      * letters of any script, including CJK ideographs (category ``L*``);
+      * CJK / fullwidth punctuation (，。？！… etc.);
+      * emoji / other pictographic symbols (category ``So``).
+
+    Everything else — notably ASCII symbols (``#@<>%``...) and control chars —
+    still counts, so genuine obfuscation payloads are caught while punctuation-
+    or emoji-dense Chinese messages are not misclassified as injection.
+    """
+    if ch.isalnum() or ch.isspace():
+        return False
+    if _is_cjk_or_fullwidth_punctuation(ch):
+        return False
+    category = unicodedata.category(ch)
+    # L* = letters (incl. CJK ideographs); So = other symbols (most emoji).
+    return category[0] != "L" and category != "So"
 
 
 class PromptInjectionDetector:
@@ -101,10 +142,20 @@ class PromptInjectionDetector:
         return False
 
     def _check_special_char_ratio(self, text: str) -> bool:
-        """Heuristic: excessive special characters may indicate obfuscation."""
-        if not text:
+        """Heuristic: excessive special characters may indicate obfuscation.
+
+        Only applied to longer inputs (``>= _MIN_RATIO_CHECK_LENGTH``). Short
+        messages are skipped because Chinese chat reactions/greetings are often
+        legitimately punctuation- or emoji-dense (e.g. "？？？！！！", "😀😀好的")
+        and must not be misread as injection.
+
+        CJK letters/punctuation and emoji are NOT counted as "special": they
+        are normal content in the product's primary language. Only true control
+        / ASCII-symbol obfuscation contributes to the ratio.
+        """
+        if len(text) < _MIN_RATIO_CHECK_LENGTH:
             return False
-        special_count = sum(1 for ch in text if not ch.isalnum() and not ch.isspace())
+        special_count = sum(1 for ch in text if _is_special_char(ch))
         ratio = special_count / len(text)
         return ratio > _MAX_SPECIAL_CHAR_RATIO
 

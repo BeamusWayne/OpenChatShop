@@ -9,6 +9,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from open_chat_shop.core.provider import TransientProviderError
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["CircuitBreaker", "CircuitState", "RetryPolicy"]
@@ -124,15 +126,28 @@ class CircuitBreaker:
 
 
 # Exceptions that are safe to retry (transient infrastructure errors).
-_RETRYABLE: tuple[type[Exception], ...] = (TimeoutError, ConnectionError, OSError)
+#
+# TransientProviderError is included because real providers wrap every
+# downstream failure into a ProviderError before it can escape; without it,
+# a wrapped timeout/connection/5xx (the actual production failure mode) would
+# never match here and the retry layer would be dead (audit PROVIDER HIGH).
+# It already subclasses TimeoutError, but is listed explicitly so the intent
+# survives any future change to its base classes.
+_RETRYABLE: tuple[type[Exception], ...] = (
+    TransientProviderError,
+    TimeoutError,
+    ConnectionError,
+    OSError,
+)
 
 
 @dataclass
 class RetryPolicy:
     """Exponential-backoff retry for async functions.
 
-    Only retries on transient errors (TimeoutError, ConnectionError, OSError).
-    Business errors (ValueError, etc.) are re-raised immediately.
+    Only retries on transient errors (TransientProviderError, TimeoutError,
+    ConnectionError, OSError). Business / permanent errors (ValueError, a plain
+    ProviderError for auth/bad-request, etc.) are re-raised immediately.
     """
 
     max_retries: int = 3

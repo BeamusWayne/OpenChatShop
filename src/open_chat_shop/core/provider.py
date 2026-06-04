@@ -20,6 +20,21 @@ from open_chat_shop.core.types import (
 logger = logging.getLogger(__name__)
 
 
+class TransientProviderError(ProviderError, TimeoutError):
+    """A provider failure that is safe to retry (timeout / connection / 5xx).
+
+    Real providers wrap every downstream exception into ``ProviderError`` before
+    it can escape, and ``ProviderError`` is NOT a ``TimeoutError``/``OSError`` —
+    so ``RetryPolicy._RETRYABLE`` never matched a wrapped transient failure and
+    the retry layer was dead for production traffic (audit PROVIDER HIGH). This
+    subclass also inherits ``TimeoutError`` so it matches ``_RETRYABLE`` while
+    still being a ``ProviderError`` for the cascade's ``except ProviderError``.
+    Providers raise it only for genuinely transient upstream errors; permanent
+    failures (auth, bad request) stay as plain ``ProviderError`` and are NOT
+    retried.
+    """
+
+
 class LLMProvider(ABC):
     """Abstract base class for all LLM providers.
 

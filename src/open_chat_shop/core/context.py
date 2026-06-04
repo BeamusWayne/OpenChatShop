@@ -51,6 +51,19 @@ class ContextManager(ABC):
         """Merge new slot entities into the context."""
         ...
 
+    @abstractmethod
+    def get(self, session_id: str) -> SessionContext | None:
+        """Synchronous lookup for a loaded session context.
+
+        Used by API guards (e.g. WebSocket/SSE mode checks) that run outside
+        the async load/save path and need a non-blocking peek at the current
+        context. Returns ``None`` when the session has not been loaded/saved
+        in this process. Implementations back this with an in-process
+        write-through cache populated by ``load``/``save`` so it never performs
+        blocking I/O.
+        """
+        ...
+
 
 class InMemoryContextManager(ContextManager):
     """In-memory implementation for testing and development."""

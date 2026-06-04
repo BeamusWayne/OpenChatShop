@@ -38,6 +38,10 @@ def _order_to_dict(row: Order) -> dict[str, Any]:
         created_iso += "Z"
     return {
         "order_id": row.id,
+        # Map the model column ``user_id`` to the dict key ``customer_id`` that
+        # OrderRepository.get_for_user() checks for ownership. Without this the
+        # IDOR/BOLA guard silently no-ops on the SQL backend (owner stays None).
+        "customer_id": row.user_id,
         "status": row.status,
         "items": items,
         "total_amount": row.total_amount,

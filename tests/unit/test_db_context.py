@@ -28,9 +28,13 @@ class TestDatabaseContextManager:
             text_fallback="hello",
         )
         await mgr.save(ctx, response)
-        # Load again — creates new empty context (metadata not fully persisted in MVP)
+        # Updated from the MVP behavior: save now actually round-trips the
+        # assistant turn (audit STORAGE HIGH). The reload must contain the
+        # persisted assistant message, not an empty history.
         ctx2 = await mgr.load("s1")
         assert ctx2.session_id == "s1"
+        assert [m.content for m in ctx2.history] == ["hello"]
+        assert ctx2.history[0].role == "assistant"
 
     @pytest.mark.unit
     @pytest.mark.asyncio

@@ -138,11 +138,15 @@ def _build_provider() -> Any:
     return None
 
 
-def _build_repositories() -> dict[str, Any]:
+def _build_repositories(resources: dict[str, Any] | None = None) -> dict[str, Any]:
     """Select repository backend based on DATABASE_URL env var.
 
     Returns a dict with keys: order, product, logistics, refund, handoff.
     Falls back to in-memory repositories when the database is unavailable.
+
+    When ``resources`` is provided, the live SQLAlchemy engine (if any) is
+    published under ``resources["db_engine"]`` so the caller can expose it on
+    ``app.state`` for the readiness probe and shutdown disposal.
     """
     db_url = os.environ.get("DATABASE_URL", "")
     if db_url:
@@ -161,6 +165,8 @@ def _build_repositories() -> dict[str, Any]:
 
             engine = init_db(db_url)
             seed_if_empty(engine)
+            if resources is not None:
+                resources["db_engine"] = engine
             logger.info("Using database repositories")
             return {
                 "order": DatabaseOrderRepository(engine),
@@ -219,8 +225,16 @@ def _build_rbac_config(sec_rbac: Any) -> dict[str, Any]:
     }
 
 
-def build_orchestrator() -> DialogueOrchestrator:
-    """Construct the full component pipeline and return a DialogueOrchestrator."""
+def build_orchestrator(
+    resources: dict[str, Any] | None = None,
+) -> DialogueOrchestrator:
+    """Construct the full component pipeline and return a DialogueOrchestrator.
+
+    When ``resources`` is provided it is populated with live infrastructure
+    handles (``db_engine``, ``redis_async``, ``redis_sync``) so the caller can
+    publish them on ``app.state`` for the readiness probe and graceful
+    shutdown. Existing callers that omit ``resources`` are unaffected.
+    """
     yaml_config = _load_yaml_config()
 
     # Build security config from YAML or fallback to empty defaults
@@ -283,7 +297,7 @@ def build_orchestrator() -> DialogueOrchestrator:
     # Instantiate tools and build registry
     from open_chat_shop.tools.builtin import create_tools
 
-    repos = _build_repositories()
+    repos = _build_repositories(resources)
     tool_registry = {}
     for tool in create_tools(repos):
         tool_registry[tool.name] = tool
@@ -377,15 +391,31 @@ def build_orchestrator() -> DialogueOrchestrator:
     # Wire middleware pipeline: rate limiting -> budget enforcement -> slot tracking
     rate_limiter = InMemoryRateLimiter()
     _redis_url = os.environ.get("REDIS_URL", "")
-    redis_client = None
+    # ResponseCache and RedisRateLimiter call the client with PLAIN SYNCHRONOUS
+    # methods (redis.get / redis.eval / redis.setex). Passing the asyncio client
+    # would make every call return an un-awaited coroutine, which the broad
+    # excepts swallow — silently disabling the cache (always miss) and the rate
+    # limiter (always fail-open) while leaking coroutines. So build a dedicated
+    # SYNC client for these two. The async client is kept only for the Redis
+    # context manager (which awaits it correctly).
+    redis_sync = None
+    redis_async = None
     if _redis_url:
         try:
-            import redis.asyncio as aioredis
-            redis_client = aioredis.from_url(_redis_url)
-            logger.info("Using Redis-backed rate limiter")
+            import redis as _redis_sync_mod
+            redis_sync = _redis_sync_mod.Redis.from_url(_redis_url)
+            logger.info("Using Redis-backed rate limiter and response cache (sync client)")
         except Exception as e:
-            logger.warning("Redis client init failed for rate limiter: %s", e)
-    rate_guard = RateLimitGuard(rate_limiter, redis_client=redis_client)
+            logger.warning("Redis sync client init failed for cache/rate limiter: %s", e)
+        try:
+            import redis.asyncio as aioredis
+            redis_async = aioredis.from_url(_redis_url)
+        except Exception as e:
+            logger.warning("Redis async client init failed: %s", e)
+    if resources is not None:
+        resources["redis_sync"] = redis_sync
+        resources["redis_async"] = redis_async
+    rate_guard = RateLimitGuard(rate_limiter, redis_client=redis_sync)
     budget_manager = SessionBudgetManager(BudgetConfig(max_tokens=100_000))
     slot_tracker = create_builtin_tracker()
 
@@ -396,7 +426,7 @@ def build_orchestrator() -> DialogueOrchestrator:
     orchestrator.set_middleware_pipeline(pipeline)
 
     # Wire response cache (Redis-backed when available, in-memory fallback)
-    response_cache = ResponseCache(redis_client=redis_client)
+    response_cache = ResponseCache(redis_client=redis_sync)
     orchestrator.set_response_cache(response_cache)
 
     return orchestrator
@@ -437,12 +467,27 @@ def create_main_app() -> FastAPI:
 
     _check_auth_config()
 
-    orchestrator = build_orchestrator()
+    # Capture live infra handles so the readiness probe can actually observe
+    # DB/Redis health and shutdown can dispose them. Without publishing these
+    # onto app.state, _check_database/_check_redis short-circuit to "ok" and
+    # /health/ready never returns 503 on a dependency outage.
+    resources: dict[str, Any] = {}
+    orchestrator = build_orchestrator(resources)
+    _db_engine = resources.get("db_engine")
+    _redis_async = resources.get("redis_async")
+    _redis_sync = resources.get("redis_sync")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.start_time = time.monotonic()
         app.state.orchestrator = orchestrator
+        # Publish infra handles for the readiness probe (app.py reads these):
+        #   _check_database -> app.state.db_engine (sync SQLAlchemy engine)
+        #   _check_redis    -> app.state.redis_client (async client; awaits ping)
+        if _db_engine is not None:
+            app.state.db_engine = _db_engine
+        if _redis_async is not None:
+            app.state.redis_client = _redis_async
         logger.info("OpenChatShop starting up")
         yield
         logger.info("OpenChatShop shutting down — draining active sessions")
@@ -465,6 +510,13 @@ def create_main_app() -> FastAPI:
         await asyncio.sleep(1)
         if hasattr(app.state, 'redis_client') and app.state.redis_client:
             await app.state.redis_client.aclose()
+        # The sync client used by cache/rate limiter is held in closure, not on
+        # app.state — close it explicitly so its connection pool is released.
+        if _redis_sync is not None:
+            try:
+                _redis_sync.close()
+            except Exception:
+                logger.warning("Failed to close sync Redis client", exc_info=True)
         if hasattr(app.state, 'db_engine') and app.state.db_engine:
             app.state.db_engine.dispose()
         logger.info("OpenChatShop shutdown complete")

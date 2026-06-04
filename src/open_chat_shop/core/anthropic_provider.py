@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
 
 from open_chat_shop.core.exceptions import ProviderError
-from open_chat_shop.core.provider import LLMProvider
+from open_chat_shop.core.provider import LLMProvider, TransientProviderError
 from open_chat_shop.core.types import (
     GenerateConfig,
     LLMChunk,
@@ -24,6 +24,12 @@ from open_chat_shop.core.types import (
 )
 
 load_dotenv()
+
+# Default per-request timeout (seconds) when no GenerateConfig is supplied.
+# The anthropic SDK defaults to 600s, which would let a black-holed GLM
+# endpoint pin a worker (and, via the orchestrator's per-session lock, that
+# whole session) for ten minutes. Fail fast instead.
+_DEFAULT_TIMEOUT_SECONDS: float = 30.0
 
 
 class AnthropicProvider(LLMProvider):
@@ -42,17 +48,77 @@ class AnthropicProvider(LLMProvider):
             "ANTHROPIC_BASE_URL", "https://api.anthropic.com",
         )
         self._model = model or os.environ.get("GLM_MODEL", "glm-5.1")
+        # Lazily created once and reused; constructing a fresh AsyncAnthropic per
+        # call leaks its internal httpx connection pool and defeats keep-alive.
+        self._client: AsyncAnthropic | None = None
 
         if not self._api_key:
             raise ProviderError("ANTHROPIC_API_KEY not set", self.name)
 
     def _get_client(self) -> AsyncAnthropic:
-        from anthropic import AsyncAnthropic
+        """Return a shared AsyncAnthropic, constructing it once on first use.
 
-        return AsyncAnthropic(
-            api_key=self._api_key,
-            base_url=self._base_url,
-        )
+        The client owns an httpx connection pool, so it MUST be reused across
+        calls (and closed via ``aclose``) rather than rebuilt every turn. The
+        SDK's own ``max_retries`` is disabled because resilience.RetryPolicy
+        wraps this provider; a per-request ``timeout`` is set so a stalled
+        endpoint fails fast instead of hanging ~600s (the SDK default).
+        """
+        if self._client is None:
+            from anthropic import AsyncAnthropic
+
+            self._client = AsyncAnthropic(
+                api_key=self._api_key,
+                base_url=self._base_url,
+                timeout=_DEFAULT_TIMEOUT_SECONDS,
+                max_retries=0,
+            )
+        return self._client
+
+    async def aclose(self) -> None:
+        """Close the shared client's connection pool. Safe to call repeatedly."""
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+
+    def _to_provider_error(self, exc: Exception) -> ProviderError:
+        """Map an SDK exception to the right ProviderError flavour.
+
+        Transient upstream failures (timeout, connection drop, 5xx, rate limit)
+        become ``TransientProviderError`` so resilience.RetryPolicy retries them;
+        everything else (auth, bad request, parsing) stays a plain, non-retryable
+        ``ProviderError``. Raw ``TimeoutError``/``ConnectionError``/``OSError``
+        from the transport are treated as transient too.
+        """
+        if isinstance(exc, TransientProviderError):
+            return exc
+        transient = isinstance(exc, TimeoutError | ConnectionError | OSError)
+        if not transient:
+            try:
+                import httpx
+                from anthropic import (
+                    APIConnectionError,
+                    APITimeoutError,
+                    InternalServerError,
+                    RateLimitError,
+                )
+
+                # httpx.TransportError covers connect/read/write/pool timeouts and
+                # network errors — the anthropic SDK is httpx-backed and lets some
+                # of these propagate raw; they are NOT builtin OSError subclasses,
+                # so they must be matched explicitly or retry would miss them.
+                transient = isinstance(
+                    exc,
+                    APITimeoutError
+                    | APIConnectionError
+                    | InternalServerError
+                    | RateLimitError
+                    | httpx.TransportError,
+                )
+            except ImportError:
+                transient = False
+        cls = TransientProviderError if transient else ProviderError
+        return cls(str(exc), self.name)
 
     async def chat(
         self,
@@ -77,6 +143,8 @@ class AnthropicProvider(LLMProvider):
                 "model": self._model,
                 "max_tokens": config.max_tokens if config else 2048,
                 "messages": api_messages,
+                # Honour the caller's timeout; fail fast (not ~600s) by default.
+                "timeout": config.timeout_seconds if config else _DEFAULT_TIMEOUT_SECONDS,
             }
             if system_text.strip():
                 kwargs["system"] = system_text.strip()
@@ -123,7 +191,7 @@ class AnthropicProvider(LLMProvider):
                 finish_reason=response.stop_reason or "stop",
             )
         except Exception as e:
-            raise ProviderError(str(e), self.name) from e
+            raise self._to_provider_error(e) from e
 
     async def stream(
         self,
@@ -148,6 +216,8 @@ class AnthropicProvider(LLMProvider):
                 "model": self._model,
                 "max_tokens": config.max_tokens if config else 2048,
                 "messages": api_messages,
+                # Honour the caller's timeout; fail fast (not ~600s) by default.
+                "timeout": config.timeout_seconds if config else _DEFAULT_TIMEOUT_SECONDS,
             }
             if system_text.strip():
                 kwargs["system"] = system_text.strip()
@@ -166,7 +236,7 @@ class AnthropicProvider(LLMProvider):
                 finish_reason="stop",
             )
         except Exception as e:
-            raise ProviderError(str(e), self.name) from e
+            raise self._to_provider_error(e) from e
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         return [[0.0] * 384 for _ in texts]

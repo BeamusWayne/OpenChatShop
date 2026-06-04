@@ -41,10 +41,15 @@ def _resolve_ws_identity(token: str | None, jwt_secret: str | None) -> str | Non
     """Return the server-verified ``sub`` for a customer WebSocket, else ``None``.
 
     The WebSocket entry bypasses the HTTP ``AuthMiddleware``, so it must verify
-    the JWT itself (same jose/HS256/JWT_SECRET_KEY as the middleware). When auth
-    is disabled (no ``jwt_secret``) or the token is absent/invalid this returns
-    ``None`` so the caller falls back to advisory behaviour — matching the REST
-    entry's fail-open-when-auth-disabled posture, not refusing the connection.
+    the JWT itself (same jose/HS256/JWT_SECRET_KEY as the middleware). Returns
+    the token's ``sub`` only when ``jwt_secret`` is set AND the token is present
+    and valid; otherwise returns ``None``.
+
+    The caller decides what ``None`` means: when a secret is configured it MUST
+    treat ``None`` as "no identity" and never fall back to a client-supplied
+    ``user_id`` (an invalid/expired token must not let a caller impersonate
+    another user — the REST entry refuses this with a 401). Only when no secret
+    is configured does the caller accept the advisory client ``user_id``.
     """
     if not jwt_secret or not token:
         return None
@@ -416,11 +421,16 @@ def create_app(
         ws_adapter = _registry.get_adapter(channel)
 
         # Bind identity from the server-verified JWT 'sub' (this entry bypasses
-        # AuthMiddleware). The verified sub overrides any client-supplied
-        # user_id; absent/invalid/no-secret falls back to advisory, matching
-        # the REST entry's fail-open-when-auth-disabled posture.
-        verified_user_id = _resolve_ws_identity(token, jwt_secret or None)
-        effective_user_id = verified_user_id or user_id
+        # AuthMiddleware). When a secret IS configured, identity comes ONLY from
+        # the verified token: an absent/invalid/expired token yields no identity
+        # and the client-supplied ?user_id is NOT honoured (otherwise an attacker
+        # could impersonate any user by presenting a bad token — the REST entry
+        # already refuses this via AuthMiddleware's 401). The client ?user_id is
+        # accepted as advisory ONLY when no secret is configured (local/dev),
+        # matching the REST fail-open-when-auth-disabled posture.
+        effective_user_id = (
+            _resolve_ws_identity(token, jwt_secret) if jwt_secret else user_id
+        )
         try:
             while True:
                 data = await websocket.receive_text()
@@ -561,15 +571,42 @@ def create_app(
 
     if _handoff_queue is not None:
 
+        def _schedule_ws_send(websocket: WebSocket, payload: str) -> bool:
+            """Schedule a fire-and-forget WS send on the running event loop.
+
+            Returns ``True`` when the send was scheduled. The task is kept in
+            ``_background_tasks`` so the loop holds a strong reference and the
+            send cannot be garbage-collected mid-flight (per asyncio docs the
+            loop only keeps a weak ref to bare tasks). ``get_running_loop`` is
+            used deliberately over the deprecated ``get_event_loop`` so the
+            send binds to the loop actually running this callback; if there is
+            no running loop (a non-async caller) we log and report failure
+            instead of raising. Send failures are logged, never swallowed
+            silently, so a desynced dashboard leaves a trace.
+            """
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                logger.warning("WS send skipped: no running event loop")
+                return False
+            task = loop.create_task(websocket.send_text(payload))
+            _background_tasks.add(task)
+
+            def _on_done(t: asyncio.Task[None]) -> None:
+                _background_tasks.discard(t)
+                exc = t.exception()
+                if exc is not None:
+                    logger.warning("WS send failed: %s", exc)
+
+            task.add_done_callback(_on_done)
+            return True
+
         def _notify_agents(event_type: str, data: dict[str, Any]) -> None:
             """Broadcast an event to all connected agent WebSockets."""
             msg = json.dumps({"type": event_type, "data": data}, ensure_ascii=False)
             dead: list[str] = []
             for aid, ws in _agent_sockets.items():
-                try:
-                    import asyncio as _aio
-                    _aio.get_event_loop().create_task(ws.send_text(msg))
-                except Exception:
+                if not _schedule_ws_send(ws, msg):
                     dead.append(aid)
             for aid in dead:
                 _agent_sockets.pop(aid, None)
@@ -595,34 +632,26 @@ def create_app(
             # Notify customer about agent assignment
             cust_ws = _customer_sockets.get(request.session_id)
             if cust_ws is not None:
-                try:
-                    import asyncio as _aio
-                    _aio.get_event_loop().create_task(cust_ws.send_text(json.dumps({
-                        "type": "transfer_status",
-                        "data": {
-                            "status": "connected",
-                            "agent_name": agent.name,
-                        },
-                    }, ensure_ascii=False)))
-                except Exception:
-                    pass
+                _schedule_ws_send(cust_ws, json.dumps({
+                    "type": "transfer_status",
+                    "data": {
+                        "status": "connected",
+                        "agent_name": agent.name,
+                    },
+                }, ensure_ascii=False))
 
             # Send the accumulated session history to the assigned agent
             # directly so they have context even if history fetch races
             agent_ws = _agent_sockets.get(agent.agent_id)
             if agent_ws is not None:
                 history = _session_messages.get(request.session_id, [])
-                try:
-                    import asyncio as _aio
-                    _aio.get_event_loop().create_task(agent_ws.send_text(json.dumps({
-                        "type": "session_history",
-                        "data": {
-                            "session_id": request.session_id,
-                            "messages": history,
-                        },
-                    }, ensure_ascii=False)))
-                except Exception:
-                    pass
+                _schedule_ws_send(agent_ws, json.dumps({
+                    "type": "session_history",
+                    "data": {
+                        "session_id": request.session_id,
+                        "messages": history,
+                    },
+                }, ensure_ascii=False))
 
             _notify_agents("request_assigned", {
                 "session_id": request.session_id,
@@ -642,14 +671,10 @@ def create_app(
             # Notify customer that human service ended
             cust_ws = _customer_sockets.get(transfer.session_id)
             if cust_ws is not None:
-                try:
-                    import asyncio as _aio
-                    _aio.get_event_loop().create_task(cust_ws.send_text(json.dumps({
-                        "type": "transfer_ended",
-                        "data": {"message": "人工服务已结束，已回到智能助手模式。"},
-                    }, ensure_ascii=False)))
-                except Exception:
-                    pass
+                _schedule_ws_send(cust_ws, json.dumps({
+                    "type": "transfer_ended",
+                    "data": {"message": "人工服务已结束，已回到智能助手模式。"},
+                }, ensure_ascii=False))
 
             _notify_agents("transfer_completed", {
                 "session_id": transfer.session_id,

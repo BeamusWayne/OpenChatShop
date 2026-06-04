@@ -5,7 +5,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
-from open_chat_shop.core.types import Action, Intent, SessionContext
+from open_chat_shop.core.types import Action, Intent, SessionContext, ToolPermission
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +84,19 @@ class RuleBasedStrategy(Strategy):
             )
 
         if tools:
-            tool = tools[0]
-            params = dict(intent.entities)
+            tool = self._select_tool(tools, intent.name)
+            schema = tool.params_schema
+            # Only feed schema-relevant entities to the tool. Persisted context
+            # slots (e.g. a stale order_id from a prior query) and internal flags
+            # like ``_clarifying_response`` are merged into ``intent.entities`` by
+            # the intent engine, but the tool's JSON Schema sets
+            # ``additionalProperties: False`` — so passing those through makes a
+            # perfectly valid call fail validation and the user is wrongly told
+            # their info is incomplete. Whitelist the tool's declared properties
+            # and drop internal ``_``-prefixed keys before building params.
+            params = self._schema_params(intent.entities, schema)
 
             # Check for missing required params
-            schema = tool.params_schema
             required = schema.get("required", [])
             missing = [r for r in required if r not in params]
             if missing:
@@ -103,14 +111,16 @@ class RuleBasedStrategy(Strategy):
                         "_pending_action": {
                             "intent_name": intent.name,
                             "missing_slots": missing,
-                            "tool_name": tool.name if tools else None,
+                            "tool_name": tool.name,
                             "params": params,
                         },
                     },
                 )
 
             # Check if tool requires confirmation
-            if hasattr(tool, "permissions") and tool.permissions.requires_confirmation:
+            if hasattr(tool, "permissions") and self._needs_confirmation(
+                tool.permissions, params
+            ):
                 return Action(
                     type="confirm",
                     payload={
@@ -141,3 +151,70 @@ class RuleBasedStrategy(Strategy):
                 "message_type": "text",
             },
         )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _select_tool(tools: list[Any], intent_name: str) -> Any:
+        """Pick the tool that matches the intent by name, else the first.
+
+        A routing rule can inject several tools in a fixed order (e.g. refunds
+        resolve to ``[check_refund_eligibility, create_refund]``). Blindly using
+        ``tools[0]`` makes an explicit ``create_refund`` intent run the
+        read-only eligibility check instead of creating the refund — the write
+        (and its confirmation gate) never happens. Prefer the tool whose name
+        equals the intent so each intent triggers its own action.
+        """
+        for tool in tools:
+            if getattr(tool, "name", None) == intent_name:
+                return tool
+        return tools[0]
+
+    @staticmethod
+    def _schema_params(
+        entities: dict[str, Any], schema: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Project *entities* onto the tool schema's declared properties.
+
+        Drops internal ``_``-prefixed keys and any key not declared in the
+        schema so that strict (``additionalProperties: False``) tool schemas do
+        not reject otherwise-valid calls because of persisted context slots.
+        """
+        allowed = schema.get("properties", {})
+        return {
+            key: value
+            for key, value in entities.items()
+            if not key.startswith("_") and key in allowed
+        }
+
+    @staticmethod
+    def _needs_confirmation(
+        permissions: ToolPermission, params: dict[str, Any]
+    ) -> bool:
+        """Decide whether the tool call must be confirmed by the user.
+
+        Honours ``confirmation_threshold``: when a tool declares one, only
+        require confirmation if the named field's value exceeds the bound.
+        The threshold is evaluated safe-side — if the field is absent (so the
+        true value is unknown) confirmation is still required. Without a
+        threshold, ``requires_confirmation`` applies unconditionally.
+        """
+        if not permissions.requires_confirmation:
+            return False
+
+        threshold = permissions.confirmation_threshold
+        if not threshold:
+            return True
+
+        field = threshold.get("field")
+        if field is None or field not in params:
+            # Unknown value on a write that asked to be gated -> confirm.
+            return True
+
+        value = params[field]
+        if "gt" in threshold and isinstance(value, (int, float)):
+            return bool(value > threshold["gt"])
+        # Unrecognised threshold shape -> fall back to gating (safe-side).
+        return True

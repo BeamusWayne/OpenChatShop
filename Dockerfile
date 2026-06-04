@@ -45,7 +45,12 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser && \
 USER appuser
 ENV PYTHONPATH=/app/src
 EXPOSE 8000
+# Probe the deep readiness endpoint and assert the JSON status, not just that
+# the socket answers. /health is a shallow always-200 liveness ping; /health/ready
+# actually checks DB/Redis and returns 503 (status != "ok") when a dependency is
+# down, so a wedged-but-listening container is now reported unhealthy and the
+# `restart: unless-stopped` policy can recycle it.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    CMD ["python", "-c", "import urllib.request,sys,json; r=urllib.request.urlopen('http://localhost:8000/health/ready',timeout=4); sys.exit(0 if json.load(r).get('status')=='ok' else 1)"]
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["gunicorn", "-c", "gunicorn.conf.py"]

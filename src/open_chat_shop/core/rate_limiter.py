@@ -30,6 +30,15 @@ class RateLimitResult:
     retry_after_seconds: float = 0.0
 
 
+# Cap on the number of distinct keys retained in-memory. Once exceeded, a
+# sweep drops keys whose newest timestamp is older than this many seconds
+# (i.e. fully outside the longest plausible window). This bounds RSS in a
+# long-running process where every distinct user/IP/tool would otherwise add
+# a permanent dict entry. Mirrors the orchestrator's _session_locks cap.
+_MAX_KEYS = 10_000
+_STALE_AFTER_SECONDS = 3600
+
+
 class InMemoryRateLimiter:
     """In-memory sliding window rate limiter.
 
@@ -39,6 +48,21 @@ class InMemoryRateLimiter:
 
     def __init__(self) -> None:
         self._requests: dict[str, list[float]] = {}
+
+    def _sweep_if_needed(self) -> None:
+        """Evict stale keys when the dict grows past the cap.
+
+        A key is stale when its most recent timestamp is older than
+        ``_STALE_AFTER_SECONDS`` — its window has long since expired and it is
+        only being kept alive by never being touched again. Without this the
+        dict grows by one entry per distinct identifier forever.
+        """
+        if len(self._requests) <= _MAX_KEYS:
+            return
+        cutoff = time.time() - _STALE_AFTER_SECONDS
+        stale = [k for k, ts in self._requests.items() if not ts or ts[-1] <= cutoff]
+        for k in stale:
+            self._requests.pop(k, None)
 
     def check(self, key: str, rule: RateLimitRule) -> RateLimitResult:
         """Check if a request is allowed under the rate limit.
@@ -50,6 +74,10 @@ class InMemoryRateLimiter:
         requests = self._requests.get(key, [])
         # Prune old entries
         current = [t for t in requests if t > window_start]
+        # Drop the key entirely when nothing remains in-window, so read-only
+        # checks against expired keys don't leave permanent empty entries.
+        if not current and key in self._requests:
+            self._requests.pop(key, None)
         count = len(current)
         remaining = max(0, rule.max_requests - count)
         # Find when the oldest request in window expires
@@ -76,6 +104,7 @@ class InMemoryRateLimiter:
         if key not in self._requests:
             self._requests[key] = []
         self._requests[key].append(now)
+        self._sweep_if_needed()
 
     def check_and_consume(self, key: str, rule: RateLimitRule) -> RateLimitResult:
         """Check rate limit and consume if allowed. Atomic operation."""

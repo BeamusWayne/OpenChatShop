@@ -15,6 +15,16 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _utcnow() -> datetime:
+    """Return the current time as a tz-aware UTC datetime.
+
+    Centralised so every timestamp in this module is offset-aware and
+    comparisons (e.g. in :meth:`HandoffQueue.check_timeouts`) never mix
+    naive and aware datetimes.
+    """
+    return datetime.now(UTC)
+
+
 class AgentStatus(StrEnum):
     OFFLINE = "offline"
     ONLINE = "online"
@@ -52,7 +62,10 @@ class TransferRequest:
     department: str = "general"
     status: TransferStatus = TransferStatus.QUEUED
     assigned_agent_id: str | None = None
-    queued_at: datetime = field(default_factory=datetime.utcnow)
+    # tz-aware (UTC) so it can be compared against datetime.now(UTC) in
+    # check_timeouts without raising "can't subtract offset-naive and
+    # offset-aware datetimes".
+    queued_at: datetime = field(default_factory=_utcnow)
     assigned_at: datetime | None = None
     completed_at: datetime | None = None
     priority: int = 0  # Higher = more urgent
@@ -140,7 +153,7 @@ class HandoffQueue:
 
         request.status = TransferStatus.ASSIGNED
         request.assigned_agent_id = agent.agent_id
-        request.assigned_at = datetime.now(UTC)
+        request.assigned_at = _utcnow()
 
         self._active_transfers[request.session_id] = request
         # Remove from queue if present
@@ -162,7 +175,7 @@ class HandoffQueue:
             return
 
         transfer.status = TransferStatus.COMPLETED
-        transfer.completed_at = datetime.now(UTC)
+        transfer.completed_at = _utcnow()
 
         agent = self._agents.get(transfer.assigned_agent_id or "")
         if agent:
@@ -199,7 +212,7 @@ class HandoffQueue:
 
     def check_timeouts(self) -> list[TransferRequest]:
         """Check for timed-out queued requests. Returns timed-out list."""
-        now = datetime.now(UTC)
+        now = _utcnow()
         timed_out = []
         remaining = []
         for req in self._queue:

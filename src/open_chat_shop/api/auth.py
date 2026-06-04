@@ -34,6 +34,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/openapi.json",
             "/",
         ]
+        # Static assets live ONLY under these mount prefixes (the React build
+        # emits hashed JS/CSS into /static and /assets). The bypass MUST be
+        # scoped to these prefixes — never a global suffix test on the full
+        # path — or any protected route with an attacker-shaped trailing path
+        # parameter ending in .js/.css/.html/.ico (e.g.
+        # /api/v1/agent/history/<id>.js) would skip authentication entirely.
+        self._static_prefixes = ("/static/", "/assets/")
+        # A short allowlist of well-known root-level static files served by the
+        # SPA mount at "/". These are concrete filenames, not a suffix wildcard.
+        self._static_root_files = frozenset(
+            {"/favicon.ico", "/manifest.json", "/robots.txt", "/index.html"}
+        )
 
     async def dispatch(self, request: Request, call_next: Any) -> Any:
         # Allow public paths without auth (prefix match for /health, /metrics, /docs)
@@ -42,10 +54,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if path == prefix or path.startswith(prefix + "/"):
                 return await call_next(request)
 
-        # Allow static files
-        if request.url.path.startswith("/assets") or request.url.path.endswith(
-            (".js", ".css", ".html", ".ico")
-        ):
+        # Allow static files — scoped to the real static mount prefixes and a
+        # concrete root-file allowlist. Deliberately NOT a global path.endswith()
+        # on extensions, which would let a crafted trailing path parameter
+        # (".../something.js") bypass auth on protected endpoints.
+        if path.startswith(self._static_prefixes) or path in self._static_root_files:
             return await call_next(request)
 
         # If no auth configured, allow all

@@ -74,12 +74,18 @@ class StreamingOrchestrator:
                     data={"content_delta": response.text_fallback},
                 )
 
-            # 4. Done event with full message metadata
+            # 4. Done event with full message metadata.
+            # text_fallback is carried explicitly so downstream reconstruction
+            # does NOT have to dig it out of payload["content"] — rich payloads
+            # (order_card, product_list, ...) have no "content" key, so relying
+            # on payload would collapse the fallback to "" and lose the tool's
+            # computed text (e.g. "找到 N 个商品") when a rich type is downgraded.
             yield StreamEvent(
                 type="done",
                 data={
                     "message_type": response.message_type,
                     "payload": response.payload,
+                    "text_fallback": response.text_fallback,
                     "suggestions": response.suggestions,
                     "requires_confirmation": response.requires_confirmation,
                 },

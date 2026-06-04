@@ -2,6 +2,16 @@
 
 Converts AgentMessage into validated, enriched structured output
 for each of the 11 defined message types.
+
+NOT YET WIRED INTO THE LIVE PATH (audit MISC). The REST/SSE/WS transports
+currently adapt outbound messages via ``ChannelAdapter.adapt_with_fallback``
+(see channel/base.py, channel/web.py), which does *not* invoke this renderer,
+so these validation invariants do not run in production. Wiring it into the
+orchestrator/adapter output path is tracked in docs/production-hardening-audit.md
+and owned by the orchestrator/channel-adapter modules, not this file. The
+``MessageRenderer`` contract and every per-type invariant below are exercised by
+tests/unit/test_renderers.py and tests/unit/test_audit_MISC.py so the behaviour
+stays pinned for when it is wired up.
 """
 from __future__ import annotations
 

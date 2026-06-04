@@ -2,13 +2,22 @@
 
 Persists SessionContext to the database via ConversationLog entries.
 Supports session recovery across restarts.
+
+History is stored as a faithful mirror of ``context.history`` plus the latest
+assistant ``response``: every ``save`` reconciles the persisted rows against the
+(already compressed) in-memory history, so compaction actually shrinks what is
+stored and the row count never grows without bound. Cumulative token usage is
+kept authoritatively on the ``__session_meta__`` row so it survives compaction
+and reload. The synchronous SQLModel work runs on a worker thread via
+``asyncio.to_thread`` so it never blocks the event loop.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, cast
 
 from open_chat_shop.core.context import ContextManager
@@ -23,15 +32,60 @@ from open_chat_shop.core.types import (
 from open_chat_shop.storage.database import create_tables, get_engine, get_session
 from open_chat_shop.storage.models import ConversationLog
 
+
+def _as_aware_utc(ts: datetime) -> datetime:
+    """Return ``ts`` as a tz-aware UTC datetime (SQLite reloads are tz-naive)."""
+    return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts
+
+
+def _is_memory_sqlite(db_url: str) -> bool:
+    """True for in-memory SQLite URLs (``sqlite://`` or ``sqlite:///:memory:``)."""
+    normalized = db_url.strip().lower()
+    return normalized in ("sqlite://", "sqlite:///:memory:") or normalized.endswith(
+        ":memory:"
+    )
+
+
+def _build_engine(db_url: str) -> Any:
+    """Build the engine, sharing a single connection for in-memory SQLite.
+
+    Once DB work is offloaded to a worker thread (see ``load``/``save``), an
+    in-memory SQLite database — which is private per connection — would be
+    invisible to the worker thread's connection. ``StaticPool`` +
+    ``check_same_thread=False`` pins one shared connection so the schema and
+    rows are visible across threads. File-backed SQLite and other databases
+    share state across connections, so they use the default engine unchanged.
+    """
+    if _is_memory_sqlite(db_url):
+        from sqlalchemy.pool import StaticPool
+        from sqlmodel import create_engine
+
+        return create_engine(
+            db_url,
+            echo=False,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    return get_engine(db_url)
+
 logger = logging.getLogger(__name__)
+
+# Safety cap on how many history rows ``load`` reconstructs per session. The
+# in-memory contract keeps history small via compaction, so this only guards
+# against pathological row growth; it is intentionally generous.
+_HISTORY_ROW_LIMIT = 200
+
+_META_ROLE = "__session_meta__"
 
 
 class DatabaseContextManager(ContextManager):
     """SQLModel-backed session context manager.
 
     Stores session metadata in a special ConversationLog entry
-    (role='system', content='__session_meta__') per session.
-    History messages are stored as regular ConversationLog entries.
+    (role='__session_meta__') per session, including the authoritative
+    cumulative token usage. History messages are stored as regular
+    ConversationLog rows that mirror ``context.history`` plus the latest
+    assistant response.
     """
 
     def __init__(
@@ -40,20 +94,33 @@ class DatabaseContextManager(ContextManager):
         max_history_tokens: int = 2048,
         max_context_tokens: int = 4096,
     ) -> None:
-        self._engine = get_engine(db_url)
+        self._engine = _build_engine(db_url)
         create_tables(self._engine)
         self._max_history_tokens = max_history_tokens
         self._max_context_tokens = max_context_tokens
+        # Write-through in-process cache so the sync ``get`` (used by API guards
+        # that cannot await the DB) can return the last loaded/saved context
+        # without blocking I/O. The database remains the source of truth.
+        self._cache: dict[str, SessionContext] = {}
 
     async def load(self, session_id: str, channel: str = "web") -> SessionContext:
-        """Load session from database or create a new one."""
+        """Load session from database or create a new one.
+
+        The blocking SQLModel work runs on a worker thread so the event loop
+        is not stalled while the query executes.
+        """
+        ctx = await asyncio.to_thread(self._load_sync, session_id, channel)
+        self._cache[session_id] = ctx
+        return ctx
+
+    def _load_sync(self, session_id: str, channel: str) -> SessionContext:
         with get_session(self._engine) as session:
             from sqlmodel import col, select
 
             meta_entry = session.exec(
                 select(ConversationLog).where(
                     ConversationLog.session_id == session_id,
-                    ConversationLog.role == "__session_meta__",
+                    ConversationLog.role == _META_ROLE,
                 )
             ).first()
 
@@ -66,14 +133,18 @@ class DatabaseContextManager(ContextManager):
                 created_at = datetime.now(UTC)
                 last_active_at = created_at
 
-            logs = session.exec(
+            # Bound the reconstruction: take the most recent rows then restore
+            # chronological order. Mirrors the in-memory (compacted) history.
+            rows = session.exec(
                 select(ConversationLog)
                 .where(
                     ConversationLog.session_id == session_id,
-                    ConversationLog.role != "__session_meta__",
+                    ConversationLog.role != _META_ROLE,
                 )
-                .order_by(col(ConversationLog.created_at))
+                .order_by(col(ConversationLog.created_at).desc())
+                .limit(_HISTORY_ROW_LIMIT)
             ).all()
+            logs = list(reversed(rows))
 
             history = [
                 Message(
@@ -85,12 +156,15 @@ class DatabaseContextManager(ContextManager):
                 )
                 for log in logs
             ]
-            token_usage = sum(log.tokens_used for log in logs)
+
+        # Authoritative cumulative usage lives on the meta row; it survives
+        # compaction (which prunes old history rows) and reload.
+        token_usage = int(meta.get("token_usage", 0))
 
         return SessionContext(
             session_id=session_id,
             user_id=meta.get("user_id"),
-            channel=meta.get("channel", "web"),
+            channel=meta.get("channel", channel),
             history=history,
             summary=meta.get("summary"),
             slots=meta.get("slots", {}),
@@ -105,19 +179,80 @@ class DatabaseContextManager(ContextManager):
         )
 
     async def save(self, context: SessionContext, response: AgentMessage) -> None:
-        """Save context to database: upsert session metadata and assistant response."""
+        """Persist context: upsert metadata and mirror history + assistant turn.
+
+        The blocking SQLModel work runs on a worker thread. The persisted
+        history rows are reconciled to exactly ``context.history`` plus the new
+        assistant ``response`` (old rows are pruned), so compaction shrinks
+        storage instead of letting it grow unbounded. The real token count from
+        ``response.meta['token_usage']`` is recorded on the assistant row and
+        folded into the authoritative cumulative usage on the meta row.
+        """
+        response_tokens = int(response.meta.get("token_usage", 0) or 0)
+        cumulative_tokens = context.token_usage + response_tokens
+        now = datetime.now(UTC)
+        # The assistant reply is the newest turn and must sort last on load.
+        # Anchor it strictly after every history timestamp (and ``now``) so the
+        # created_at ordering is deterministic even when history carries
+        # synthetic or clock-skewed timestamps. History reloaded from SQLite is
+        # tz-naive, so normalize before comparing to the tz-aware ``now``.
+        reply_ts = now
+        for msg in context.history:
+            ts = _as_aware_utc(msg.timestamp)
+            if ts >= reply_ts:
+                reply_ts = ts + timedelta(microseconds=1)
+        await asyncio.to_thread(
+            self._save_sync,
+            context,
+            response,
+            response_tokens,
+            cumulative_tokens,
+            now,
+            reply_ts,
+        )
+        # Reflect what was persisted (incl. the new assistant turn and updated
+        # cumulative usage) in the write-through cache used by ``get``.
+        persisted_history = [
+            *context.history,
+            Message(
+                role="assistant", content=response.text_fallback, timestamp=reply_ts
+            ),
+        ]
+        self._cache[context.session_id] = replace(
+            context,
+            history=persisted_history,
+            token_usage=cumulative_tokens,
+            last_active_at=now,
+        )
+
+    def _save_sync(
+        self,
+        context: SessionContext,
+        response: AgentMessage,
+        response_tokens: int,
+        cumulative_tokens: int,
+        now: datetime,
+        reply_ts: datetime,
+    ) -> None:
         try:
             with get_session(self._engine) as db:
                 from sqlmodel import select
 
-                # Upsert session metadata
+                # Upsert session metadata (carries authoritative token usage).
                 existing_meta = db.exec(
                     select(ConversationLog).where(
                         ConversationLog.session_id == context.session_id,
-                        ConversationLog.role == "__session_meta__",
+                        ConversationLog.role == _META_ROLE,
                     )
                 ).first()
 
+                created_at_iso = (
+                    json.loads(existing_meta.content).get(
+                        "created_at", context.created_at.isoformat()
+                    )
+                    if existing_meta
+                    else context.created_at.isoformat()
+                )
                 meta_json = json.dumps(
                     {
                         "user_id": context.user_id,
@@ -127,8 +262,9 @@ class DatabaseContextManager(ContextManager):
                         "fsm_state": context.fsm_state,
                         "current_scenario": context.current_scenario,
                         "user_role": context.user_role,
-                        "created_at": context.created_at.isoformat(),
-                        "last_active_at": datetime.now(UTC).isoformat(),
+                        "token_usage": cumulative_tokens,
+                        "created_at": created_at_iso,
+                        "last_active_at": now.isoformat(),
                         "mode": context.mode.value,
                         "human_agent_id": context.human_agent_id,
                     },
@@ -143,21 +279,47 @@ class DatabaseContextManager(ContextManager):
                         ConversationLog(
                             session_id=context.session_id,
                             user_id=context.user_id,
-                            role="__session_meta__",
+                            role=_META_ROLE,
                             content=meta_json,
                         )
                     )
 
-                # Save assistant response
-                log = ConversationLog(
-                    session_id=context.session_id,
-                    user_id=context.user_id,
-                    role="assistant",
-                    content=response.text_fallback,
-                    intent_name=None,
-                    tokens_used=0,
+                # Reconcile history rows to mirror the (compacted) in-memory
+                # history. Delete the prior non-meta rows, then re-write the
+                # current history followed by the new assistant turn. This
+                # persists every turn present in ``context.history`` (user turns
+                # included) and lets compaction actually shrink storage.
+                old_rows = db.exec(
+                    select(ConversationLog).where(
+                        ConversationLog.session_id == context.session_id,
+                        ConversationLog.role != _META_ROLE,
+                    )
+                ).all()
+                for row in old_rows:
+                    db.delete(row)
+
+                for msg in context.history:
+                    db.add(
+                        ConversationLog(
+                            session_id=context.session_id,
+                            user_id=context.user_id,
+                            role=msg.role,
+                            content=msg.content,
+                            created_at=msg.timestamp,
+                        )
+                    )
+
+                db.add(
+                    ConversationLog(
+                        session_id=context.session_id,
+                        user_id=context.user_id,
+                        role="assistant",
+                        content=response.text_fallback,
+                        intent_name=None,
+                        tokens_used=response_tokens,
+                        created_at=reply_ts,
+                    )
                 )
-                db.add(log)
         except Exception as e:
             raise ContextError(
                 f"Failed to save context: {e}",
@@ -205,3 +367,11 @@ class DatabaseContextManager(ContextManager):
     ) -> SessionContext:
         merged_slots = {**context.slots, **new_entities}
         return replace(context, slots=merged_slots)
+
+    def get(self, session_id: str) -> SessionContext | None:
+        """Synchronous lookup from the write-through cache (no DB I/O).
+
+        Returns the last context that ``load``/``save`` observed in this
+        process, or ``None`` if the session has not been touched here.
+        """
+        return self._cache.get(session_id)

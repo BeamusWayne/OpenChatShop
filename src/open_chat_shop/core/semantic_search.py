@@ -6,6 +6,7 @@ Designed to be swapped in when a real embedding provider is available.
 """
 from __future__ import annotations
 
+import heapq
 import logging
 import math
 from dataclasses import dataclass
@@ -43,18 +44,23 @@ class InMemoryVectorStore:
         self._texts[intent].append(text)
 
     def search(self, query_vector: list[float], top_k: int = 3) -> list[SearchResult]:
-        """Find the top-k most similar samples across all intents."""
-        results: list[SearchResult] = []
-        for intent, vectors in self._vectors.items():
-            for i, vec in enumerate(vectors):
-                score = _cosine_similarity(query_vector, vec)
-                results.append(SearchResult(
-                    intent=intent,
-                    score=score,
-                    text=self._texts[intent][i],
-                ))
-        results.sort(key=lambda r: r.score, reverse=True)
-        return results[:top_k]
+        """Find the top-k most similar samples across all intents.
+
+        This is a dev/test store (production should route to pgvector/Milvus,
+        per the class docstring). Scoring is still a full linear scan, but we use
+        a bounded top-k heap (``heapq.nlargest``) instead of sorting every
+        result, so cost is O(n log top_k) rather than O(n log n) on the sort.
+        """
+        results = (
+            SearchResult(
+                intent=intent,
+                score=_cosine_similarity(query_vector, vec),
+                text=self._texts[intent][i],
+            )
+            for intent, vectors in self._vectors.items()
+            for i, vec in enumerate(vectors)
+        )
+        return heapq.nlargest(top_k, results, key=lambda r: r.score)
 
     def get_intents(self) -> list[str]:
         """Return all registered intents."""

@@ -1,14 +1,25 @@
 """Agent-facing REST API endpoints for the human agent dashboard."""
 from __future__ import annotations
 
+import hmac
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from open_chat_shop.core.handoff import AgentStatus, HandoffQueue, HumanAgent
 from open_chat_shop.core.types import AgentMessage, SessionMode
+
+
+def _secret_matches(provided: str | None, expected: str | None) -> bool:
+    """Constant-time comparison of a provided secret against the expected one.
+
+    Uses :func:`hmac.compare_digest` so we never short-circuit on the first
+    differing byte (which would leak length/prefix information over many
+    requests). ``None`` is treated as an empty string.
+    """
+    return hmac.compare_digest(provided or "", expected or "")
 
 # ---- Request / Response models ----
 
@@ -61,16 +72,40 @@ def create_agent_router(
 ) -> APIRouter:
     """Build and return a FastAPI router with agent endpoints.
 
-    *agent_secret* is an optional shared secret.  When set, the register
-    endpoint requires ``secret`` in the request body and the status-update
-    endpoint requires the ``X-Agent-Secret`` header.  When not set, both
-    endpoints are open (backward compatible).
+    *agent_secret* is an optional shared secret.  When set, **every** agent
+    endpoint requires the ``X-Agent-Secret`` header (the register endpoint also
+    accepts ``secret`` in the request body for backward compatibility).  When
+    not set, all endpoints are open (backward compatible).
+
+    The global :class:`AuthMiddleware` only proves the caller holds *some*
+    valid JWT/API key; it does not distinguish a customer from an agent.  These
+    endpoints expose other customers' conversation history and the live support
+    queue and let the caller mutate transfer state, so they must enforce their
+    own agent-only authorization rather than trusting the customer-facing auth.
     """
     router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
 
+    def _require_agent(x_agent_secret: str | None = Header(default=None)) -> None:
+        """Reject non-agent callers via the shared agent secret.
+
+        No-op when *agent_secret* is unset (open mode), preserving the existing
+        backward-compatible behaviour for deployments without AGENT_SECRET.
+        """
+        if agent_secret is None:
+            return
+        if not _secret_matches(x_agent_secret, agent_secret):
+            raise HTTPException(status_code=401, detail="Invalid agent secret")
+
     @router.post("/register", response_model=RegisterResponse)
-    async def register(body: RegisterRequest) -> RegisterResponse:
-        if agent_secret is not None and body.secret != agent_secret:
+    async def register(
+        body: RegisterRequest,
+        x_agent_secret: str | None = Header(default=None),
+    ) -> RegisterResponse:
+        # Accept the secret from the body (legacy) or the header.
+        if agent_secret is not None and not (
+            _secret_matches(body.secret, agent_secret)
+            or _secret_matches(x_agent_secret, agent_secret)
+        ):
             raise HTTPException(
                 status_code=401,
                 detail="Invalid agent secret",
@@ -88,7 +123,11 @@ def create_agent_router(
             department=body.department,
         )
 
-    @router.get("/agents", response_model=list[AgentInfoResponse])
+    @router.get(
+        "/agents",
+        response_model=list[AgentInfoResponse],
+        dependencies=[Depends(_require_agent)],
+    )
     async def list_agents() -> list[AgentInfoResponse]:
         return [
             AgentInfoResponse(
@@ -107,7 +146,9 @@ def create_agent_router(
         body: StatusRequest,
         x_agent_secret: str | None = Header(default=None),
     ) -> dict[str, str]:
-        if agent_secret is not None and x_agent_secret != agent_secret:
+        if agent_secret is not None and not _secret_matches(
+            x_agent_secret, agent_secret
+        ):
             raise HTTPException(
                 status_code=401,
                 detail="Invalid agent secret",
@@ -123,7 +164,11 @@ def create_agent_router(
             ) from exc
         return {"status": "ok"}
 
-    @router.get("/queue", response_model=list[QueueItemResponse])
+    @router.get(
+        "/queue",
+        response_model=list[QueueItemResponse],
+        dependencies=[Depends(_require_agent)],
+    )
     async def get_queue() -> list[QueueItemResponse]:
         items = []
         for i, r in enumerate(handoff_queue._queue):
@@ -138,7 +183,11 @@ def create_agent_router(
             ))
         return items
 
-    @router.get("/active", response_model=list[ActiveSessionResponse])
+    @router.get(
+        "/active",
+        response_model=list[ActiveSessionResponse],
+        dependencies=[Depends(_require_agent)],
+    )
     async def get_active() -> list[ActiveSessionResponse]:
         return [
             ActiveSessionResponse(
@@ -150,13 +199,13 @@ def create_agent_router(
             for sid, r in handoff_queue._active_transfers.items()
         ]
 
-    @router.get("/history/{session_id}")
+    @router.get("/history/{session_id}", dependencies=[Depends(_require_agent)])
     async def get_history(session_id: str) -> dict[str, Any]:
         if session_messages is None:
             return {"messages": []}
         return {"messages": session_messages.get(session_id, [])}
 
-    @router.post("/accept/{session_id}")
+    @router.post("/accept/{session_id}", dependencies=[Depends(_require_agent)])
     async def accept_session(session_id: str) -> dict[str, Any]:
         # Check if already assigned (idempotent for auto-assigned sessions)
         existing = handoff_queue.get_active_transfer(session_id)
@@ -202,9 +251,14 @@ def create_agent_router(
         if context_manager is not None:
             ctx = await context_manager.load(session_id)
             _msgs = session_messages or {}
+            # Stored messages may carry the resolved intent under either
+            # "intent" (WS turn metadata) or "intent_name" (persisted
+            # ConversationLog). Read both so the field is not silently dead
+            # when only one key is present.
             context_data["intents"] = list({
-                m.get("intent", "") for m in _msgs.get(session_id, [])
-                if m.get("intent")
+                (m.get("intent") or m.get("intent_name"))
+                for m in _msgs.get(session_id, [])
+                if m.get("intent") or m.get("intent_name")
             })
             context_data["duration_with_ai"] = int(
                 (ctx.last_active_at - ctx.created_at).total_seconds()
@@ -219,7 +273,7 @@ def create_agent_router(
             "context": context_data,
         }
 
-    @router.post("/complete/{session_id}")
+    @router.post("/complete/{session_id}", dependencies=[Depends(_require_agent)])
     async def complete_session(session_id: str) -> dict[str, str]:
         if session_id not in handoff_queue._active_transfers:
             raise HTTPException(status_code=404, detail="No active transfer for session")

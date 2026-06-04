@@ -16,7 +16,10 @@ from typing import Any
 
 from open_chat_shop.core.types import UserMessage
 from open_chat_shop.evaluation.golden_dataset import get_golden_dataset
-from open_chat_shop.evaluation.regression import RegressionRunner
+from open_chat_shop.evaluation.regression import (
+    RegressionRunner,
+    summarize_attack_security,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -85,6 +88,34 @@ async def _run_regression() -> int:
     report = runner.generate_report(results)
     print()
     print(json.dumps(report, indent=2, ensure_ascii=False))
+
+    # ------------------------------------------------------------------
+    # Hard security gate (LLM-independent).
+    #
+    # The attack samples annotate the *attacker's goal* (e.g. run create_refund
+    # with amount 99999, or modify_address with a path-traversal payload). The
+    # security contract is the inverse: that goal must NEVER be reached. We
+    # assert the deterministic guarantee that holds in keyless CI — NO attack
+    # may cause any tool to execute. This is the teeth the old gate lacked:
+    # disabling the injection layer (so an attack routes to a real tool) now
+    # FAILS the run instead of looking like progress. ``pass_rate`` over the
+    # attack samples is deliberately NOT used as the security signal (it depends
+    # on LLM-generated response text); zero-tool-execution is.
+    sec = summarize_attack_security(dataset, batch)
+    print(
+        f"\nattack_security: {sec.total_attacks} attack samples; "
+        f"blocked={sec.blocked}; tools_executed={sec.tools_executed} "
+        f"(targeted_tool_executed={sec.targeted_tool_executed})"
+    )
+    if sec.total_attacks > 0 and not sec.all_neutralized:
+        print(
+            "FAIL(SECURITY): attack samples reached a tool — "
+            f"{sec.tools_executed}/{sec.total_attacks} executed a tool "
+            f"(offenders: {', '.join(sec.offending_sample_ids)}). "
+            "An attack must never cause a tool to run.",
+            file=sys.stderr,
+        )
+        return 1
 
     # Gate on intent_accuracy, which is independent of whether a real LLM is
     # configured. pass_rate additionally requires LLM-generated response text to

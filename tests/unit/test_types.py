@@ -417,7 +417,8 @@ class TestTransition:
         assert t.action is None
 
     def test_with_guard(self) -> None:
-        guard_fn = lambda ctx: True  # noqa: E731
+        def guard_fn(ctx: object) -> bool:
+            return True
         t = Transition(
             from_state="idle",
             to_state="active",

@@ -142,11 +142,20 @@ class DialogueOrchestrator:
         """Process user message, return agent reply.
         Same session_id processed serially via async lock.
         """
-        # Evict oldest locks when cap exceeded
+        # Evict oldest IDLE locks when cap exceeded. A lock that is currently
+        # held belongs to an in-flight request for that session; evicting it
+        # would let a concurrent message for the SAME session setdefault a
+        # brand-new lock and enter _handle_internal in parallel, breaking the
+        # per-session serial guarantee (audit MEDIUM). Skip held locks; only
+        # remove ones with no waiter so the invariant holds under load.
         if len(self._session_locks) > self._SESSION_LOCKS_CAP:
-            keys_to_remove = list(self._session_locks.keys())[:5000]
-            for key in keys_to_remove:
-                del self._session_locks[key]
+            removed = 0
+            for key in list(self._session_locks.keys()):
+                if removed >= 5000:
+                    break
+                if not self._session_locks[key].locked():
+                    del self._session_locks[key]
+                    removed += 1
         lock = self._session_locks.setdefault(message.session_id, asyncio.Lock())
         async with lock:
             return await self._handle_internal(message)
@@ -189,6 +198,30 @@ class DialogueOrchestrator:
                 except ContextError:
                     return self._error_response("会话已过期，请重新开始。")
 
+            # 2.05 Bind the verified caller identity onto the context BEFORE any
+            # tool runs (audit CRITICAL-1). app.py already binds the JWT 'sub'
+            # onto message.user_id; the order tools enforce ownership via
+            # get_for_user(order_id, context.user_id), so the identity MUST
+            # reach context.user_id or every order op runs with user_id=None
+            # (ownership check skipped -> IDOR/BOLA). If the session was already
+            # bound to a different non-None user, refuse rather than let a
+            # second identity take over an in-flight session.
+            if message.user_id is not None:
+                if (
+                    context.user_id is not None
+                    and context.user_id != message.user_id
+                ):
+                    logger.warning(
+                        "Session user_id mismatch; refusing identity takeover",
+                        extra={
+                            **self._trace_extras(message.session_id),
+                            "bound_user": context.user_id,
+                            "message_user": message.user_id,
+                        },
+                    )
+                    return self._error_response("会话身份校验失败，请重新登录后再试。")
+                context.user_id = message.user_id
+
             # 2.1 Session mode guard — bot must not respond in HUMAN mode
             if context.mode == SessionMode.HUMAN_MODE:
                 return AgentMessage(
@@ -230,6 +263,7 @@ class DialogueOrchestrator:
                 message, context, pending_confirmation,
             )
             if confirm_response is not None:
+                self._record_turn(context, message, confirm_response)
                 await self._context_manager.save(context, confirm_response)
                 return confirm_response
             # Cleared (topic switch / ambiguous) — fall through to normal flow.
@@ -259,6 +293,7 @@ class DialogueOrchestrator:
                     message, context, pending_action,
                 )
                 if pending_response is not None:
+                    self._record_turn(context, message, pending_response)
                     await self._context_manager.save(context, pending_response)
                     return pending_response
 
@@ -269,12 +304,17 @@ class DialogueOrchestrator:
         with intent_span:
             intent = await self._intent_engine.classify(message, context)
 
-        # 3.5 Cache lookup for read-only intents
+        # 3.5 Cache lookup for read-only intents. Scope by context.user_id so one
+        # user's cached order data is never served to another (audit C4); the
+        # cache folds user_id into its key.
         if self._response_cache is not None:
             params = dict(intent.entities) if intent.entities else {}
             params["content"] = message.content
-            cached = self._response_cache.get(intent.name, params)
+            cached = self._response_cache.get(
+                intent.name, params, user_id=context.user_id
+            )
             if cached is not None:
+                self._record_turn(context, message, cached)
                 await self._context_manager.save(context, cached)
                 return cast(AgentMessage, cached)
 
@@ -313,13 +353,18 @@ class DialogueOrchestrator:
             "tool_calls": [executed_tool] if executed_tool else [],
         }
 
-        # 6.5 Cache successful responses for read-only intents
+        # 6.5 Cache successful responses for read-only intents, scoped to the
+        # caller's user_id so cached order data stays per-user (audit C4).
         if self._response_cache is not None and response.message_type != "error":
             params = dict(intent.entities) if intent.entities else {}
             params["content"] = message.content
-            self._response_cache.set(intent.name, params, response)
+            self._response_cache.set(
+                intent.name, params, response, user_id=context.user_id
+            )
 
-        # 7. Update context
+        # 7. Record this turn in history, then persist context (audit MEDIUM:
+        # restores multi-turn memory for InMemory/Redis backends).
+        self._record_turn(context, message, response)
         await self._context_manager.save(context, response)
 
         return response
@@ -336,17 +381,28 @@ class DialogueOrchestrator:
         r"|确认|确定|同意|没错|执行|继续|\byes\b|\bok\b|\bsure\b",
         _re.IGNORECASE,
     )
+    # Interrogative markers. A reply that asks a question ("确定吗？",
+    # "确认一下是哪个订单") is NOT consent and must never trigger the
+    # irreversible write, even though it contains an affirmation token as a
+    # substring (audit HIGH). Question-form replies resolve to None so the
+    # caller falls through to normal classification instead of executing.
+    _QUESTION_RE = _re.compile(r"[?？]|吗|嘛|呢|哪|多少|几个|怎么|为什么|什么时候")
 
     @staticmethod
     def _detect_affirmation(text: str) -> str | None:
         """Classify a confirmation reply as 'affirm', 'deny', or None.
 
         Deterministic rule match (Rule 5: code answers what code can). A
-        non-affirmative reply never triggers the irreversible write.
+        non-affirmative reply never triggers the irreversible write. Explicit
+        negations and question-form replies are both treated as non-consent.
         """
         stripped = text.strip()
         if DialogueOrchestrator._DENY_RE.search(stripped):
             return "deny"
+        # A clarifying/interrogative reply is not a "yes" — bail out before the
+        # affirm match so "确定吗？" / "能确认下金额吗" do not execute the write.
+        if DialogueOrchestrator._QUESTION_RE.search(stripped):
+            return None
         if DialogueOrchestrator._AFFIRM_RE.search(stripped):
             return "affirm"
         return None
@@ -846,10 +902,16 @@ class DialogueOrchestrator:
             "4. 用中文回复"
         )
 
-        # Filter internal fields from payload before sending to LLM
+        # Filter internal control fields from the payload before sending to the
+        # LLM. The clarify path stores its routing dict under "_pending_action"
+        # (caught by the underscore filter), but the confirm path stores it
+        # under the NON-prefixed "pending_action" (strategy.py), which would
+        # otherwise leak tool_name/params/call_id into the model prompt
+        # (audit LOW). Drop the known internal keys explicitly too.
+        _internal_keys = {"pending_action", "_pending_action", "missing_slots"}
         clean_payload = {
             k: v for k, v in action.payload.items()
-            if not k.startswith("_")
+            if not k.startswith("_") and k not in _internal_keys
         }
 
         user_prompt = (
@@ -926,6 +988,27 @@ class DialogueOrchestrator:
 
         tokens = self._record_llm_cost(response)
         return response.content, tokens
+
+    @staticmethod
+    def _record_turn(
+        context: SessionContext,
+        message: UserMessage,
+        response: AgentMessage,
+    ) -> None:
+        """Append the inbound user turn and the produced assistant turn to history.
+
+        Nothing else in the source appends to ``context.history`` (audit
+        MEDIUM), so for the InMemory/Redis backends the history window stays
+        permanently empty and the intent engine (history[-3:]) and LLM prompt
+        (history[-6:]) get no prior turns — the DB backend, which rebuilds
+        history from ConversationLog rows, behaved inconsistently. Recording
+        both turns here restores multi-turn memory on every backend, matching
+        the (role, content) shape the DB backend reconstructs.
+        """
+        context.history.append(Message(role="user", content=message.content))
+        context.history.append(
+            Message(role="assistant", content=response.text_fallback)
+        )
 
     def _build_history_text(self, context: SessionContext) -> str:
         """Build a compact text representation of recent conversation history."""

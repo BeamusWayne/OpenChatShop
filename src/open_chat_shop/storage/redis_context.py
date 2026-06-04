@@ -96,6 +96,10 @@ class RedisContextManager(ContextManager):
         self._max_history_tokens = max_history_tokens
         self._max_context_tokens = max_context_tokens
         self._prefix = key_prefix
+        # Write-through in-process cache so the sync ``get`` (used by API guards
+        # that cannot await Redis) can return the last loaded/saved context
+        # without blocking I/O. Redis remains the source of truth.
+        self._cache: dict[str, SessionContext] = {}
 
     def _key(self, session_id: str) -> str:
         return f"{self._prefix}{session_id}"
@@ -122,8 +126,11 @@ class RedisContextManager(ContextManager):
                     last_active_at=now,
                 )
                 await self._save_to_redis(key, ctx)
+                self._cache[session_id] = ctx
                 return ctx
-            return _deserialize_context(data)
+            ctx = _deserialize_context(data)
+            self._cache[session_id] = ctx
+            return ctx
         except ContextError:
             raise
         except Exception as e:
@@ -141,6 +148,7 @@ class RedisContextManager(ContextManager):
         )
         key = self._key(context.session_id)
         await self._save_to_redis(key, updated)
+        self._cache[context.session_id] = updated
 
     async def _save_to_redis(self, key: str, ctx: SessionContext) -> None:
         try:
@@ -194,3 +202,11 @@ class RedisContextManager(ContextManager):
     ) -> SessionContext:
         merged_slots = {**context.slots, **new_entities}
         return replace(context, slots=merged_slots)
+
+    def get(self, session_id: str) -> SessionContext | None:
+        """Synchronous lookup from the write-through cache (no Redis I/O).
+
+        Returns the last context that ``load``/``save`` observed in this
+        process, or ``None`` if the session has not been touched here.
+        """
+        return self._cache.get(session_id)
