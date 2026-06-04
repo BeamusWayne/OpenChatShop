@@ -8,7 +8,7 @@
 - 当前最高优先级未完成功能：全部完成（Phase 1-7）
 - 当前 blocker：无
 - CI 状态：**`ruff check`、`mypy src/`、pytest 三关全绿（2026-06-04）** —— lint 债 114→0、mypy 224→0、982 passed / 3 skipped
-- 审计剩余（code-health-audit 2026-06-03）：HIGH-10 范围 B/C（orchestrator 原生 FC，独立会话）；两前端组件去重；真实 LLM 端到端 + docker build 冒烟（需人工）
+- 审计剩余（code-health-audit 2026-06-03）：HIGH-10 范围 B/C（orchestrator 原生 FC，独立会话）；两前端组件去重；docker build 冒烟（需 daemon）。**真实 LLM 端到端已验证（2026-06-04，GLM-5.1 via 智谱，chat/FC/streaming + 全管道 3 轮），并修了由此暴露的 LLM 路径实体抽取 bug（commit 6d97d56）**
 
 ## 重启路径
 
@@ -22,6 +22,18 @@
 6. 继续处理 `feature_list.json` 中优先级最高的未完成功能
 
 ## 会话记录
+
+### 2026-06-04 Session 3 — 真实 LLM 端到端验证 + 修 LLM 路径实体抽取 bug
+
+**任务：** 用户问"配置了 LLM 没有，测一遍?" → 验证真实 LLM 并端到端冒烟。
+
+**LLM 配置：** GLM-5.1 via 智谱 BigModel 的 Anthropic 兼容端点（`open.bigmodel.cn/api/anthropic`），`.env`（已 gitignore，SE-01 无虞）含 ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL / GLM_MODEL。`main.py:_build_provider()` 优先 AnthropicProvider。
+
+**冒烟结果（真实 API）：** provider 直连 chat/FC/streaming 全过；全管道（`build_orchestrator` + 真 LLM）3 轮（问候/查订单/退款）均通，真实 FC 正确执行（ORD-004 退款 → order_card）。
+
+**测出并修 1 个真 bug（`6d97d56`）：** 意图走 level-3 LLM 分类时 `_llm_classify` 返回 Intent 不带 entities，导致消息里已有的 order_id（`ORD-xxx` 正则只在 rule 路径抽）被丢 → 追问用户已给的单号。修复：LLM 路径也跑 `_extract_entities`。+1 回归测试（RED: KeyError order_id → GREEN）。983 passed、ruff/mypy 全绿、live 重测通过。
+
+**要点：** 只有真实 LLM 才走 level-3，单测（MockProvider）碰不到 —— 正是审计把"真实 LLM 端到端"列为需人工验证的原因，一验就发现真问题。
 
 ### 2026-06-04 Session 2 — mypy --strict 清零（224→0，9-agent 并行）
 
