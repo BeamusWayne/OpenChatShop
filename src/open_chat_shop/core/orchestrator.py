@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re as _re
 import time
 from contextlib import AbstractContextManager
 from contextlib import nullcontext as _nullcontext
@@ -11,17 +10,17 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+from open_chat_shop.core.confirmation_resolver import ConfirmationResolver
 from open_chat_shop.core.exceptions import (
     ContextError,
     SecurityError,
     ToolError,
 )
-from open_chat_shop.core.intent import _extract_entities
+from open_chat_shop.core.pending_slot_resolver import PendingSlotResolver
 from open_chat_shop.core.tool_response_mapper import ToolResponseMapper
 from open_chat_shop.core.types import (
     Action,
     AgentMessage,
-    Intent,
     Message,
     SessionContext,
     SessionMode,
@@ -81,6 +80,10 @@ class DialogueOrchestrator:
         self._intent_engine = intent_engine
         self._tool_injector = tool_injector
         self._strategy = strategy
+        # Extracted collaborators (method-objects holding a back-reference to
+        # this orchestrator for shared execution primitives).
+        self._confirmation_resolver = ConfirmationResolver(self)
+        self._pending_slot_resolver = PendingSlotResolver(self)
         self._provider: Any = None
         self._audit_logger: Any = None
         self._cost_tracker: Any = None
@@ -305,12 +308,11 @@ class DialogueOrchestrator:
         # Runs before classification so an affirmative "确认" is not re-routed.
         pending_confirmation = context.slots.get("_pending_confirmation")
         if pending_confirmation is not None:
-            confirm_response = await self._resolve_pending_confirmation(
+            confirm_response = await self._confirmation_resolver.resolve(
                 message, context, pending_confirmation,
             )
             if confirm_response is not None:
-                self._record_turn(context, message, confirm_response)
-                await self._context_manager.save(context, confirm_response)
+                await self._persist_turn(context, message, confirm_response)
                 return confirm_response
             # Cleared (topic switch / ambiguous) — fall through to normal flow.
 
@@ -335,12 +337,11 @@ class DialogueOrchestrator:
                     },
                 )
             else:
-                pending_response = await self._try_resolve_pending(
+                pending_response = await self._pending_slot_resolver.resolve(
                     message, context, pending_action,
                 )
                 if pending_response is not None:
-                    self._record_turn(context, message, pending_response)
-                    await self._context_manager.save(context, pending_response)
+                    await self._persist_turn(context, message, pending_response)
                     return pending_response
 
         # 3. Intent recognition
@@ -370,8 +371,7 @@ class DialogueOrchestrator:
                     cached,
                     meta={k: v for k, v in cached.meta.items() if k != "token_usage"},
                 )
-                self._record_turn(context, message, served)
-                await self._context_manager.save(context, served)
+                await self._persist_turn(context, message, served)
                 return cast(AgentMessage, served)
 
         # 4. Dynamic tool injection
@@ -420,220 +420,9 @@ class DialogueOrchestrator:
 
         # 7. Record this turn in history, then persist context (audit MEDIUM:
         # restores multi-turn memory for InMemory/Redis backends).
-        self._record_turn(context, message, response)
-        await self._context_manager.save(context, response)
+        await self._persist_turn(context, message, response)
 
         return response
-
-    # ------------------------------------------------------------------
-    # High-risk confirmation loop (audit HIGH-9)
-    # ------------------------------------------------------------------
-
-    # Rule-based affirmation detection. Negation is checked first so that
-    # replies like "不确定"/"不可以" resolve to deny, never affirm (fail-safe).
-    _DENY_RE = _re.compile(r"不|否|取消|算了|别|放弃|拒绝|cancel|\bno\b", _re.IGNORECASE)
-    _AFFIRM_RE = _re.compile(
-        r"^(好|好的|是|是的|对|对的|嗯+|可以|行)$"
-        r"|确认|确定|同意|没错|执行|继续|\byes\b|\bok\b|\bsure\b",
-        _re.IGNORECASE,
-    )
-    # Interrogative markers. A reply that asks a question ("确定吗？",
-    # "确认一下是哪个订单") is NOT consent and must never trigger the
-    # irreversible write, even though it contains an affirmation token as a
-    # substring (audit HIGH). Question-form replies resolve to None so the
-    # caller falls through to normal classification instead of executing.
-    _QUESTION_RE = _re.compile(r"[?？]|吗|嘛|呢|哪|多少|几个|怎么|为什么|什么时候")
-    # "确认一下 / 看一下 / 核对一下" expresses a request to VERIFY, not consent —
-    # the affirm token is part of a check-request. Treated as non-consent so a
-    # reply like "我要先确认一下金额" does not execute the irreversible write
-    # (audit: the substring affirm match accepted declarative non-consent).
-    _VERIFY_HEDGE_RE = _re.compile(r"(确认|确定|核对|核实|看|检查|查|核)(一下|下)")
-
-    @staticmethod
-    def _detect_affirmation(text: str) -> str | None:
-        """Classify a confirmation reply as 'affirm', 'deny', or None.
-
-        Deterministic rule match (Rule 5: code answers what code can). A
-        non-affirmative reply never triggers the irreversible write. Explicit
-        negations and question-form replies are both treated as non-consent.
-        """
-        stripped = text.strip()
-        if DialogueOrchestrator._DENY_RE.search(stripped):
-            return "deny"
-        # A clarifying/interrogative reply is not a "yes" — bail out before the
-        # affirm match so "确定吗？" / "能确认下金额吗" do not execute the write.
-        if DialogueOrchestrator._QUESTION_RE.search(stripped):
-            return None
-        # A verify/check request ("确认一下金额") is not consent — bail out.
-        if DialogueOrchestrator._VERIFY_HEDGE_RE.search(stripped):
-            return None
-        if DialogueOrchestrator._AFFIRM_RE.search(stripped):
-            return "affirm"
-        return None
-
-    async def _resolve_pending_confirmation(
-        self,
-        message: UserMessage,
-        context: SessionContext,
-        pending: dict[str, Any],
-    ) -> AgentMessage | None:
-        """Resolve a persisted high-risk confirmation from the user's reply.
-
-        One-shot: the pending confirmation is always cleared. Returns the tool
-        result on affirmation, a cancellation message on explicit decline, or
-        None when the reply is unrelated (topic switch / ambiguous) so the
-        caller proceeds with normal classification. Because any non-affirmative
-        reply discards it, the confirmation is implicitly valid for a single
-        turn — no explicit TTL is needed.
-        """
-        signal = self._detect_affirmation(message.content)
-        context.slots.pop("_pending_confirmation", None)
-
-        if signal == "affirm":
-            tool_name = pending.get("tool_name", "")
-            tool = (
-                self._tool_injector.get_tool(tool_name)
-                if hasattr(self._tool_injector, "get_tool")
-                else None
-            )
-            if tool is None:
-                return self._error_response("抱歉，该操作已失效，请重新发起。")
-            logger.info(
-                "Pending confirmation accepted",
-                extra={
-                    **self._trace_extras(context.session_id),
-                    "tool_name": tool_name,
-                },
-            )
-            action = Action(
-                type="tool_call",
-                payload={
-                    "tool_name": tool_name,
-                    "params": pending.get("params", {}),
-                    "call_id": pending.get("call_id", f"call-{tool_name}"),
-                },
-            )
-            return await self._execute_action(action, context, [tool])
-
-        if signal == "deny":
-            logger.info(
-                "Pending confirmation declined",
-                extra={
-                    **self._trace_extras(context.session_id),
-                    "tool_name": pending.get("tool_name"),
-                },
-            )
-            return self._error_response("好的，已为您取消该操作。")
-
-        # Unrelated / ambiguous — discard and let normal classification run.
-        return None
-
-    async def _try_resolve_pending(
-        self,
-        message: UserMessage,
-        context: SessionContext,
-        pending: dict[str, Any],
-    ) -> AgentMessage | None:
-        """Attempt to fill pending missing slots from the user's response.
-
-        Returns a complete AgentMessage if all slots are now filled,
-        or *None* if the user's input doesn't resolve the pending action
-        and the normal intent-classification flow should proceed instead.
-        """
-        pending_intent_name: str = pending.get("intent_name", "")
-        missing_slots: list[str] = pending.get("missing_slots", [])
-        tool_name: str | None = pending.get("tool_name")
-        existing_params: dict[str, Any] = dict(pending.get("params", {}))
-
-        # Extract entities using the intent-aware extractor
-        entities: dict[str, Any] = _extract_entities(
-            message.content, pending_intent_name,
-        )
-
-        # Specific slot extraction (regex-based)
-        for slot in missing_slots:
-            if slot in entities:
-                continue
-            if slot == "order_id":
-                m = _re.search(r"ORD-[\w]+", message.content, _re.IGNORECASE)
-                if m:
-                    entities["order_id"] = m.group(0)
-
-        # Generic fallback: only if no specific slot was filled above
-        specific_filled = any(s in entities for s in ("order_id", "keyword"))
-        if not specific_filled:
-            for slot in missing_slots:
-                if slot in entities:
-                    continue
-                if slot == "keyword":
-                    entities["keyword"] = message.content.strip()
-                elif slot == "reason":
-                    entities["reason"] = message.content.strip()
-                elif slot == "address":
-                    entities["address"] = message.content.strip()
-                break  # One generic slot per message
-
-        still_missing = [s for s in missing_slots if s not in entities]
-
-        if still_missing:
-            # Partial fill — keep pending and return a clarify message
-            updated_params = {**existing_params, **entities}
-            context.slots["_pending_action"] = {
-                "intent_name": pending_intent_name,
-                "missing_slots": still_missing,
-                "tool_name": tool_name,
-                "params": updated_params,
-            }
-            prompt = self._slot_prompt(still_missing)
-            return AgentMessage(
-                message_type="text",
-                payload={"content": prompt, "question": prompt},
-                text_fallback=prompt,
-            )
-
-        # All slots filled — build a synthetic intent and execute directly
-        merged_params = {**existing_params, **entities}
-        context.slots.pop("_pending_action", None)
-
-        pending_intent = Intent(
-            name=pending_intent_name,
-            display_name=pending_intent_name,
-            confidence=1.0,
-            # Synthetic intent recovered from a persisted pending action; the
-            # "context" source is a deliberate runtime marker that flows into
-            # response meta (intent_source) and is outside the Intent.source
-            # Literal owned by core/types.py.
-            source="context",  # type: ignore[arg-type]
-            entities=merged_params,
-        )
-        tools = await self._tool_injector.inject(pending_intent, context)
-
-        # Build a tool_call action with the complete params
-        if tool_name:
-            action = Action(
-                type="tool_call",
-                payload={
-                    "tool_name": tool_name,
-                    "params": merged_params,
-                    "call_id": f"call-{pending_intent_name}",
-                },
-            )
-            return await self._execute_action(action, context, tools)
-
-        # No tool — use strategy to decide
-        action = await self._strategy.decide(pending_intent, context, tools)
-        return await self._execute_action(action, context, tools)
-
-    @staticmethod
-    def _slot_prompt(missing_slots: list[str]) -> str:
-        prompts = {
-            "order_id": "请问您的订单号是多少？例如 ORD-001",
-            "keyword": "请问您想搜索什么商品？",
-            "reason": "请问退款原因是什么？",
-            "address": "请问新的收货地址是什么？",
-        }
-        first = missing_slots[0]
-        return prompts.get(first, f"请提供以下信息：{', '.join(missing_slots)}")
 
     async def _execute_action(
         self,
@@ -1072,6 +861,22 @@ class DialogueOrchestrator:
 
         tokens = self._record_llm_cost(response)
         return response.content, tokens
+
+    async def _persist_turn(
+        self,
+        context: SessionContext,
+        message: UserMessage,
+        response: AgentMessage,
+    ) -> None:
+        """Record this turn in history, then persist the context.
+
+        Every successful path in :meth:`_core_handle` (confirm reply,
+        pending-slot reply, cache hit, normal flow) records the turn and saves
+        the context as a pair. Wrapping them here keeps the record + save
+        identical on every path so the two can never drift apart.
+        """
+        self._record_turn(context, message, response)
+        await self._context_manager.save(context, response)
 
     @staticmethod
     def _record_turn(

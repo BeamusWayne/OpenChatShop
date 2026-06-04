@@ -6,14 +6,15 @@ WebSocket / SSE handlers and are now factored into single helpers:
 * ``_append_session_message`` — the append + bounded-history (``_msg_history_cap``)
   invariant, previously duplicated ~4x across the HUMAN_MODE / TRANSFER_PENDING /
   AI / assistant-response branches.
-* ``_build_done_event`` — the ``done``-event reconstruction (rebuild AgentMessage,
+* ``build_done_event`` — the ``done``-event reconstruction (rebuild AgentMessage,
   run the channel adapter, repackage), previously duplicated between the SSE and
-  WebSocket paths.
+  WebSocket paths; now a shared module-level helper in ``api/streaming.py``.
 
-The helpers are module-private closures inside ``create_app``, so these tests
-drive them through the public endpoints (the real interaction), not by reaching
-into internals — that also guards the *contract* the agent router relies on
-(it reads the same shared ``_session_messages`` the WS writes).
+``_append_session_message`` is a module-private closure inside ``create_app`` and
+``build_done_event`` lives at module level in ``streaming.py``; either way these
+tests drive them through the public endpoints (the real interaction), not by
+reaching into internals — that also guards the *contract* the agent router relies
+on (it reads the same shared ``_session_messages`` the WS writes).
 """
 from __future__ import annotations
 
@@ -97,7 +98,7 @@ def _read_done(frame_iter: Any) -> dict[str, Any]:
 class TestDoneEventReconstructionParity:
     """SSE and WebSocket must produce byte-identical ``done`` payloads.
 
-    Both paths now share ``_build_done_event``. The single-source guarantee is
+    Both paths now share ``build_done_event``. The single-source guarantee is
     that, given the same streamed ``done`` event, both channels reconstruct the
     same adapted message — including carrying the explicit ``text_fallback``
     through for a rich type that has no ``payload["content"]``.
@@ -155,7 +156,7 @@ class TestDoneEventReconstructionParity:
         Regression guard for the OPT-2 reconstruction: ``product_list`` is rich
         with NO ``payload["content"]`` and is unsupported by the WeChat channel,
         so the adapter downgrades to ``{"type": "text", "content": fallback}``.
-        If ``_build_done_event`` regressed to sourcing the fallback from
+        If ``build_done_event`` regressed to sourcing the fallback from
         ``payload`` instead of the explicit field, this downgraded body would be
         empty. Verified on BOTH the SSE and WebSocket paths so the shared helper
         is pinned on each channel.

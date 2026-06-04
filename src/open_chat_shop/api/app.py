@@ -23,7 +23,7 @@ from starlette.types import ASGIApp
 
 from open_chat_shop.api.agent import create_agent_router
 from open_chat_shop.api.auth import AuthMiddleware
-from open_chat_shop.api.streaming import StreamEvent, StreamingOrchestrator
+from open_chat_shop.api.streaming import StreamingOrchestrator, build_done_event
 from open_chat_shop.api.wechat import setup_wechat_routes
 from open_chat_shop.channel.registry import default_registry
 from open_chat_shop.core.handoff import HumanAgent, TransferRequest
@@ -230,40 +230,6 @@ def create_app(
         if len(msgs) > _msg_history_cap:
             _session_messages[sid] = msgs[-_msg_history_cap:]
 
-    def _build_done_event(
-        event: StreamEvent, adapter: Any
-    ) -> StreamEvent:
-        """Reconstruct the channel-adapted ``done`` event from a stream event.
-
-        The SSE and WebSocket paths both rebuild an :class:`AgentMessage` from
-        the streaming ``done`` payload, run it through the channel *adapter*,
-        and repackage the adapted result as a ``done`` event. The only thing
-        that differs between the two paths is the adapter instance and the wire
-        encoding (``to_sse`` vs ``to_json``), so the shared reconstruction lives
-        here and the caller picks the encoding.
-
-        ``text_fallback`` is read explicitly (not dug out of ``payload``)
-        because rich payloads (order_card, product_list, ...) have no
-        ``content`` key — see streaming.py's done event.
-        """
-        agent_msg = AgentMessage(
-            message_type=event.data.get("message_type", "text"),
-            payload=event.data.get("payload", {}),
-            text_fallback=event.data.get("text_fallback", ""),
-        )
-        channel_msg = adapter.adapt_with_fallback(agent_msg)
-        return StreamEvent(
-            type="done",
-            data={
-                "message_type": channel_msg.content_type,
-                "payload": channel_msg.payload,
-                "suggestions": event.data.get("suggestions", []),
-                "requires_confirmation": event.data.get(
-                    "requires_confirmation", False
-                ),
-            },
-        )
-
     # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
@@ -427,7 +393,7 @@ def create_app(
         async def event_generator() -> AsyncIterator[str]:
             async for event in streaming.handle_streaming(msg):
                 if event.type == "done":
-                    yield _build_done_event(event, sse_adapter).to_sse()
+                    yield build_done_event(event, sse_adapter).to_sse()
                 else:
                     yield event.to_sse()
 
@@ -533,7 +499,7 @@ def create_app(
                 async for event in streaming.handle_streaming(msg):
                     if event.type == "done":
                         await websocket.send_text(
-                            _build_done_event(event, ws_adapter).to_json()
+                            build_done_event(event, ws_adapter).to_json()
                         )
                         # Record assistant response
                         _append_session_message(session_id, {

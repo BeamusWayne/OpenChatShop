@@ -5,9 +5,12 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from open_chat_shop.core.types import AgentMessage, UserMessage
+
+if TYPE_CHECKING:
+    from open_chat_shop.channel.base import ChannelAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,37 @@ class StreamEvent:
     def to_sse(self) -> str:
         """Format as Server-Sent Events frame: ``data: JSON\\n\\n``."""
         return f"data: {self.to_json()}\n\n"
+
+
+def build_done_event(event: StreamEvent, adapter: ChannelAdapter) -> StreamEvent:
+    """Reconstruct the channel-adapted ``done`` event from a stream event.
+
+    The SSE and WebSocket paths both rebuild an :class:`AgentMessage` from the
+    streaming ``done`` payload, run it through the channel *adapter*, and
+    repackage the adapted result as a ``done`` event. The only thing that
+    differs between the two paths is the adapter instance and the wire encoding
+    (``to_sse`` vs ``to_json``), so the shared reconstruction lives here and the
+    caller picks the encoding.
+
+    ``text_fallback`` is read explicitly (not dug out of ``payload``) because
+    rich payloads (order_card, product_list, ...) have no ``content`` key — see
+    the ``done`` event emitted in :meth:`StreamingOrchestrator.handle_streaming`.
+    """
+    agent_msg = AgentMessage(
+        message_type=event.data.get("message_type", "text"),
+        payload=event.data.get("payload", {}),
+        text_fallback=event.data.get("text_fallback", ""),
+    )
+    channel_msg = adapter.adapt_with_fallback(agent_msg)
+    return StreamEvent(
+        type="done",
+        data={
+            "message_type": channel_msg.content_type,
+            "payload": channel_msg.payload,
+            "suggestions": event.data.get("suggestions", []),
+            "requires_confirmation": event.data.get("requires_confirmation", False),
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

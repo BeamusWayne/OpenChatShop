@@ -12,6 +12,7 @@ from typing import ClassVar
 
 import pytest
 
+from open_chat_shop.core.confirmation_resolver import ConfirmationResolver
 from open_chat_shop.core.context import InMemoryContextManager
 from open_chat_shop.core.intent import (
     CascadeIntentEngine,
@@ -218,19 +219,19 @@ class TestAffirmationQuestionGuard:
         Before the fix these matched the unanchored affirm regex and the
         pending high-risk refund/cancel was executed without consent.
         """
-        assert DialogueOrchestrator._detect_affirmation(reply) is None
+        assert ConfirmationResolver._detect_affirmation(reply) is None
 
     @pytest.mark.unit
     @pytest.mark.parametrize("reply", ["确认", "确定", "好的", "是的", "可以", "执行"])
     def test_plain_confirmation_still_affirms(self, reply: str) -> None:
         """Genuine standalone confirmations must still resolve to 'affirm' —
         the guard tightens questions, it must not break real consent."""
-        assert DialogueOrchestrator._detect_affirmation(reply) == "affirm"
+        assert ConfirmationResolver._detect_affirmation(reply) == "affirm"
 
     @pytest.mark.unit
     @pytest.mark.parametrize("reply", ["不用了", "取消", "算了", "不确定"])
     def test_negation_still_denies(self, reply: str) -> None:
-        assert DialogueOrchestrator._detect_affirmation(reply) == "deny"
+        assert ConfirmationResolver._detect_affirmation(reply) == "deny"
 
     @pytest.mark.unit
     @pytest.mark.asyncio

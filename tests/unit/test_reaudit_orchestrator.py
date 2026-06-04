@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from open_chat_shop.core.confirmation_resolver import ConfirmationResolver
 from open_chat_shop.core.context import InMemoryContextManager
 from open_chat_shop.core.handoff import (
     AgentStatus,
@@ -49,15 +50,15 @@ class TestConfirmVerifyHedge:
     )
     def test_verify_request_is_not_consent(self, text: str) -> None:
         # RED before the fix: the substring affirm match returned "affirm".
-        assert DialogueOrchestrator._detect_affirmation(text) is None
+        assert ConfirmationResolver._detect_affirmation(text) is None
 
     @pytest.mark.parametrize("text", ["确认", "确定执行", "好的", "可以", "是的", "ok"])
     def test_genuine_consent_still_affirms(self, text: str) -> None:
-        assert DialogueOrchestrator._detect_affirmation(text) == "affirm"
+        assert ConfirmationResolver._detect_affirmation(text) == "affirm"
 
     @pytest.mark.parametrize("text", ["取消", "不要", "算了"])
     def test_negation_still_denies(self, text: str) -> None:
-        assert DialogueOrchestrator._detect_affirmation(text) == "deny"
+        assert ConfirmationResolver._detect_affirmation(text) == "deny"
 
 
 class TestHandoffAutoAssignSession:

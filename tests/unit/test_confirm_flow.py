@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import pytest
 
+from open_chat_shop.core.confirmation_resolver import ConfirmationResolver
 from open_chat_shop.core.context import InMemoryContextManager
 from open_chat_shop.core.intent import (
     CascadeIntentEngine,
@@ -88,18 +89,18 @@ class TestDetectAffirmation:
         ["确认", "是", "是的", "对", "好的", "可以", "嗯", "确定执行", "ok", "yes"],
     )
     def test_affirmative(self, text: str) -> None:
-        assert DialogueOrchestrator._detect_affirmation(text) == "affirm"
+        assert ConfirmationResolver._detect_affirmation(text) == "affirm"
 
     @pytest.mark.parametrize(
         "text",
         ["取消", "不", "不是", "算了", "不用", "不确定", "no", "cancel"],
     )
     def test_negative(self, text: str) -> None:
-        assert DialogueOrchestrator._detect_affirmation(text) == "deny"
+        assert ConfirmationResolver._detect_affirmation(text) == "deny"
 
     @pytest.mark.parametrize("text", ["查询订单", "你好", "帮我看看商品"])
     def test_ambiguous_returns_none(self, text: str) -> None:
-        assert DialogueOrchestrator._detect_affirmation(text) is None
+        assert ConfirmationResolver._detect_affirmation(text) is None
 
 
 # ---------------------------------------------------------------------------
