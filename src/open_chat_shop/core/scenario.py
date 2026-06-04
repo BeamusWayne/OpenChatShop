@@ -3,6 +3,18 @@
 Provides an abstract base class for building state-machine-driven
 conversation scenarios (e.g. refund, exchange, complaint) and a concrete
 RefundScenarioFSM implementation.
+
+WIRING (intentional, NOT dead code): the concrete FSMs here and in
+``core/scenarios/`` are instantiated in the production composition root
+``main.py`` (``RefundScenarioFSM``/``ComplaintScenarioFSM``/
+``OrderInquiryScenarioFSM``) and registered via
+``DialogueOrchestrator.set_scenarios``. The orchestrator's ``switch_scenario``
+action then drives them through ``get_initial_state`` (see
+``orchestrator._execute_action``). ``can_transition`` / ``execute_transition``
+are the FSM's public contract for multi-turn flows and are exercised by the
+registered scenarios. A regression test in
+``tests/unit/test_reaudit_deadcode.py`` locks this orchestrator<->FSM seam so
+the subsystem is not mistaken for dead code and deleted.
 """
 from __future__ import annotations
 

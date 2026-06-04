@@ -214,23 +214,46 @@ class ContentSafetyFilter:
 # 3. Permission Checker (RBAC)
 # ---------------------------------------------------------------------------
 
+# Canonical built-in customer-facing tool set (mirrors configs/security.yaml and
+# the ``required_roles=["customer"]`` declarations on every builtin tool).
+_CUSTOMER_TOOLS: list[str] = [
+    "query_order",
+    "query_logistics",
+    "search_product",
+    "check_refund_eligibility",
+    "create_refund",
+    "cancel_order",
+    "modify_address",
+    "handoff_to_human",
+]
+
+# Default (fallback) RBAC used only when no ``roles`` are supplied to
+# PermissionChecker — e.g. ``SecurityGuard({})`` in tests, or a deployment whose
+# security.yaml omits the rbac block.
+#
+# SECURITY (audit LOW — least privilege): elevated roles are intentionally
+# enumerated rather than granted ``["*"]``. On the runtime path only the
+# customer-facing WebSocket reaches this checker and it always passes
+# ``user_role="customer"`` (see SessionContext.user_role / orchestrator
+# _execute_tool). The agent dashboard authorises separately via X-Agent-Secret
+# and never calls PermissionChecker. So no elevated role is reachable here today;
+# were one to become reachable under the *default* config, a silent ``["*"]``
+# would hand it every tool — including any future/unknown tool. Enumerating the
+# known tools instead keeps the default least-privilege while still covering
+# every tool that actually exists.
+#
+# Wildcard (``["*"]``) semantics are NOT removed — an explicit config (the real
+# configs/security.yaml, or any caller passing ``tools: ["*"]``) still grants
+# all tools. This only changes the *implicit fallback*, never an explicit grant.
 _DEFAULT_RBAC: dict[str, Any] = {
     "roles": [
-        {
-            "name": "customer",
-            "tools": [
-                "query_order",
-                "query_logistics",
-                "search_product",
-                "check_refund_eligibility",
-                "create_refund",
-                "cancel_order",
-                "modify_address",
-                "handoff_to_human",
-            ],
-        },
-        {"name": "agent", "tools": ["*"]},
-        {"name": "admin", "tools": ["*"]},
+        {"name": "customer", "tools": list(_CUSTOMER_TOOLS)},
+        # agent: a human agent handling a handed-off conversation needs the same
+        # customer-facing toolset (no privileged/admin-only tools exist).
+        {"name": "agent", "tools": list(_CUSTOMER_TOOLS)},
+        # admin: same enumerated set; broaden via explicit config if/when
+        # privileged tools are introduced, rather than relying on a silent "*".
+        {"name": "admin", "tools": list(_CUSTOMER_TOOLS)},
     ]
 }
 

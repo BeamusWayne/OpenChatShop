@@ -225,19 +225,23 @@ def _build_rbac_config(sec_rbac: Any) -> dict[str, Any]:
     }
 
 
-def build_orchestrator(
-    resources: dict[str, Any] | None = None,
-) -> DialogueOrchestrator:
-    """Construct the full component pipeline and return a DialogueOrchestrator.
+# Builtin intent definitions so Level-3 LLM knows what intents are available.
+INTENT_DEFINITIONS: list[IntentInfo] = [
+    IntentInfo(name="query_order", display_name="查询订单", description="用户想查询订单状态、详情", sample_count=3, typical_entities=["order_id"]),
+    IntentInfo(name="query_logistics", display_name="物流查询", description="用户想查询快递物流状态", sample_count=4, typical_entities=["order_id"]),
+    IntentInfo(name="search_product", display_name="搜索商品", description="用户想搜索或浏览商品", sample_count=4, typical_entities=["keyword", "category"]),
+    IntentInfo(name="check_refund_eligibility", display_name="查看退款条件", description="用户想知道订单能否退款", sample_count=3, typical_entities=["order_id"]),
+    IntentInfo(name="create_refund", display_name="申请退款", description="用户想申请退款或退货", sample_count=2, typical_entities=["order_id", "reason"]),
+    IntentInfo(name="cancel_order", display_name="取消订单", description="用户想取消订单", sample_count=2, typical_entities=["order_id", "reason"]),
+    IntentInfo(name="modify_address", display_name="修改地址", description="用户想修改收货地址", sample_count=2, typical_entities=["order_id", "new_address"]),
+    IntentInfo(name="handoff_to_human", display_name="转人工客服", description="用户想转接人工客服", sample_count=2, typical_entities=[]),
+    IntentInfo(name="greeting", display_name="打招呼", description="用户打招呼", sample_count=2, typical_entities=[]),
+    IntentInfo(name="thanks", display_name="感谢", description="用户表示感谢", sample_count=2, typical_entities=[]),
+]
 
-    When ``resources`` is provided it is populated with live infrastructure
-    handles (``db_engine``, ``redis_async``, ``redis_sync``) so the caller can
-    publish them on ``app.state`` for the readiness probe and graceful
-    shutdown. Existing callers that omit ``resources`` are unaffected.
-    """
-    yaml_config = _load_yaml_config()
 
-    # Build security config from YAML or fallback to empty defaults
+def _build_security_guard(yaml_config: dict[str, Any]) -> SecurityGuard:
+    """Build the SecurityGuard from parsed YAML, falling back to empty RBAC."""
     security_config: dict[str, Any] = {"rbac": {}}
     if "security" in yaml_config:
         sec = yaml_config["security"]
@@ -250,34 +254,24 @@ def build_orchestrator(
             "pii_masking": sec.content_safety.pii_masking,
         }
         security_config["rbac"] = _build_rbac_config(sec.rbac)["rbac"]
+    return SecurityGuard(security_config)
 
-    security_guard = SecurityGuard(security_config)
 
-    # Task 1: Smart storage selection based on environment
-    context_manager = _build_context_manager()
+def _build_intent_engine(provider: Any) -> CascadeIntentEngine:
+    """Build the three-level cascade intent engine.
 
+    Registers the builtin intent definitions and loads golden-dataset samples
+    for Level-2 semantic matching, then attaches ``provider`` (if any) for the
+    Level-3 LLM fallback.
+    """
     rule_matcher = RuleBasedMatcher()
     _register_default_rules(rule_matcher)
     intent_engine = CascadeIntentEngine(rule_matcher, level1_threshold=0.85)
 
-    # Register all supported intents so Level-3 LLM knows what is available
-    INTENT_DEFINITIONS = [
-        IntentInfo(name="query_order", display_name="查询订单", description="用户想查询订单状态、详情", sample_count=3, typical_entities=["order_id"]),
-        IntentInfo(name="query_logistics", display_name="物流查询", description="用户想查询快递物流状态", sample_count=4, typical_entities=["order_id"]),
-        IntentInfo(name="search_product", display_name="搜索商品", description="用户想搜索或浏览商品", sample_count=4, typical_entities=["keyword", "category"]),
-        IntentInfo(name="check_refund_eligibility", display_name="查看退款条件", description="用户想知道订单能否退款", sample_count=3, typical_entities=["order_id"]),
-        IntentInfo(name="create_refund", display_name="申请退款", description="用户想申请退款或退货", sample_count=2, typical_entities=["order_id", "reason"]),
-        IntentInfo(name="cancel_order", display_name="取消订单", description="用户想取消订单", sample_count=2, typical_entities=["order_id", "reason"]),
-        IntentInfo(name="modify_address", display_name="修改地址", description="用户想修改收货地址", sample_count=2, typical_entities=["order_id", "new_address"]),
-        IntentInfo(name="handoff_to_human", display_name="转人工客服", description="用户想转接人工客服", sample_count=2, typical_entities=[]),
-        IntentInfo(name="greeting", display_name="打招呼", description="用户打招呼", sample_count=2, typical_entities=[]),
-        IntentInfo(name="thanks", display_name="感谢", description="用户表示感谢", sample_count=2, typical_entities=[]),
-    ]
-
     for info in INTENT_DEFINITIONS:
         intent_engine.register_intent(info)
 
-    # Task 3: Load intent samples for Level-2 semantic matching
+    # Load intent samples for Level-2 semantic matching
     try:
         from open_chat_shop.evaluation.golden_dataset import BUILT_IN_SAMPLES
         for sample in BUILT_IN_SAMPLES:
@@ -289,12 +283,21 @@ def build_orchestrator(
     except Exception as e:
         logger.warning("Could not load intent samples: %s", e)
 
-    # Task 2: Wire LLM provider (Anthropic -> LiteLLM fallback)
-    provider = _build_provider()
     if provider is not None:
         intent_engine.set_provider(provider)
 
-    # Instantiate tools and build registry
+    return intent_engine
+
+
+def _build_tool_injector(
+    yaml_config: dict[str, Any],
+    resources: dict[str, Any] | None,
+) -> ToolInjector:
+    """Build the tool registry + routing rules and return a ToolInjector.
+
+    Routing rules come from ``tool_routing.yaml`` when present, otherwise a
+    per-tool default (each intent name maps to the same-named tool).
+    """
     from open_chat_shop.tools.builtin import create_tools
 
     repos = _build_repositories(resources)
@@ -302,7 +305,6 @@ def build_orchestrator(
     for tool in create_tools(repos):
         tool_registry[tool.name] = tool
 
-    # Build routing rules from YAML config or fallback to per-tool defaults
     if "tool_routing" in yaml_config:
         tr = yaml_config["tool_routing"]
         routing_rules = [
@@ -326,80 +328,55 @@ def build_orchestrator(
         ]
         max_tools = 5
 
-    tool_injector = ToolInjector(
+    return ToolInjector(
         registry=tool_registry,
         routing_rules=routing_rules,
         max_tools_per_turn=max_tools,
     )
 
-    strategy = RuleBasedStrategy()
 
-    orchestrator = DialogueOrchestrator(
-        security_guard=security_guard,
-        context_manager=context_manager,
-        intent_engine=intent_engine,
-        tool_injector=tool_injector,
-        strategy=strategy,
-    )
+def _wire_resilience(provider: Any) -> None:
+    """Wrap ``provider.chat`` in place with a circuit breaker + retry policy.
 
-    if provider is not None:
-        # Always register the provider so the orchestrator can reach the LLM,
-        # independent of whether resilience wrapping succeeds.
-        orchestrator.set_provider(provider)
-        try:
-            # Wrap provider.chat (the method the orchestrator actually calls) with
-            # circuit breaker + retry for resilience. NOTE: LLMProvider exposes
-            # chat/stream/embed — there is no `generate` method.
-            circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=30.0)
-            retry_policy = RetryPolicy(max_retries=3)
-            original_chat = provider.chat
-
-            async def _resilient_chat(*args: Any, **kwargs: Any) -> Any:
-                async def _call() -> Any:
-                    return await original_chat(*args, **kwargs)
-                return await retry_policy.execute(circuit_breaker.call, _call)
-
-            provider.chat = _resilient_chat
-        except Exception:
-            logger.exception(
-                "Resilience wiring failed; provider runs without circuit breaker/retry"
-            )
-
-    # Wire observability: audit logger and cost tracker
+    Mutates ``provider`` so the orchestrator's existing ``chat`` call path gains
+    resilience. NOTE: LLMProvider exposes chat/stream/embed — there is no
+    ``generate`` method, so the wrap must target ``chat``. Failures here are
+    logged and swallowed so the provider still works without resilience.
+    """
     try:
-        from open_chat_shop.observability.logging import AuditLogger, CostTracker
-        orchestrator.set_audit_logger(AuditLogger())
-        orchestrator.set_cost_tracker(CostTracker())
+        circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=30.0)
+        retry_policy = RetryPolicy(max_retries=3)
+        original_chat = provider.chat
+
+        async def _resilient_chat(*args: Any, **kwargs: Any) -> Any:
+            async def _call() -> Any:
+                return await original_chat(*args, **kwargs)
+            return await retry_policy.execute(circuit_breaker.call, _call)
+
+        provider.chat = _resilient_chat
     except Exception:
-        logger.warning("Observability wiring failed, continuing without audit/cost tracking")
+        logger.exception(
+            "Resilience wiring failed; provider runs without circuit breaker/retry"
+        )
 
-    # Wire ToolResponseMapper for rich tool-result messages
-    orchestrator.set_tool_response_mapper(ToolResponseMapper())
 
-    # Wire scenario FSMs for multi-turn business dialogue flows
-    scenarios = {
-        "refund": RefundScenarioFSM(),
-        "complaint": ComplaintScenarioFSM(),
-        "order_inquiry": OrderInquiryScenarioFSM(),
-    }
-    orchestrator.set_scenarios(scenarios)
+def _build_redis_clients(
+    resources: dict[str, Any] | None,
+) -> tuple[Any, Any]:
+    """Build the sync + async Redis clients (or ``(None, None)`` when unset).
 
-    # Wire HandoffQueue for human-agent transfer tracking
-    handoff_queue = HandoffQueue()
-    orchestrator.set_handoff_queue(handoff_queue)
-
-    # Wire middleware pipeline: rate limiting -> budget enforcement -> slot tracking
-    rate_limiter = InMemoryRateLimiter()
-    _redis_url = os.environ.get("REDIS_URL", "")
-    # ResponseCache and RedisRateLimiter call the client with PLAIN SYNCHRONOUS
-    # methods (redis.get / redis.eval / redis.setex). Passing the asyncio client
-    # would make every call return an un-awaited coroutine, which the broad
-    # excepts swallow — silently disabling the cache (always miss) and the rate
-    # limiter (always fail-open) while leaking coroutines. So build a dedicated
-    # SYNC client for these two. The async client is kept only for the Redis
-    # context manager (which awaits it correctly).
+    ResponseCache and RedisRateLimiter call the client with PLAIN SYNCHRONOUS
+    methods (redis.get / redis.eval / redis.setex). Passing the asyncio client
+    would make every call return an un-awaited coroutine, which the broad
+    excepts swallow — silently disabling the cache (always miss) and the rate
+    limiter (always fail-open) while leaking coroutines. So build a dedicated
+    SYNC client for those two. The async client is kept only for the Redis
+    context manager (which awaits it correctly). Both are published on
+    ``resources`` for shutdown disposal when ``resources`` is provided.
+    """
     redis_sync = None
     redis_async = None
+    _redis_url = os.environ.get("REDIS_URL", "")
     if _redis_url:
         try:
             import redis as _redis_sync_mod
@@ -415,6 +392,16 @@ def build_orchestrator(
     if resources is not None:
         resources["redis_sync"] = redis_sync
         resources["redis_async"] = redis_async
+    return redis_sync, redis_async
+
+
+def _build_middleware(redis_sync: Any) -> MiddlewarePipeline:
+    """Assemble the middleware pipeline: rate limit -> budget -> slot tracking.
+
+    ``redis_sync`` (when present) backs the rate limiter; otherwise it falls
+    back to the in-memory limiter.
+    """
+    rate_limiter = InMemoryRateLimiter()
     rate_guard = RateLimitGuard(rate_limiter, redis_client=redis_sync)
     budget_manager = SessionBudgetManager(BudgetConfig(max_tokens=100_000))
     slot_tracker = create_builtin_tracker()
@@ -423,11 +410,72 @@ def build_orchestrator(
     pipeline.add(RateLimitMiddleware(rate_guard))
     pipeline.add(BudgetMiddleware(budget_manager))
     pipeline.add(SlotTrackingMiddleware(slot_tracker))
-    orchestrator.set_middleware_pipeline(pipeline)
+    return pipeline
+
+
+def _wire_support_services(orchestrator: DialogueOrchestrator) -> None:
+    """Attach observability, response mapper, scenarios and handoff queue.
+
+    These are the always-on support services that do not depend on the LLM
+    provider or Redis: audit/cost logging, the rich-message mapper, the business
+    scenario FSMs, and the human-handoff queue.
+    """
+    try:
+        from open_chat_shop.observability.logging import AuditLogger, CostTracker
+        orchestrator.set_audit_logger(AuditLogger())
+        orchestrator.set_cost_tracker(CostTracker())
+    except Exception:
+        logger.warning("Observability wiring failed, continuing without audit/cost tracking")
+
+    orchestrator.set_tool_response_mapper(ToolResponseMapper())
+
+    scenarios = {
+        "refund": RefundScenarioFSM(),
+        "complaint": ComplaintScenarioFSM(),
+        "order_inquiry": OrderInquiryScenarioFSM(),
+    }
+    orchestrator.set_scenarios(scenarios)
+
+    orchestrator.set_handoff_queue(HandoffQueue())
+
+
+def build_orchestrator(
+    resources: dict[str, Any] | None = None,
+) -> DialogueOrchestrator:
+    """Compose the full component pipeline and return a DialogueOrchestrator.
+
+    Reads as a short composition root: each cohesive subsystem is built by a
+    dedicated ``_build_*`` / ``_wire_*`` helper. When ``resources`` is provided
+    it is populated with live infrastructure handles (``db_engine``,
+    ``redis_async``, ``redis_sync``) so the caller can publish them on
+    ``app.state`` for the readiness probe and graceful shutdown. Existing
+    callers that omit ``resources`` are unaffected.
+    """
+    yaml_config = _load_yaml_config()
+
+    provider = _build_provider()
+
+    orchestrator = DialogueOrchestrator(
+        security_guard=_build_security_guard(yaml_config),
+        context_manager=_build_context_manager(),
+        intent_engine=_build_intent_engine(provider),
+        tool_injector=_build_tool_injector(yaml_config, resources),
+        strategy=RuleBasedStrategy(),
+    )
+
+    if provider is not None:
+        # Always register the provider so the orchestrator can reach the LLM,
+        # independent of whether resilience wrapping succeeds.
+        orchestrator.set_provider(provider)
+        _wire_resilience(provider)
+
+    _wire_support_services(orchestrator)
+
+    redis_sync, _redis_async = _build_redis_clients(resources)
+    orchestrator.set_middleware_pipeline(_build_middleware(redis_sync))
 
     # Wire response cache (Redis-backed when available, in-memory fallback)
-    response_cache = ResponseCache(redis_client=redis_sync)
-    orchestrator.set_response_cache(response_cache)
+    orchestrator.set_response_cache(ResponseCache(redis_client=redis_sync))
 
     return orchestrator
 

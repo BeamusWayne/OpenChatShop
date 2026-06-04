@@ -83,6 +83,18 @@ class CascadeStrategy:
     - tool_calling → text parsing
     - streaming → sync
     - vision → reject
+
+    DELIBERATE EXTENSION POINT (kept on purpose, not dead code): this is the
+    concrete realization of the ``LLMProvider`` ABC contract — "This layer
+    handles cascade strategy and capability degradation." Today ``main.py``'s
+    ``_build_provider`` returns a single provider (Anthropic → LiteLLM try
+    fallback), so the multi-provider cascade is not yet wired into the
+    composition root, but the contract is intentionally provided for callers
+    that pass more than one provider. It is coupled to ``TransientProviderError``
+    above (whose docstring references "the cascade's ``except ProviderError``").
+    Its capability-degradation contract is pinned by a regression test in
+    ``tests/unit/test_reaudit_deadcode.py``; removing it would orphan that test
+    and contradict the ABC docstring, so it is retained rather than deleted.
     """
 
     def __init__(self, providers: list[LLMProvider]) -> None:

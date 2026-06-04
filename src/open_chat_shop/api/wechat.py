@@ -46,6 +46,13 @@ _WECHAT_EMPTY_ACK = ""
 _MSGID_CACHE_MAX = 1024
 _seen_msgids: OrderedDict[str, str] = OrderedDict()
 
+# Strong references to turns still running after we have already answered WeChat
+# with an empty ack (the deadline fired but the orchestrator turn is mid-flight).
+# asyncio only holds a weak reference to a bare task, so without this it could be
+# garbage-collected before it finishes its committed write. Each task removes
+# itself here on completion (see _spawn_turn).
+_inflight_tasks: set[asyncio.Task[AgentMessage]] = set()
+
 
 def _remember_msgid(msg_id: str, reply: str) -> None:
     """Record the reply produced for *msg_id*, evicting oldest beyond the cap."""
@@ -135,6 +142,58 @@ def _build_reply_xml(to_user: str, from_user: str, content: str) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
+def _spawn_turn(
+    orchestrator: DialogueOrchestrator,
+    user_msg: UserMessage,
+    *,
+    to_user: str,
+    from_user: str,
+    msg_id: str,
+) -> asyncio.Task[AgentMessage]:
+    """Run a turn as a background task that survives the request deadline.
+
+    The task is *not* tied to the HTTP response: if we ack WeChat empty because
+    the 4.5s deadline fired, this turn keeps running to completion so a tool
+    write that already committed (e.g. create_refund) is never abandoned
+    mid-flight by cancellation. When it finishes, it records the produced reply
+    under *msg_id* so a later WeChat re-delivery returns the real reply (and
+    never re-runs the orchestrator), instead of the placeholder empty ack.
+
+    *to_user* / *from_user* are the reply envelope's recipient (the OpenID) and
+    sender (the official-account id), matching the foreground reply exactly.
+    """
+    task: asyncio.Task[AgentMessage] = asyncio.ensure_future(
+        orchestrator.handle_message(user_msg)
+    )
+    _inflight_tasks.add(task)
+
+    def _on_done(done: asyncio.Task[AgentMessage]) -> None:
+        _inflight_tasks.discard(done)
+        if done.cancelled():
+            return
+        exc = done.exception()
+        if exc is not None:
+            logger.warning(
+                "WeChat background turn failed (session=%s msg_id=%s): %r",
+                user_msg.session_id,
+                msg_id,
+                exc,
+            )
+            return
+        # Backfill the cache only if the deadline already answered empty for this
+        # MsgId; if the foreground path returned the reply, it owns the entry.
+        if _seen_msgids.get(msg_id) == _WECHAT_EMPTY_ACK:
+            reply_xml = _build_reply_xml(
+                to_user=to_user,
+                from_user=from_user,
+                content=done.result().text_fallback,
+            )
+            _remember_msgid(msg_id, reply_xml)
+
+    task.add_done_callback(_on_done)
+    return task
+
+
 @wechat_router.post("/callback")
 async def receive_message(request: Request) -> Response:
     if _orchestrator is None:
@@ -192,17 +251,27 @@ async def receive_message(request: Request) -> Response:
         user_id=from_user,
     )
 
-    # Hard 5s SLA: cap the turn at _WECHAT_DEADLINE_SECONDS. On timeout, ack with
-    # an empty body so WeChat stops retrying; the slow turn is abandoned rather
-    # than left to blow the deadline and trigger duplicate re-delivery.
-    try:
-        response: AgentMessage = await asyncio.wait_for(
-            _orchestrator.handle_message(user_msg),
-            timeout=_WECHAT_DEADLINE_SECONDS,
-        )
-    except TimeoutError:
+    # Hard 5s SLA: run the turn as a background task and wait at most
+    # _WECHAT_DEADLINE_SECONDS for it. asyncio.wait does NOT cancel the task on
+    # timeout (unlike wait_for): a tool write that already committed must not be
+    # torn down mid-flight, which would leave a partial/inconsistent state hidden
+    # behind the empty ack. On timeout we ack empty *only* for the HTTP response;
+    # the turn finishes in the background and backfills the MsgId cache with its
+    # real reply, so a WeChat re-delivery returns that reply (never re-running
+    # the orchestrator). See docs/production-hardening-audit.md (single-worker).
+    task = _spawn_turn(
+        _orchestrator,
+        user_msg,
+        to_user=from_user,
+        from_user=to_user,
+        msg_id=msg_id,
+    )
+    await asyncio.wait({task}, timeout=_WECHAT_DEADLINE_SECONDS)
+
+    if not task.done():
         logger.warning(
-            "WeChat turn exceeded %.1fs deadline; acking empty (session=%s msg_id=%s)",
+            "WeChat turn exceeded %.1fs deadline; acking empty, turn continues "
+            "in background (session=%s msg_id=%s)",
             _WECHAT_DEADLINE_SECONDS,
             from_user,
             msg_id,
@@ -210,6 +279,7 @@ async def receive_message(request: Request) -> Response:
         _remember_msgid(msg_id, _WECHAT_EMPTY_ACK)
         return Response(content=_WECHAT_EMPTY_ACK, media_type="text/plain")
 
+    response: AgentMessage = task.result()
     reply_xml = _build_reply_xml(
         to_user=from_user,
         from_user=to_user,

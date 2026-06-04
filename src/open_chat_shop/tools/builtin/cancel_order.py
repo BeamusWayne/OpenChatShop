@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from open_chat_shop.core.tool import BaseTool
-from open_chat_shop.core.types import CheckResult, SessionContext, ToolPermission, ToolResult
-from open_chat_shop.storage.repositories.abc import OrderRepository
-from open_chat_shop.storage.repositories.memory import InMemoryOrderRepository
+from open_chat_shop.core.types import SessionContext, ToolPermission, ToolResult
+from open_chat_shop.tools.builtin._order_mutation import OrderMutationTool
 
 
-class CancelOrderTool(BaseTool):
+class CancelOrderTool(OrderMutationTool):
     """Cancel an order that is in pending or processing status."""
 
     name: str = "cancel_order"
@@ -34,46 +32,31 @@ class CancelOrderTool(BaseTool):
         requires_confirmation=True,
     )
 
-    def __init__(self, order_repo: OrderRepository | None = None) -> None:
-        self._order_repo = order_repo or InMemoryOrderRepository()
+    def _status_reasons(
+        self, order: dict[str, Any], order_id: str
+    ) -> tuple[str | None, str | None] | None:
+        if order["status"] in ("pending", "processing"):
+            return None
+        return (
+            f"订单 {order_id} 当前状态不可取消",
+            f"Order {order_id} cannot be cancelled (status: {order['status']})",
+        )
 
-    async def pre_check(self, params: dict[str, Any], context: SessionContext) -> CheckResult:
-        order_id = params["order_id"]
-        order = self._order_repo.get_for_user(order_id, context.user_id)
-        if order is None:
-            return CheckResult(passed=False, reason=f"订单 {order_id} 不存在")
-        if order["status"] not in ("pending", "processing"):
-            return CheckResult(
-                passed=False,
-                reason=f"订单 {order_id} 当前状态不可取消",
-            )
-        return CheckResult(passed=True)
-
-    async def execute(self, params: dict[str, Any], context: SessionContext) -> ToolResult:
-        order_id = params["order_id"]
+    def _perform(
+        self,
+        order: dict[str, Any],
+        order_id: str,
+        params: dict[str, Any],
+        context: SessionContext,
+    ) -> dict[str, Any]:
         reason = params["reason"]
-
-        order = self._order_repo.get_for_user(order_id, context.user_id)
-        if order is None:
-            return ToolResult(success=False, error=f"Order {order_id} not found")
-
-        if order["status"] not in ("pending", "processing"):
-            return ToolResult(
-                success=False,
-                error=f"Order {order_id} cannot be cancelled (status: {order['status']})",
-            )
-
         self._order_repo.save_snapshot(order_id)
         self._order_repo.update_status(order_id, "cancelled", cancellation_reason=reason)
-
-        return ToolResult(
-            success=True,
-            data={
-                "order_id": order_id,
-                "status": "cancelled",
-                "reason": reason,
-            },
-        )
+        return {
+            "order_id": order_id,
+            "status": "cancelled",
+            "reason": reason,
+        }
 
     async def compensate(self, params: dict[str, Any], context: SessionContext) -> None:
         """Restore the order to its previous state on failure."""

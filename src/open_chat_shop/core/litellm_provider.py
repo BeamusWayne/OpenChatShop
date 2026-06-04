@@ -12,7 +12,7 @@ import litellm
 import yaml
 
 from open_chat_shop.core.exceptions import ProviderError
-from open_chat_shop.core.provider import LLMProvider
+from open_chat_shop.core.provider import LLMProvider, TransientProviderError
 from open_chat_shop.core.types import (
     GenerateConfig,
     LLMChunk,
@@ -180,11 +180,68 @@ class LiteLLMProvider(LLMProvider):
         )
 
     def _wrap_error(self, exc: Exception) -> ProviderError:
-        return ProviderError(
+        """Map a LiteLLM/transport exception to the right ProviderError flavour.
+
+        Transient upstream failures (timeout, connection drop, 5xx, rate limit)
+        become ``TransientProviderError`` so ``resilience.RetryPolicy`` retries
+        them; everything else (auth, bad request, content policy, parsing) stays
+        a plain, non-retryable ``ProviderError``. This mirrors
+        ``AnthropicProvider._to_provider_error`` — without it a wrapped transient
+        from the LiteLLM fallback path was a plain ``ProviderError`` that matched
+        no entry in ``_RETRYABLE`` and so was never retried (audit PROVIDER HIGH).
+        """
+        if isinstance(exc, TransientProviderError):
+            return exc
+        cls = (
+            TransientProviderError if self._is_transient(exc) else ProviderError
+        )
+        return cls(
             message=str(exc),
             provider=self._model,
             details={"exception_type": type(exc).__name__},
         )
+
+    @staticmethod
+    def _is_transient(exc: Exception) -> bool:
+        """Return True if *exc* is a retryable transient upstream failure.
+
+        Raw transport errors (``TimeoutError``/``ConnectionError``/``OSError``)
+        are transient. LiteLLM's SDK exceptions are rooted at ``OpenAIError`` and
+        are NOT builtin ``OSError`` subclasses, so the retryable ones (timeout,
+        connection, 5xx, rate limit) must be matched explicitly or retry misses
+        them. Permanent failures (auth, bad request, not found, content policy)
+        return False so we fail fast instead of hammering a broken upstream.
+        """
+        if isinstance(exc, TimeoutError | ConnectionError | OSError):
+            return True
+        try:
+            import httpx
+            from litellm.exceptions import (
+                APIConnectionError,
+                BadGatewayError,
+                InternalServerError,
+                RateLimitError,
+                ServiceUnavailableError,
+                Timeout,
+            )
+
+            # httpx.TransportError covers connect/read/write/pool timeouts and
+            # network errors. LiteLLM is httpx-backed and usually wraps these in
+            # its own Timeout/APIConnectionError, but can let some escape raw;
+            # they are NOT builtin OSError subclasses, so they must be matched
+            # explicitly or retry would miss them (mirrors AnthropicProvider).
+            return isinstance(
+                exc,
+                Timeout
+                | APIConnectionError
+                | InternalServerError
+                | ServiceUnavailableError
+                | BadGatewayError
+                | RateLimitError
+                | httpx.TransportError,
+            )
+        except ImportError:  # pragma: no cover - both are hard dependencies
+            return False
 
 
 @dataclass

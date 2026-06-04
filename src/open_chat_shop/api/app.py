@@ -216,6 +216,54 @@ def create_app(
         await asyncio.sleep(delay)
         _session_messages.pop(sid, None)
 
+    def _append_session_message(sid: str, entry: dict[str, Any]) -> None:
+        """Append *entry* to a session's history, trimming to the cap.
+
+        Single owner of the append + bounded-list invariant that was
+        copy-pasted across the customer WebSocket branches (user message in
+        HUMAN_MODE / TRANSFER_PENDING / AI path, and the assistant response).
+        Keeping it in one place means the ``_msg_history_cap`` bound cannot
+        drift between branches.
+        """
+        msgs = _session_messages.setdefault(sid, [])
+        msgs.append(entry)
+        if len(msgs) > _msg_history_cap:
+            _session_messages[sid] = msgs[-_msg_history_cap:]
+
+    def _build_done_event(
+        event: StreamEvent, adapter: Any
+    ) -> StreamEvent:
+        """Reconstruct the channel-adapted ``done`` event from a stream event.
+
+        The SSE and WebSocket paths both rebuild an :class:`AgentMessage` from
+        the streaming ``done`` payload, run it through the channel *adapter*,
+        and repackage the adapted result as a ``done`` event. The only thing
+        that differs between the two paths is the adapter instance and the wire
+        encoding (``to_sse`` vs ``to_json``), so the shared reconstruction lives
+        here and the caller picks the encoding.
+
+        ``text_fallback`` is read explicitly (not dug out of ``payload``)
+        because rich payloads (order_card, product_list, ...) have no
+        ``content`` key — see streaming.py's done event.
+        """
+        agent_msg = AgentMessage(
+            message_type=event.data.get("message_type", "text"),
+            payload=event.data.get("payload", {}),
+            text_fallback=event.data.get("text_fallback", ""),
+        )
+        channel_msg = adapter.adapt_with_fallback(agent_msg)
+        return StreamEvent(
+            type="done",
+            data={
+                "message_type": channel_msg.content_type,
+                "payload": channel_msg.payload,
+                "suggestions": event.data.get("suggestions", []),
+                "requires_confirmation": event.data.get(
+                    "requires_confirmation", False
+                ),
+            },
+        )
+
     # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
@@ -379,28 +427,7 @@ def create_app(
         async def event_generator() -> AsyncIterator[str]:
             async for event in streaming.handle_streaming(msg):
                 if event.type == "done":
-                    # Reconstruct AgentMessage from done event data and adapt
-                    agent_msg = AgentMessage(
-                        message_type=event.data.get("message_type", "text"),
-                        payload=event.data.get("payload", {}),
-                        # Use the explicit text_fallback the streaming layer
-                        # carries — rich payloads (order_card, ...) have no
-                        # "content" key, so digging into payload loses the tool's
-                        # computed fallback text (see streaming.py done event).
-                        text_fallback=event.data.get("text_fallback", ""),
-                    )
-                    channel_msg = sse_adapter.adapt_with_fallback(agent_msg)
-                    yield StreamEvent(
-                        type="done",
-                        data={
-                            "message_type": channel_msg.content_type,
-                            "payload": channel_msg.payload,
-                            "suggestions": event.data.get("suggestions", []),
-                            "requires_confirmation": event.data.get(
-                                "requires_confirmation", False
-                            ),
-                        },
-                    ).to_sse()
+                    yield _build_done_event(event, sse_adapter).to_sse()
                 else:
                     yield event.to_sse()
 
@@ -476,17 +503,15 @@ def create_app(
                                 "content": data,
                             },
                         }, ensure_ascii=False))
-                    msgs = _session_messages.setdefault(session_id, [])
-                    msgs.append({"role": "user", "content": data})
-                    if len(msgs) > _msg_history_cap:
-                        _session_messages[session_id] = msgs[-_msg_history_cap:]
+                    _append_session_message(
+                        session_id, {"role": "user", "content": data}
+                    )
                     continue
 
                 if _mode == SessionMode.TRANSFER_PENDING:
-                    msgs = _session_messages.setdefault(session_id, [])
-                    msgs.append({"role": "user", "content": data})
-                    if len(msgs) > _msg_history_cap:
-                        _session_messages[session_id] = msgs[-_msg_history_cap:]
+                    _append_session_message(
+                        session_id, {"role": "user", "content": data}
+                    )
                     await websocket.send_text(json.dumps({
                         "type": "transfer_status",
                         "data": {"status": "waiting"},
@@ -494,10 +519,9 @@ def create_app(
                     continue
 
                 # Record user message
-                msgs = _session_messages.setdefault(session_id, [])
-                msgs.append({"role": "user", "content": data})
-                if len(msgs) > _msg_history_cap:
-                    _session_messages[session_id] = msgs[-_msg_history_cap:]
+                _append_session_message(
+                    session_id, {"role": "user", "content": data}
+                )
 
                 msg = UserMessage(
                     session_id=session_id,
@@ -508,37 +532,16 @@ def create_app(
                 streaming = StreamingOrchestrator(_orchestrator)
                 async for event in streaming.handle_streaming(msg):
                     if event.type == "done":
-                        agent_msg = AgentMessage(
-                            message_type=event.data.get("message_type", "text"),
-                            payload=event.data.get("payload", {}),
-                            # Explicit text_fallback (rich payloads have no
-                            # "content" key — see streaming.py / SSE path).
-                            text_fallback=event.data.get("text_fallback", ""),
-                        )
-                        channel_msg = ws_adapter.adapt_with_fallback(agent_msg)
                         await websocket.send_text(
-                            StreamEvent(
-                                type="done",
-                                data={
-                                    "message_type": channel_msg.content_type,
-                                    "payload": channel_msg.payload,
-                                    "suggestions": event.data.get("suggestions", []),
-                                    "requires_confirmation": event.data.get(
-                                        "requires_confirmation", False
-                                    ),
-                                },
-                            ).to_json()
+                            _build_done_event(event, ws_adapter).to_json()
                         )
                         # Record assistant response
-                        _session_messages[session_id].append({
+                        _append_session_message(session_id, {
                             "role": "assistant",
                             "content": event.data.get("text_fallback", ""),
                             "message_type": event.data.get("message_type"),
                             "payload": event.data.get("payload"),
                         })
-                        msgs = _session_messages[session_id]
-                        if len(msgs) > _msg_history_cap:
-                            _session_messages[session_id] = msgs[-_msg_history_cap:]
                     else:
                         await websocket.send_text(event.to_json())
         except WebSocketDisconnect:

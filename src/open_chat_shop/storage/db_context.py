@@ -6,10 +6,14 @@ Supports session recovery across restarts.
 History is stored as a faithful mirror of ``context.history`` plus the latest
 assistant ``response``: every ``save`` reconciles the persisted rows against the
 (already compressed) in-memory history, so compaction actually shrinks what is
-stored and the row count never grows without bound. Cumulative token usage is
-kept authoritatively on the ``__session_meta__`` row so it survives compaction
-and reload. The synchronous SQLModel work runs on a worker thread via
-``asyncio.to_thread`` so it never blocks the event loop.
+stored and the row count never grows without bound. The reconciliation diffs the
+desired row sequence against what is already persisted and only rewrites the
+divergent tail — unchanged prior rows keep their identity, so a steady
+append-only conversation writes one user + one assistant row per turn instead of
+deleting and re-inserting the whole history (O(N) write amplification per turn).
+Cumulative token usage is kept authoritatively on the ``__session_meta__`` row so
+it survives compaction and reload. The synchronous SQLModel work runs on a worker
+thread via ``asyncio.to_thread`` so it never blocks the event loop.
 """
 from __future__ import annotations
 
@@ -241,7 +245,7 @@ class DatabaseContextManager(ContextManager):
     ) -> None:
         try:
             with get_session(self._engine) as db:
-                from sqlmodel import select
+                from sqlmodel import col, select
 
                 # Upsert session metadata (carries authoritative token usage).
                 existing_meta = db.exec(
@@ -290,53 +294,85 @@ class DatabaseContextManager(ContextManager):
                     )
 
                 # Reconcile history rows to mirror the (compacted) in-memory
-                # history. Delete the prior non-meta rows, then re-write the
-                # current history followed by the new assistant turn. This
-                # persists every turn present in ``context.history`` (user turns
-                # included) and lets compaction actually shrink storage.
-                old_rows = db.exec(
-                    select(ConversationLog).where(
-                        ConversationLog.session_id == context.session_id,
-                        ConversationLog.role != _META_ROLE,
-                    )
-                ).all()
-                for row in old_rows:
-                    db.delete(row)
+                # history followed by the new assistant turn, but WITHOUT the
+                # delete-all + reinsert-all that caused O(N) write amplification
+                # every turn (audit OPT). We diff the desired row sequence
+                # against what is already persisted (ordered by created_at, the
+                # same order ``load`` reconstructs) and only touch the divergent
+                # tail: unchanged prior rows keep their identity and are never
+                # rewritten, so a steady append-only conversation writes ONE new
+                # user row + one assistant row per turn instead of 2N.
 
-                for msg in context.history:
-                    db.add(
-                        ConversationLog(
-                            session_id=context.session_id,
-                            user_id=context.user_id,
-                            role=msg.role,
-                            content=msg.content,
-                            created_at=msg.timestamp,
-                        )
-                    )
-
-                # Append the assistant reply as a row ONLY if context.history
-                # does not already end with it. The orchestrator's _record_turn
-                # appends the reply to context.history BEFORE calling save (so it
-                # is already written by the history loop above); direct callers
-                # may pass history without it. Without this guard the DB backend
-                # stored the reply twice every turn — a regression where
-                # _record_turn and this append both ran across an untested seam.
+                # Desired sequence = context.history, plus the assistant reply
+                # ONLY if context.history does not already end with it. The
+                # orchestrator's _record_turn appends the reply to
+                # context.history BEFORE calling save (so it is already part of
+                # ``history``); direct callers may pass history without it.
+                # Without this guard the DB backend stored the reply twice every
+                # turn — a regression where _record_turn and this append both ran
+                # across an untested seam, so the de-dup MUST be preserved.
                 last = context.history[-1] if context.history else None
                 already_appended = (
                     last is not None
                     and last.role == "assistant"
                     and last.content == response.text_fallback
                 )
+                desired: list[tuple[str, str, datetime, int]] = [
+                    (msg.role, msg.content, msg.timestamp, 0)
+                    for msg in context.history
+                ]
                 if not already_appended:
+                    desired.append(
+                        ("assistant", response.text_fallback, reply_ts, response_tokens)
+                    )
+
+                # Existing non-meta rows in the SAME chronological order load
+                # uses (ascending created_at). No row limit here: reconciliation
+                # must see every stale row so compaction can delete them.
+                existing_rows = db.exec(
+                    select(ConversationLog)
+                    .where(
+                        ConversationLog.session_id == context.session_id,
+                        ConversationLog.role != _META_ROLE,
+                    )
+                    .order_by(col(ConversationLog.created_at).asc())
+                ).all()
+
+                # Longest common prefix of (role, content, normalized timestamp).
+                # SQLite reloads timestamps tz-naive, so normalize both sides to
+                # tz-aware UTC before comparing (a stable in-memory row matches
+                # its persisted copy exactly — see microsecond round-trip test).
+                prefix = 0
+                limit = min(len(existing_rows), len(desired))
+                while prefix < limit:
+                    row = existing_rows[prefix]
+                    role, content, ts, _tokens = desired[prefix]
+                    if (
+                        row.role == role
+                        and row.content == content
+                        and _as_aware_utc(row.created_at) == _as_aware_utc(ts)
+                    ):
+                        prefix += 1
+                    else:
+                        break
+
+                # Delete only the divergent / surplus tail of persisted rows
+                # (everything compaction dropped or that changed); keep the
+                # matched prefix untouched so prior rows are never rewritten.
+                for row in existing_rows[prefix:]:
+                    db.delete(row)
+
+                # Insert only the new / changed tail of the desired sequence.
+                for role, content, ts, tokens in desired[prefix:]:
                     db.add(
                         ConversationLog(
                             session_id=context.session_id,
                             user_id=context.user_id,
-                            role="assistant",
-                            content=response.text_fallback,
+                            role=role,
+                            content=content,
                             intent_name=None,
-                            tokens_used=response_tokens,
-                            created_at=reply_ts,
+                            tokens_used=tokens,
+                            created_at=ts,
                         )
                     )
         except Exception as e:
