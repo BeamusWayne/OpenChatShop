@@ -32,7 +32,8 @@
 **修复：** 12 个文件不相交簇并行修（含跨簇契约 C1/C2/C4）+ 回归测试（12.agents，1.2M tokens）。**测试 983 → 1153（+170），ruff + mypy --strict 全绿，真实 LLM e2e 复验通过。** 提交 `d195007`（主体）+ `516055a`（计时安全比较 + CORS 守卫收尾）。
 
 - 关键非机械修复见 audit doc 修复状态节。IDOR 真接线（orchestrator 绑 message.user_id→context.user_id + 接管守卫；app.py 早已从 JWT 填 UserMessage.user_id，缺的只是这一步拷贝）。
-- 残留（已记录、非阻塞）：H4 指标埋点（模块已修、调用点未接）、provider aclose 未接 lifespan、SSE PII（需 API 变更）、renderers 死代码、attack 样本期望、C3 多 worker（已 workers=1 + 文档缓解）。
+- **H4 指标埋点已补完**（commit 67dc7e6）：record_chat_request/duration + llm/tool/cache 计数器 + ACTIVE_SESSIONS/HANDOFF_QUEUE_SIZE gauge 接入 orchestrator/handoff，/metrics 实测有数据，+4 RED-GREEN 测试。1153→1157。
+- 剩余残留（已记录、非阻塞）：provider aclose 未接 lifespan、SSE PII（需 API 变更）、renderers 死代码、attack 样本期望、C3 多 worker（已 workers=1 + 文档缓解）。
 
 **要点重申：** 两轮都靠真实 LLM e2e 才暴露 level-3 路径与生产接线的真问题，单测（MockProvider/InMemory）覆盖不到。
 
