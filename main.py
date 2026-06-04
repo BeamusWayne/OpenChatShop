@@ -83,11 +83,17 @@ def _register_default_rules(matcher: RuleBasedMatcher) -> None:
         matcher.add_rule(intent_name, pattern, weight)
 
 
-def _build_context_manager() -> Any:
+def _build_context_manager(resources: dict[str, Any] | None = None) -> Any:
     """Select context manager based on environment variables.
 
     Priority: DATABASE_URL > REDIS_URL > InMemoryContextManager.
     Falls back gracefully when the chosen backend is unavailable.
+
+    A selected RedisContextManager owns an async client with its own connection
+    pool; it is published under ``resources["context_redis"]`` (when
+    ``resources`` is provided) so the lifespan handler can ``aclose()`` it on
+    shutdown. This client is distinct from the cache/rate-limiter clients built
+    by ``_build_redis_clients``.
     """
     _database_url = os.environ.get("DATABASE_URL", "")
     _redis_url = os.environ.get("REDIS_URL", "")
@@ -108,6 +114,8 @@ def _build_context_manager() -> Any:
             from open_chat_shop.storage.redis_context import RedisContextManager
             redis_client = aioredis.from_url(_redis_url)
             context_manager = RedisContextManager(redis_client)
+            if resources is not None:
+                resources["context_redis"] = redis_client
             logger.info("Using Redis context manager")
             return context_manager
         except Exception as e:
@@ -457,7 +465,7 @@ def build_orchestrator(
 
     orchestrator = DialogueOrchestrator(
         security_guard=_build_security_guard(yaml_config),
-        context_manager=_build_context_manager(),
+        context_manager=_build_context_manager(resources),
         intent_engine=_build_intent_engine(provider),
         tool_injector=_build_tool_injector(yaml_config, resources),
         strategy=RuleBasedStrategy(),
@@ -524,6 +532,7 @@ def create_main_app() -> FastAPI:
     _db_engine = resources.get("db_engine")
     _redis_async = resources.get("redis_async")
     _redis_sync = resources.get("redis_sync")
+    _context_redis = resources.get("context_redis")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -565,6 +574,13 @@ def create_main_app() -> FastAPI:
                 _redis_sync.close()
             except Exception:
                 logger.warning("Failed to close sync Redis client", exc_info=True)
+        # The RedisContextManager owns a separate async client (its own pool);
+        # it is never published on app.state, so close it from the closure.
+        if _context_redis is not None:
+            try:
+                await _context_redis.aclose()
+            except Exception:
+                logger.warning("Failed to close context Redis client", exc_info=True)
         if hasattr(app.state, 'db_engine') and app.state.db_engine:
             app.state.db_engine.dispose()
         # Release the LLM provider's HTTP connection pool (AnthropicProvider
