@@ -174,7 +174,12 @@ class DialogueOrchestrator:
         lock = self._session_locks.setdefault(message.session_id, asyncio.Lock())
         async with lock:
             if _METRICS_AVAILABLE:
-                ACTIVE_SESSIONS.set(len(self._session_locks))
+                # Real in-flight concurrency = sessions whose lock is currently
+                # held, not the size of the (capped, monotonically-filling) lock
+                # cache (audit: gauge previously tracked lock-table size).
+                ACTIVE_SESSIONS.set(
+                    sum(1 for lk in self._session_locks.values() if lk.locked())
+                )
             start = time.monotonic()
             response: AgentMessage | None = None
             try:

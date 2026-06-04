@@ -383,9 +383,11 @@ def create_app(
                     agent_msg = AgentMessage(
                         message_type=event.data.get("message_type", "text"),
                         payload=event.data.get("payload", {}),
-                        text_fallback=event.data.get("payload", {}).get(
-                            "content", ""
-                        ),
+                        # Use the explicit text_fallback the streaming layer
+                        # carries — rich payloads (order_card, ...) have no
+                        # "content" key, so digging into payload loses the tool's
+                        # computed fallback text (see streaming.py done event).
+                        text_fallback=event.data.get("text_fallback", ""),
                     )
                     channel_msg = sse_adapter.adapt_with_fallback(agent_msg)
                     yield StreamEvent(
@@ -509,9 +511,9 @@ def create_app(
                         agent_msg = AgentMessage(
                             message_type=event.data.get("message_type", "text"),
                             payload=event.data.get("payload", {}),
-                            text_fallback=event.data.get("payload", {}).get(
-                                "content", ""
-                            ),
+                            # Explicit text_fallback (rich payloads have no
+                            # "content" key — see streaming.py / SSE path).
+                            text_fallback=event.data.get("text_fallback", ""),
                         )
                         channel_msg = ws_adapter.adapt_with_fallback(agent_msg)
                         await websocket.send_text(
@@ -530,7 +532,7 @@ def create_app(
                         # Record assistant response
                         _session_messages[session_id].append({
                             "role": "assistant",
-                            "content": event.data.get("payload", {}).get("content", ""),
+                            "content": event.data.get("text_fallback", ""),
                             "message_type": event.data.get("message_type"),
                             "payload": event.data.get("payload"),
                         })
