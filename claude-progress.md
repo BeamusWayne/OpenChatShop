@@ -7,15 +7,28 @@
 - 标准验证路径：./init.sh verify
 - 当前最高优先级未完成功能：全部完成（Phase 1-7）
 - 当前 blocker：无
-- CI 状态：**ruff / mypy --strict / pytest（1282 passed）/ harness 四关全绿（2026-06-04，Session 5 直接复跑逐关确认，非仅凭文档）**
+- CI 状态：**ruff / mypy --strict / pytest（1282 passed，77 源文件）/ harness 四关全绿（2026-06-04，Session 6 重构后每步逐关复跑确认）**
   - ⚠️ Session 5 复跑时发现 **`./init.sh` 自 `aea5527` 起 bash 语法坏**（install/verify 两个 if/else 块各多一个 `fi`，line 47/62）——四关都直接跑、从不走 init.sh，故一直没暴露。已修（commit `2bf9c48`），`bash -n` 干净。固定工作循环 step 7「检查端到端路径是否损坏」正是为抓这类问题。
 - 已完成：lint 债 114→0、mypy 224→0、真实 LLM e2e 验证（GLM-5.1 via 智谱，chat/FC/streaming + 全管道）、**3 轮全量审计 + 修复**（审计1 53 项 → 再审 47 → 三审 20；所有 CRITICAL/HIGH 全清。报告：docs/code-health-audit-2026-06-03.md、docs/audit-2026-06-04.md、docs/reaudit-2026-06-04.md）
 
 ### 下一会话优先（按此顺序）
-1. **orchestrator god-object 重构**（core/orchestrator.py **1125 行** → 抽出 pending/confirm 机制（ConfirmationResolver）+ **pending-slot recovery（PendingSlotResolver：_try_resolve_pending/_slot_prompt）** + SSE/WS done-重建 + _persist_turn helper；re-audit-2 登记的最大质量项，**必须带测试专注做，不并行**。reaudit line 160-162 明确建议把这两个子机抽成独立 collaborator）
-   - ⚠️ **原"_try_resolve_pending 槽位边界"硬化项并入此处**：Session 5 细读后判定其没有精确定义的 bug（`break`/`still_missing`/`_slot_prompt[0]` 边界都已守好或属可辩护的 UX 逻辑），且正是 refactor 要抽取的脆弱簇。**不在重构外 piecemeal 改这块**（违背最简/精准/防契约打架的教训）——清理随 PendingSlotResolver 抽取一起做。
-2. 剩余优化（LOW/MEDIUM，独立小项）：cache-key 仍含 stale slot/内部键（reaudit LOW-1）· get() write-through cache 无上限淘汰（reaudit MEDIUM-2，与 _session_locks cap 不一致）· OrderMutationTool pre_check/execute 双查 DB · db_context existing_rows 无上限 SELECT · _build_done_event adapter 类型 Any · pending 路径规则匹配跑两遍（LOW perf）
+1. ~~orchestrator god-object 重构~~ **✅ 完成（Session 6，commit `61f0415`）**：抽出 ConfirmationResolver（`confirmation_resolver.py`）+ PendingSlotResolver（`pending_slot_resolver.py`，含原 #4 槽位边界原样平移）+ build_done_event 平移到 `streaming.py` 模块级（adapter 类型收紧）+ _persist_turn helper。orchestrator.py **1126→930**，行为零变化，四关每步全绿。详见下方 Session 6 节。
+2. 剩余优化（LOW/MEDIUM，独立小项）：cache-key 仍含 stale slot/内部键（reaudit LOW-1）· get() write-through cache 无上限淘汰（reaudit MEDIUM-2，与 _session_locks cap 不一致）· OrderMutationTool pre_check/execute 双查 DB · db_context existing_rows 无上限 SELECT · pending 路径规则匹配跑两遍（LOW perf）
 3. 需人工/环境：docker build 冒烟（需 daemon）· 两前端组件去重（frontend/ 与 frontend-agent/）
+
+### Session 6 完成（2026-06-04，本会话）— orchestrator god-object 重构
+
+**任务：** 下一会话优先 #1。把 core/orchestrator.py（1126 行）的高内聚簇抽成独立 collaborator，**行为零变化**，带测试专注做、不并行，每步 ruff + mypy --strict + 全量 pytest 全绿再进下一步。提交 `61f0415`。
+
+**4 步（每步独立验证，全程 1282 passed，零新增/削弱测试）：**
+1. **ConfirmationResolver**（`core/confirmation_resolver.py`，134 行）：高风险确认环（audit HIGH-9）——4 个 affirmation regex + `_detect_affirmation` + `resolve()`。orchestrator `__init__` 实例化（持 host 反向引用）+ `_core_handle` 委托。9 处 `_detect_affirmation` 测试引用迁到新 home（断言一字不改）。
+2. **PendingSlotResolver**（`core/pending_slot_resolver.py`，140 行）：pending-slot recovery（`_try_resolve_pending` + `_slot_prompt`）。**原 #4 槽位边界原样平移、零行为变化**（Session 5 已判定无精确 bug，清理=抽成命名单元本身）。顺带清掉 orchestrator 3 个变 unused 的 import（`_re`/`_extract_entities`/`Intent`）。
+3. **done-重建收尾**：`_build_done_event` 从 `create_main_app` 闭包平移到 `api/streaming.py` 模块级（纯函数、零闭包捕获）并改名 `build_done_event`，`adapter: Any → ChannelAdapter`（清 reaudit LOW）。SSE/WS 仍共享，`TestDoneEventReconstructionParity` 两路 parity 不变。**注：done 去重本体 Session 4-5 早已完成，本步仅收尾平移+类型——经与用户确认范围后做。**
+4. **`_persist_turn` helper**：合并 `_core_handle` 4 处 `record_turn + save`（confirm / pending / cache-hit / 正常结尾）。`_record_turn` 保持原位（有直接测试钉死）。
+
+**设计：** collaborator 持 `host: DialogueOrchestrator` 反向引用（`TYPE_CHECKING` 注解，运行时不导入 orchestrator → 无循环导入），复用 orchestrator 的 `_execute_action`/`_tool_injector`/`_strategy`/`_error_response`/`_trace_extras`。不引入 Protocol（Rule 2 最简）。main.py 无需改动（resolver 在 `__init__` 内构造）。
+
+**结果：** orchestrator.py **1126 → 930 行**（−196），confirm/pending 簇成独立可测文件（+274 行两文件）。四关全绿（ruff / mypy --strict 77 文件 / pytest 1282 / harness check 0 错 0 警）。计划 `.harness/plans/active/20260604-1713-orchestrator-god-object-refactor.md` → completed/。
 
 ### Session 5 完成（2026-06-04，本会话）
 - **init.sh 语法修复**（`2bf9c48`）——见上 CI 状态注。
