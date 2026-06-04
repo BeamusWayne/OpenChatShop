@@ -71,3 +71,30 @@ async def test_db_and_inmemory_history_agree() -> None:
     mem_hist = [(m.role, m.content) for m in (await mem.load(sid)).history]
 
     assert db_hist == mem_hist, f"DB={db_hist} != InMemory={mem_hist}"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_db_backend_preserves_turn_order() -> None:
+    """Reloaded DB history must keep turns IN ORDER and timestamps strictly
+    increasing. The tied-timestamp regression (the default Message factory
+    stamped the back-to-back user+assistant pair with the same microsecond)
+    scrambled reload order (assistant before user) into the LLM prompt and
+    revived O(N) write-amplification — undetected because the existing tests
+    used strictly-increasing timestamps the production caller does not produce.
+    """
+    mgr = DatabaseContextManager(db_url="sqlite:///:memory:")
+    orch = _orchestrator(mgr)
+    sid = "order-seam"
+    contents = ["第一个问题", "第二个问题", "第三个问题", "第四个问题", "第五个问题"]
+    for c in contents:
+        await orch.handle_message(UserMessage(session_id=sid, content=c, channel="web"))
+
+    hist = (await mgr.load(sid)).history
+    # User turns appear in submission order; roles strictly alternate.
+    assert [m.content for m in hist if m.role == "user"] == contents
+    assert [m.role for m in hist] == ["user", "assistant"] * len(contents)
+    # The total-order guarantee: timestamps are strictly increasing. This
+    # assertion fails deterministically without the _record_turn fix (ties).
+    ts = [m.timestamp for m in hist]
+    assert all(ts[i] < ts[i + 1] for i in range(len(ts) - 1)), ts

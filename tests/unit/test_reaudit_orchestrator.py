@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from open_chat_shop.core.context import InMemoryContextManager
@@ -21,7 +23,14 @@ from open_chat_shop.core.orchestrator import DialogueOrchestrator
 from open_chat_shop.core.security import SecurityGuard
 from open_chat_shop.core.strategy import RuleBasedStrategy
 from open_chat_shop.core.tool import ToolInjector
-from open_chat_shop.core.types import Action, SessionContext, SessionMode
+from open_chat_shop.core.types import (
+    Action,
+    AgentMessage,
+    Message,
+    SessionContext,
+    SessionMode,
+    UserMessage,
+)
 
 
 def _orchestrator() -> DialogueOrchestrator:
@@ -76,3 +85,26 @@ class TestHandoffAutoAssignSession:
         assert ctx_b.human_agent_id is None
         assert queue.get_active_transfer("A") is not None  # A actually got the agent
         assert queue.get_active_transfer("B") is None
+
+
+class TestRecordTurnTimestamps:
+    """The DB backend reconstructs history order from created_at, so _record_turn
+    must assign STRICTLY-INCREASING timestamps (the default Message factory ties
+    the back-to-back user+assistant pair, scrambling DB reload order into the LLM
+    prompt — audit CRITICAL). The tie is timing-dependent, so force the scenario
+    deterministically by seeding a future-stamped turn: the new pair must land
+    strictly after it (without the fix it uses now() < the seed -> reliably RED).
+    """
+
+    def test_new_turn_anchored_strictly_after_existing_history(self) -> None:
+        ctx = SessionContext(session_id="s", user_id="u", channel="web")
+        future = datetime.now(UTC) + timedelta(hours=1)
+        ctx.history.append(Message(role="assistant", content="seed", timestamp=future))
+        DialogueOrchestrator._record_turn(
+            ctx,
+            UserMessage(session_id="s", content="hi", channel="web"),
+            AgentMessage(message_type="text", payload={}, text_fallback="hello"),
+        )
+        ts = [m.timestamp for m in ctx.history]
+        assert all(ts[i] < ts[i + 1] for i in range(len(ts) - 1)), ts
+        assert ts[1] > future

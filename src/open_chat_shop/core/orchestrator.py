@@ -8,6 +8,7 @@ import time
 from contextlib import AbstractContextManager
 from contextlib import nullcontext as _nullcontext
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from open_chat_shop.core.exceptions import (
@@ -1088,9 +1089,29 @@ class DialogueOrchestrator:
         both turns here restores multi-turn memory on every backend, matching
         the (role, content) shape the DB backend reconstructs.
         """
-        context.history.append(Message(role="user", content=message.content))
+        # The DB backend reconstructs history order from created_at, but the
+        # default Message factory stamps the back-to-back user+assistant pair
+        # with the SAME microsecond (~88% of the time) and there is no stable
+        # tiebreaker — which scrambles reload order (assistant before user, into
+        # the LLM prompt) and revives O(N) write-amplification (audit CRITICAL).
+        # Assign strictly-increasing timestamps, each pair anchored strictly
+        # after the last existing turn, so created_at is a true total order.
+        base = datetime.now(UTC)
+        if context.history:
+            last_ts = context.history[-1].timestamp
+            if last_ts.tzinfo is None:
+                last_ts = last_ts.replace(tzinfo=UTC)
+            if base <= last_ts:
+                base = last_ts + timedelta(microseconds=1)
         context.history.append(
-            Message(role="assistant", content=response.text_fallback)
+            Message(role="user", content=message.content, timestamp=base)
+        )
+        context.history.append(
+            Message(
+                role="assistant",
+                content=response.text_fallback,
+                timestamp=base + timedelta(microseconds=1),
+            )
         )
         if len(context.history) > _MAX_HISTORY_MESSAGES:
             del context.history[:-_MAX_HISTORY_MESSAGES]
