@@ -16,6 +16,7 @@ import logging
 import re
 import unicodedata
 from dataclasses import replace
+from itertools import groupby
 from typing import Any, ClassVar
 
 from open_chat_shop.core.exceptions import SecurityError
@@ -65,6 +66,11 @@ _MIN_BASE64_LENGTH = 20
 # short Chinese reactions/greetings ("？？？！！！", "😀😀好的") are legitimately
 # punctuation/emoji-dense and must not be flagged as injection.
 _MIN_RATIO_CHECK_LENGTH = 20
+# Each run of one identical character is capped at this length before the ratio
+# is computed, so emphatic repetition ("好的~~~~~~", "!!!", "...") cannot inflate
+# it. Capped (not collapsed to 1) on purpose: short attack cycles such as path
+# traversal "../../../" have runs of length <=2 and must keep contributing.
+_MAX_RUN_LEN = 3
 
 
 def _is_cjk_or_fullwidth_punctuation(ch: str) -> bool:
@@ -101,6 +107,25 @@ def _is_special_char(ch: str) -> bool:
     category = unicodedata.category(ch)
     # L* = letters (incl. CJK ideographs); So = other symbols (most emoji).
     return category[0] != "L" and category != "So"
+
+
+def _cap_repeated_runs(text: str) -> str:
+    """Cap every run of one identical character at ``_MAX_RUN_LEN`` characters.
+
+    ``"好的~~~~~~" -> "好的~~~"``, ``"!!!!!!" -> "!!!"``. Used only by the
+    special-char ratio heuristic: emphatic repetition of a single character
+    ("好的~~~", "谢谢~~~~", "等了。。。") is ubiquitous in Chinese chat and is NOT
+    obfuscation, but a long run lets one benign character dominate the ratio.
+
+    Capped rather than collapsed-to-1 so genuine short attack cycles survive:
+    path traversal ``../../../`` is made of length-2 ``..`` runs that stay intact
+    and keep AT-007 over the threshold. Multi-symbol obfuscation
+    (``<<<>>>###@@@``) is likewise unaffected — every distinct symbol still
+    counts, so an all-symbol string stays at ratio ~1.0.
+    """
+    return "".join(
+        ch * min(sum(1 for _ in grp), _MAX_RUN_LEN) for ch, grp in groupby(text)
+    )
 
 
 class PromptInjectionDetector:
@@ -152,11 +177,17 @@ class PromptInjectionDetector:
         CJK letters/punctuation and emoji are NOT counted as "special": they
         are normal content in the product's primary language. Only true control
         / ASCII-symbol obfuscation contributes to the ratio.
+
+        Long runs of an identical character are capped first (see
+        ``_cap_repeated_runs``) so emphatic repetition ("好的~~~", "!!!",
+        trailing "...") cannot inflate the ratio, while multi-symbol
+        obfuscation — which has no long identical runs — is unaffected.
         """
         if len(text) < _MIN_RATIO_CHECK_LENGTH:
             return False
-        special_count = sum(1 for ch in text if _is_special_char(ch))
-        ratio = special_count / len(text)
+        capped = _cap_repeated_runs(text)
+        special_count = sum(1 for ch in capped if _is_special_char(ch))
+        ratio = special_count / len(capped)
         return ratio > _MAX_SPECIAL_CHAR_RATIO
 
 
