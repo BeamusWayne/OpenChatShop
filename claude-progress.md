@@ -5,9 +5,9 @@
 - 仓库根目录：/Users/katya/Files/TestField/电商智能对话系统
 - 标准启动路径：./init.sh
 - 标准验证路径：./init.sh verify
-- 当前最高优先级未完成功能：全部完成（Phase 1-7）
+- 当前最高优先级未完成功能：全部完成（Phase 1-7）；**V2.0 架构升级方案（docs/架构升级方案书_V2.0.md，未提交）已启动——见 Session 8**
 - 当前 blocker：无
-- CI 状态：**ruff / mypy --strict / pytest（1287 passed，77 源文件）/ harness 四关全绿（2026-06-05，Session 7 逐关复跑确认）**
+- CI 状态：**ruff / mypy --strict / pytest（1294 passed，77 源文件）/ harness 四关全绿（2026-06-05，Session 8 逐关复跑确认）**
   - ⚠️ Session 5 复跑时发现 **`./init.sh` 自 `aea5527` 起 bash 语法坏**（install/verify 两个 if/else 块各多一个 `fi`，line 47/62）——四关都直接跑、从不走 init.sh，故一直没暴露。已修（commit `2bf9c48`），`bash -n` 干净。固定工作循环 step 7「检查端到端路径是否损坏」正是为抓这类问题。
 - 已完成：lint 债 114→0、mypy 224→0、真实 LLM e2e 验证（GLM-5.1 via 智谱，chat/FC/streaming + 全管道）、**3 轮全量审计 + 修复**（审计1 53 项 → 再审 47 → 三审 20；所有 CRITICAL/HIGH 全清。报告：docs/code-health-audit-2026-06-03.md、docs/audit-2026-06-04.md、docs/reaudit-2026-06-04.md）
 
@@ -21,6 +21,25 @@
      - **db_context `_save_sync` existing_rows SELECT**（line 332-338）**无 `.limit()`**，但 reconciliation 每轮把行数收敛到 `len(context.history)`（≤~100），故**稳态有界**；且处于标记的脆弱区、SELECT 为 ASC 排序（粗暴加 `.limit()` 会取**最旧**行、破坏 reconciliation 语义），清洁修复须配集成测试专做 → 风险 > LOW 收益。
      - **LOW-4 pending 双 rule-scan**：小规则集、low impact + orchestrator 伸手进 `_intent_engine._rule_matcher` 私有耦合；去重/解耦均触及 intent 引擎 API + 多个 stub 测试，blast radius 与 LOW 价值不匹配。
 3. 需人工/环境：docker build 冒烟（需 daemon）· 两前端组件去重（frontend/ 与 frontend-agent/）
+
+### Session 8 完成（2026-06-05，本会话）— V2.0 模块四第一刀：语义护栏误杀修复
+
+**任务：** 用户「继续」+「自主决策，做完了再反馈」。当天新增了未提交的《V2.0 架构升级方案书》（Multi-Agent 路由 / pgvector RAG / 长期记忆 / 语义护栏 4 模块、估 5 周）。与用户确认方向后选了 V2.0 **模块四里最独立、单会话可完成、零外部依赖**的一刀：修 `SecurityGuard` 对正常短句的误杀。
+
+**关键发现（先读后验，没有照搬方案书假设）：** 方案书说的「Emoji/中文标点误杀」其实 **Session 4（d195007）早已修**——`_MIN_RATIO_CHECK_LENGTH=20` 跳过短句、`_is_cjk_or_fullwidth_punctuation` 豁免中文标点、`_is_special_char` 豁免 emoji(So)/各文字(L*)。方案书描述的是修复前的旧状态。**但实测仍有一个真·误杀**：`好的好的好的，谢谢谢谢谢谢！！！~~~~~~~~~~~~~~~`（ratio 0.484 → 被判注入）——**ASCII 半角 `~`**（中文客服聊天里极常见的语气延长，"好的~~~""谢谢~~"）未豁免（全角 `～` 已豁免）。
+
+**修复（commit `558e96b`）：** `_check_special_char_ratio` 在算比例前先把**每段连续相同字符截断到 3**（`_cap_repeated_runs` + `_MAX_RUN_LEN=3`）。语气性长串（`~~~~`/`!!!`/`...`/`))))`）不再灌爆比例；**截断而非折叠到 1**——这样路径穿越 `../../../`（长度 2 的 `..` 段）原样保留、仍被拦。只动 `_check_special_char_ratio`，**不碰阈值/规则/依赖**。
+
+**过程中抓到并修正自己引入的回归（Rule 12 响亮失败）：** 第一版用「折叠到 1」，全量测试暴露 **AT-007 路径穿越攻击漏过**（`..` 被折叠 → ratio 0.423→0.36 跌破阈值）。改为 cap-3 后 AT-007 复绿。**正是全量套件 + 真实攻击样本接住了这个洞**——单看新测试不会发现。
+
+- **+7 回归测试**（5 个语气误杀 param + 多符号混淆仍拦 + 路径穿越 via ratio 仍拦），改前实测 RED（5 误杀 FAIL）。
+- **实测对照：** 12 条正常消息 0 误杀（改前 1），4 条已知攻击 0 漏过。**1287 → 1294 passed**，ruff + mypy --strict（77 文件）+ harness check 全绿。
+
+**发现但未修（超出本次"修误杀"范围、方向相反、Rule 12 如实上报）：两个检测缺口**
+1. **英文 "ignore all previous instructions" 漏检**：pattern `ignore\s+(previous|prior|all|above)\s+instructions?` 要求限定词后**紧跟** instructions，故 "ignore **all previous** instructions"（all 后是 previous）不匹配 → 基础英文注入漏过。**这是真·安全洞**，但属"加强检测"（与"减少误杀"相反方向），且改 pattern 有引入新误杀风险，留给用户决定（1 行正则可修：允许限定词间有词）。
+2. **`#`-混淆低于阈值漏过**：`i#g#n#o#r#e#/#a#l#l#<previous>#...` ratio 0.356 < 0.4。降阈值会**增加**误杀，与本次目标冲突，**不应动**。
+
+**下一步建议（V2.0 推进）：** 模块四剩余=输出幻觉校验（assert LLM 话术里的数字与 tool 返回严格一致，独立中等功能）；或上面缺口#1（小而安全正向）；或启动模块一/二/三（大盘，需先拆 feature_list + 用户确认）。
 
 ### Session 7 完成（2026-06-05，本会话）— 审计残留 #2 推进
 
