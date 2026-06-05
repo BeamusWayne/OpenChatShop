@@ -7,16 +7,29 @@
 - 标准验证路径：./init.sh verify
 - 当前最高优先级未完成功能：全部完成（Phase 1-7）
 - 当前 blocker：无
-- CI 状态：**ruff / mypy --strict / pytest（1282 passed，77 源文件）/ harness 四关全绿（2026-06-04，Session 6 重构后每步逐关复跑确认）**
+- CI 状态：**ruff / mypy --strict / pytest（1284 passed，77 源文件）/ harness 四关全绿（2026-06-05，Session 7 逐关复跑确认）**
   - ⚠️ Session 5 复跑时发现 **`./init.sh` 自 `aea5527` 起 bash 语法坏**（install/verify 两个 if/else 块各多一个 `fi`，line 47/62）——四关都直接跑、从不走 init.sh，故一直没暴露。已修（commit `2bf9c48`），`bash -n` 干净。固定工作循环 step 7「检查端到端路径是否损坏」正是为抓这类问题。
 - 已完成：lint 债 114→0、mypy 224→0、真实 LLM e2e 验证（GLM-5.1 via 智谱，chat/FC/streaming + 全管道）、**3 轮全量审计 + 修复**（审计1 53 项 → 再审 47 → 三审 20；所有 CRITICAL/HIGH 全清。报告：docs/code-health-audit-2026-06-03.md、docs/audit-2026-06-04.md、docs/reaudit-2026-06-04.md）
 
 ### 下一会话优先（按此顺序）
 1. ~~orchestrator god-object 重构~~ **✅ 完成（Session 6，commit `61f0415`）**：抽出 ConfirmationResolver（`confirmation_resolver.py`）+ PendingSlotResolver（`pending_slot_resolver.py`，含原 #4 槽位边界原样平移）+ build_done_event 平移到 `streaming.py` 模块级（adapter 类型收紧）+ _persist_turn helper。orchestrator.py **1126→930**，行为零变化，四关每步全绿。详见下方 Session 6 节。
-2. 剩余优化（LOW/MEDIUM，独立小项）：cache-key 仍含 stale slot/内部键（reaudit LOW-1）· get() write-through cache 无上限淘汰（reaudit MEDIUM-2，与 _session_locks cap 不一致）· OrderMutationTool pre_check/execute 双查 DB · db_context existing_rows 无上限 SELECT · pending 路径规则匹配跑两遍（LOW perf）
+2. 剩余优化（LOW/MEDIUM，独立小项）— **进展（Session 7，2026-06-05）**：
+   - ✅ cache-key 含 stale slot/内部键（reaudit LOW-1）→ 修复，commit `24a0635`（cache_params 构建一次 + 剥离 `_`-前缀键，get/set 复用，+2 回归测试）。顺带去掉 LOW-3 的重复 dict copy（双 MD5 仍在，可忽略）。
+   - ✅ get() write-through cache 无上限（reaudit **MEDIUM-1**，进度note 曾误记 MEDIUM-2）→ **复核发现已修**：redis_context.py:109-113 + db_context.py:116-120 均 `if len > 10_000: clear()`，OOM 风险已消（clear 比 LRU 粗放属可接受的 LOW，未再动）。
+   - ⏳ 待办：OrderMutationTool pre_check/execute 双查 DB · db_context existing_rows 无上限 SELECT · pending 路径规则匹配跑两遍（reaudit LOW-4；含 orchestrator 伸手进 `_intent_engine._rule_matcher` 私有的耦合——去重+解耦都会触及 intent 引擎 API + 多个 stub 测试，blast radius 与 LOW 价值需权衡）
 3. 需人工/环境：docker build 冒烟（需 daemon）· 两前端组件去重（frontend/ 与 frontend-agent/）
 
-### Session 6 完成（2026-06-04，本会话）— orchestrator god-object 重构
+### Session 7 完成（2026-06-05，本会话）— 审计残留 #2 推进
+
+**任务：** 续 Session 6，推进「下一会话优先 #2」(LOW/MEDIUM 残留小项)。专注、不并行、test-first、三关全绿再 commit。
+
+- **reaudit LOW-1 修复**（commit `24a0635`）：`_core_handle` 把 response-cache params **构建一次、剥离 `_`-前缀内部键**（`_pending_action`/`_pending_confirmation`/`_clarifying_response` 等 `_enrich_with_context` 并入 entities 的内部状态），get/set 复用。修复命中率坍塌（这些键每轮 churn → cache key 每轮变 → 近零命中）。顺带消除 LOW-3 的重复 dict copy（双 MD5 留存，可忽略）。+2 回归测试（churn 下划线 slot 仍命中；真实 entity 变化仍 miss），改前实测 RED（strategy 重跑 → calls==2）。**1282 → 1284 passed**，ruff + mypy --strict 全绿。
+- **reaudit MEDIUM-1 复核 = 已修**：write-through `_cache` 在 redis_context.py:109-113 + db_context.py:116-120 已有 `if len > 10_000: clear()` 封顶，OOM 风险已消。进度note 误记为「MEDIUM-2 无上限」，实为已解决。
+- **reaudit LOW-5 复核 = Session 6 已修**：_record_turn+save 四处重复 → `_persist_turn` helper。
+
+**剩余 #2（均待人工定夺是否做）：** OrderMutationTool 双查 DB · db_context existing_rows 无上限 SELECT · LOW-4 pending 双 rule-scan（含 `_rule_matcher` 私有耦合，改动触及 intent API + stub，需评估 blast radius）。
+
+### Session 6 完成（2026-06-04）— orchestrator god-object 重构
 
 **任务：** 下一会话优先 #1。把 core/orchestrator.py（1126 行）的高内聚簇抽成独立 collaborator，**行为零变化**，带测试专注做、不并行，每步 ruff + mypy --strict + 全量 pytest 全绿再进下一步。提交 `61f0415`。
 
