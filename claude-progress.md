@@ -17,7 +17,9 @@
    - ✅ cache-key 含 stale slot/内部键（reaudit LOW-1）→ 修复，commit `24a0635`（cache_params 构建一次 + 剥离 `_`-前缀键，get/set 复用，+2 回归测试）。顺带去掉 LOW-3 的重复 dict copy（双 MD5 仍在，可忽略）。
    - ✅ OrderMutationTool pre_check/execute 双查 DB → 修复，commit `758d6b5`（pre_check 把 owned order 暂存到 context、execute 复用 → 单次 ownership 查询/变更；standalone execute 回退 fetch；create_refund「pre_check 拒绝/execute 放行」不一致行为保留，+3 回归测试）。
    - ✅ get() write-through cache 无上限（reaudit **MEDIUM-1**，进度note 曾误记 MEDIUM-2）→ **复核发现已修**：redis_context.py:109-113 + db_context.py:116-120 均 `if len > 10_000: clear()`，OOM 风险已消（clear 比 LRU 粗放属可接受的 LOW，未再动）。
-   - ⏳ 待办：db_context existing_rows 无上限 SELECT · pending 路径规则匹配跑两遍（reaudit LOW-4；含 orchestrator 伸手进 `_intent_engine._rule_matcher` 私有的耦合——去重+解耦都会触及 intent 引擎 API + 多个 stub 测试，blast radius 与 LOW 价值需权衡）
+   - ⏳ 待办（Session 7 评估后**建议暂缓**，均 LOW 且有 caveat）：
+     - **db_context `_save_sync` existing_rows SELECT**（line 332-338）**无 `.limit()`**，但 reconciliation 每轮把行数收敛到 `len(context.history)`（≤~100），故**稳态有界**；且处于标记的脆弱区、SELECT 为 ASC 排序（粗暴加 `.limit()` 会取**最旧**行、破坏 reconciliation 语义），清洁修复须配集成测试专做 → 风险 > LOW 收益。
+     - **LOW-4 pending 双 rule-scan**：小规则集、low impact + orchestrator 伸手进 `_intent_engine._rule_matcher` 私有耦合；去重/解耦均触及 intent 引擎 API + 多个 stub 测试，blast radius 与 LOW 价值不匹配。
 3. 需人工/环境：docker build 冒烟（需 daemon）· 两前端组件去重（frontend/ 与 frontend-agent/）
 
 ### Session 7 完成（2026-06-05，本会话）— 审计残留 #2 推进
@@ -29,7 +31,7 @@
 - **reaudit MEDIUM-1 复核 = 已修**：write-through `_cache` 在 redis_context.py:109-113 + db_context.py:116-120 已有 `if len > 10_000: clear()` 封顶，OOM 风险已消。进度note 误记为「MEDIUM-2 无上限」，实为已解决。
 - **reaudit LOW-5 复核 = Session 6 已修**：_record_turn+save 四处重复 → `_persist_turn` helper。
 
-**剩余 #2：** db_context existing_rows 无上限 SELECT · LOW-4 pending 双 rule-scan（含 `_rule_matcher` 私有耦合，改动触及 intent API + stub，需评估 blast radius）。
+**收尾（用户确认"收尾吧"）：** 实质有价值的 #2 项已全做完（LOW-1 + OrderMutationTool 两处修复；MEDIUM-1 / LOW-5 / done-event adapter 复核确认已修）。剩余两项经评估**建议暂缓**：db_context existing_rows SELECT（稳态有界 + 脆弱区，清洁修复非平凡）· LOW-4 pending 双 rule-scan（最低价值 + intent API/stub blast radius）。**下一会话更值得的是 #3 需人工/环境**（docker build 冒烟需 daemon · 两前端组件 frontend/ 与 frontend-agent/ 去重需前端上下文）。
 
 ### Session 6 完成（2026-06-04）— orchestrator god-object 重构
 
