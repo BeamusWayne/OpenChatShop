@@ -351,14 +351,24 @@ class DialogueOrchestrator:
         with intent_span:
             intent = await self._intent_engine.classify(message, context)
 
+        # Build the response-cache params once and reuse them for the read (3.5)
+        # and the write (6.5). Drop internal control keys (_pending_action /
+        # _pending_confirmation / _clarifying_response) and any other
+        # underscore-prefixed slot that _enrich_with_context merges into the
+        # entities: they churn every turn and would fragment the key for
+        # logically-identical read-only queries, collapsing the hit rate (audit
+        # LOW). content is part of the key so different questions never collide.
+        cache_params = {
+            k: v for k, v in intent.entities.items() if not k.startswith("_")
+        }
+        cache_params["content"] = message.content
+
         # 3.5 Cache lookup for read-only intents. Scope by context.user_id so one
         # user's cached order data is never served to another (audit C4); the
         # cache folds user_id into its key.
         if self._response_cache is not None:
-            params = dict(intent.entities) if intent.entities else {}
-            params["content"] = message.content
             cached = self._response_cache.get(
-                intent.name, params, user_id=context.user_id
+                intent.name, cache_params, user_id=context.user_id
             )
             if cached is not None:
                 if _METRICS_AVAILABLE:
@@ -412,10 +422,8 @@ class DialogueOrchestrator:
         # 6.5 Cache successful responses for read-only intents, scoped to the
         # caller's user_id so cached order data stays per-user (audit C4).
         if self._response_cache is not None and response.message_type != "error":
-            params = dict(intent.entities) if intent.entities else {}
-            params["content"] = message.content
             self._response_cache.set(
-                intent.name, params, response, user_id=context.user_id
+                intent.name, cache_params, response, user_id=context.user_id
             )
 
         # 7. Record this turn in history, then persist context (audit MEDIUM:
