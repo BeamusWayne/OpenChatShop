@@ -16,12 +16,18 @@ enforcement (IDOR/BOLA, audit CRITICAL-1), the not-found behaviour and the
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import CheckResult, SessionContext, ToolResult
 from open_chat_shop.storage.repositories.abc import OrderRepository
 from open_chat_shop.storage.repositories.memory import InMemoryOrderRepository
+
+# Key under which pre_check stashes the owned order on the request context so
+# execute can reuse it instead of issuing a second identical ownership query.
+# Underscore-prefixed so it is filtered out of the response-cache key and the
+# LLM prompt; execute pops it the same turn, so it never reaches a saved context.
+_PREFETCHED_ORDER_KEY = "_mutation_order"
 
 
 class OrderMutationTool(BaseTool):
@@ -86,12 +92,21 @@ class OrderMutationTool(BaseTool):
         reasons = self._status_reasons(order, order_id)
         if reasons is not None and reasons[0] is not None:
             return CheckResult(passed=False, reason=reasons[0])
+        # Stash the owned order so the execute() the orchestrator runs right
+        # after reuses it instead of issuing a second identical ownership query —
+        # one fetch per mutation and no TOCTOU gap between guard and write.
+        # execute() pops it; a standalone execute() finds nothing and re-fetches.
+        context.slots[_PREFETCHED_ORDER_KEY] = (order_id, order)
         return CheckResult(passed=True)
 
     async def execute(self, params: dict[str, Any], context: SessionContext) -> ToolResult:
         order_id = params["order_id"]
 
-        order = self._order_repo.get_for_user(order_id, context.user_id)
+        # Reuse the order pre_check already loaded for this request; fall back to
+        # a fresh fetch when execute runs on its own (nothing stashed).
+        order = self._pop_prefetched_order(context, order_id)
+        if order is None:
+            order = self._order_repo.get_for_user(order_id, context.user_id)
         if order is None:
             return ToolResult(success=False, error=f"Order {order_id} not found")
 
@@ -101,3 +116,22 @@ class OrderMutationTool(BaseTool):
 
         data = self._perform(order, order_id, params, context)
         return ToolResult(success=True, data=data)
+
+    @staticmethod
+    def _pop_prefetched_order(
+        context: SessionContext, order_id: str
+    ) -> dict[str, Any] | None:
+        """Return (and clear) the order ``pre_check`` stashed for this request.
+
+        Returns None when nothing matching is stashed, so ``execute`` falls back
+        to a fresh fetch and stays correct when called without a ``pre_check``.
+        """
+        stashed = context.slots.pop(_PREFETCHED_ORDER_KEY, None)
+        if (
+            isinstance(stashed, tuple)
+            and len(stashed) == 2
+            and stashed[0] == order_id
+            and isinstance(stashed[1], dict)
+        ):
+            return cast(dict[str, Any], stashed[1])
+        return None

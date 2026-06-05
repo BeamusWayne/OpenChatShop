@@ -25,6 +25,7 @@ isolated mocks.
 from __future__ import annotations
 
 import copy
+from unittest.mock import patch
 
 import pytest
 
@@ -308,3 +309,74 @@ class TestHappyPathPayloadsUnchanged:
         assert result.data["refund_id"].startswith("REF-")
         assert result.data["status"] == "processing"
         assert result.data["amount"] == _mock_data.ORDERS["ORD-001"]["total_amount"]
+
+
+# ---------------------------------------------------------------------------
+# 6. execute reuses the order pre_check fetched (one ownership query / mutation)
+# ---------------------------------------------------------------------------
+
+class TestExecuteReusesPreCheckedOrder:
+    @pytest.mark.asyncio
+    async def test_pre_check_then_execute_queries_once(
+        self, owner: SessionContext
+    ) -> None:
+        """A mutation that pre_checks then executes must hit the repo ONCE.
+
+        Pre-fix execute() re-ran get_for_user, so the ownership lookup + status
+        guard ran twice back-to-back for every mutation. pre_check now stashes
+        the owned order on the request context and execute reuses it.
+        """
+        tool = CancelOrderTool()
+        params = {"order_id": "ORD-002", "reason": "changed mind"}
+
+        with patch.object(
+            tool._order_repo,
+            "get_for_user",
+            wraps=tool._order_repo.get_for_user,
+        ) as spy:
+            check = await tool.pre_check(params, owner)
+            assert check.passed is True
+            result = await tool.execute(params, owner)
+
+        assert result.success is True
+        assert result.data == {
+            "order_id": "ORD-002",
+            "status": "cancelled",
+            "reason": "changed mind",
+        }
+        assert spy.call_count == 1  # pre-fix: 2 (pre_check + execute each fetched)
+        # The transient stash must not linger on the context after execute.
+        assert "_mutation_order" not in owner.slots
+
+    @pytest.mark.asyncio
+    async def test_standalone_execute_still_fetches_and_works(
+        self, owner: SessionContext
+    ) -> None:
+        """execute() with no preceding pre_check has nothing stashed, so it must
+        fetch fresh — the reuse is an optimization, never a dependency."""
+        tool = CancelOrderTool()
+
+        with patch.object(
+            tool._order_repo,
+            "get_for_user",
+            wraps=tool._order_repo.get_for_user,
+        ) as spy:
+            result = await tool.execute({"order_id": "ORD-002", "reason": "x"}, owner)
+
+        assert result.success is True
+        assert spy.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_rejected_pre_check_stashes_nothing(
+        self, owner: SessionContext
+    ) -> None:
+        """A rejecting pre_check must not stash, so execute re-fetches and
+        re-applies its own guard independently (preserves the create_refund
+        pre_check-blocks / execute-proceeds disagreement)."""
+        tool = CancelOrderTool()
+        params = {"order_id": "ORD-001", "reason": "too late"}  # shipped -> reject
+
+        check = await tool.pre_check(params, owner)
+
+        assert check.passed is False
+        assert "_mutation_order" not in owner.slots
