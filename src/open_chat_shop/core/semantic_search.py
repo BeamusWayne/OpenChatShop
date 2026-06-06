@@ -9,6 +9,7 @@ from __future__ import annotations
 import heapq
 import logging
 import math
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -23,7 +24,32 @@ class SearchResult:
     text: str
 
 
-class InMemoryVectorStore:
+class VectorStore(ABC):
+    """Pluggable vector store contract (V2.0 module 2).
+
+    The ABC mirrors the in-memory store's existing API so the default backend
+    is unchanged; a production backend (pgvector, feat-045) implements the same
+    four methods and can be swapped in without touching callers.
+    """
+
+    @abstractmethod
+    def add(self, intent: str, text: str, vector: list[float]) -> None:
+        """Add a text sample with its embedding under *intent*."""
+
+    @abstractmethod
+    def search(self, query_vector: list[float], top_k: int = 3) -> list[SearchResult]:
+        """Return the top-k most similar samples across all intents."""
+
+    @abstractmethod
+    def get_intents(self) -> list[str]:
+        """Return all registered intents."""
+
+    @abstractmethod
+    def clear(self, intent: str | None = None) -> None:
+        """Clear vectors for a specific intent, or all when *intent* is None."""
+
+
+class InMemoryVectorStore(VectorStore):
     """Simple in-memory vector store using cosine similarity.
 
     Suitable for development and testing. For production, replace

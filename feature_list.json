@@ -809,14 +809,14 @@
       "title": "VectorStore 抽象接口 + InMemory 重构",
       "phase": 8,
       "priority": 8,
-      "status": "not_started",
+      "status": "passing",
       "description": "doc 模块二基础。把现有 InMemoryVectorStore（全表线性扫描）抽到 VectorStore ABC 后面（add_documents/search/delete），现有内存实现作默认。为 pgvector 迁移铺路，行为零变化。",
       "depends_on": [],
       "verification": "VectorStore ABC 定义；InMemoryVectorStore 实现它；现有 semantic_search 测试零修改通过；mypy 绿。",
-      "plan_file": "",
-      "evidence": "",
+      "plan_file": ".harness/plans/active/20260606-1428-feat-044.md",
+      "evidence": "## 代码审查\n- 安全：纯结构抽象，无密钥/输入/注入面。\n- 正确性：InMemory 是 VectorStore、ABC 不可实例化、自定义子类多态、现有 add→search 逐字不变 均有测试；**ABC 对齐现有 API(add/search/get_intents/clear)→ InMemoryVectorStore 仅加继承、零行为变化**(现有 semantic_search/intent 测试零回归佐证)。\n- 可维护性：VectorStore ABC ~22 行；semantic_search.py 150 行；命名沿用现有。\n- 测试：4 测试(test_vector_store.py)，改前 RED；pytest→1378 passed，四关全绿。\n- 结论：通过。方案书的 add_documents/delete 命名按 Rule 7/11 改为对齐现有 API(避免破坏调用方)。",
       "blocked_reason": "",
-      "iteration_count": 0,
+      "iteration_count": 1,
       "iteration_budget": 5
     },
     {
