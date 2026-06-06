@@ -869,6 +869,25 @@
       "blocked_reason": "",
       "iteration_count": 1,
       "iteration_budget": 5
+    },
+    {
+      "id": "feat-055",
+      "title": "V2.0 部署接线：Multi-Agent 路由注入 main.py（env-gated）",
+      "phase": 8,
+      "priority": 12,
+      "status": "passing",
+      "description": "在 main.py build_orchestrator 加 _wire_v2_features：ENABLE_MULTI_AGENT 时注入 TriageRouter(build_default_agents)。默认关→现有行为逐字不变。persona 注入/RAG 流整合/画像提取触发需碰核心对话流，留后续 feature。",
+      "depends_on": [
+        "feat-049",
+        "feat-050",
+        "feat-051"
+      ],
+      "verification": "默认(无 env) build_orchestrator → _triage_router is None；ENABLE_MULTI_AGENT=1 → 注入 TriageRouter；现有 test_main 零回归；四关全绿。",
+      "plan_file": ".harness/plans/active/20260606-1459-feat-055.md",
+      "evidence": "## 代码审查\n- 安全：无密钥；_env_flag 只读 env；本地 import 对齐 _wire_support_services 惯例；不改认证/RBAC。\n- 正确性：默认(无 env)→_triage_router None(逐字不变)、ENABLE_MULTI_AGENT=1→注入 TriageRouter(三专家域) 均有测试；**默认关→现有 test_main + 全套零回归**(1395→只 +2)。\n- 可维护性：_env_flag 2 行、_wire_v2_features 8 行；在 build_orchestrator 单点调用。注：main.py 不在 CI ruff 范围(src/ tests/)，E402 是 load_dotenv 既有(非本次)；本次新增函数 lint 干净。\n- 测试：2 测试(test_v2_wiring.py)，改前 RED(enable 注入失败)；pytest→1397 passed，四关全绿(CI ruff 范围 src/ tests/ All passed)。\n- 结论：通过。Multi-Agent 现可 env-gated 在真实 app 生效。persona 注入/RAG 流整合/画像提取触发需碰核心对话流，留后续 feature。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
     }
   ]
 }

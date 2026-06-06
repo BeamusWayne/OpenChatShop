@@ -447,6 +447,26 @@ def _wire_support_services(orchestrator: DialogueOrchestrator) -> None:
     orchestrator.set_handoff_queue(HandoffQueue())
 
 
+def _env_flag(name: str) -> bool:
+    """Return True when env var *name* is a truthy flag (1/true/yes)."""
+    return os.environ.get(name, "").lower() in ("1", "true", "yes")
+
+
+def _wire_v2_features(orchestrator: DialogueOrchestrator) -> None:
+    """Opt-in V2.0 wiring (env-gated; OFF by default -> behaviour unchanged).
+
+    ENABLE_MULTI_AGENT routes turns through the Triage gateway to the
+    refund/sales/logistics specialists. The remaining V2.0 hooks that touch the
+    core dialogue flow (persona extraction trigger, RAG fallback injection) are
+    deliberately separate follow-ups.
+    """
+    if _env_flag("ENABLE_MULTI_AGENT"):
+        from open_chat_shop.core.domain_agents import build_default_agents
+        from open_chat_shop.core.triage_router import TriageRouter
+        orchestrator.set_triage_router(TriageRouter(build_default_agents()))
+        logger.info("V2.0 Multi-Agent routing enabled (ENABLE_MULTI_AGENT)")
+
+
 def build_orchestrator(
     resources: dict[str, Any] | None = None,
 ) -> DialogueOrchestrator:
@@ -478,6 +498,7 @@ def build_orchestrator(
         _wire_resilience(provider)
 
     _wire_support_services(orchestrator)
+    _wire_v2_features(orchestrator)
 
     redis_sync, _redis_async = _build_redis_clients(resources)
     orchestrator.set_middleware_pipeline(_build_middleware(redis_sync))
