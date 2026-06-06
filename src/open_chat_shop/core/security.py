@@ -29,8 +29,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _INJECTION_PATTERNS: list[re.Pattern[str]] = [
-    # Instruction override attempts (English)
-    re.compile(r"ignore\s+(previous|prior|all|above)\s+instructions?", re.IGNORECASE),
+    # Instruction override attempts (English). The qualifier may be stacked or
+    # reordered ("ignore [all] [the] [previous] instructions") and the object
+    # may be instructions or prompts; a prior-context qualifier is still
+    # required so benign "ignore the washing instructions" / "ignore the
+    # previous message" (self-correction) are not flagged.
+    re.compile(
+        r"ignore\s+(?:(?:all|any|the|your|these|those)\s+)*"
+        r"(?:previous|prior|above|earlier|all)\s+(?:instructions?|prompts?)",
+        re.IGNORECASE,
+    ),
     re.compile(r"disregard\s+(previous|prior|all|above|the)", re.IGNORECASE),
     re.compile(r"forget\s+(everything|all|previous|prior)", re.IGNORECASE),
     # Instruction override attempts (Chinese)
