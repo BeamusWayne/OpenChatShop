@@ -10,6 +10,7 @@ export interface ChatMessage {
   payload?: Record<string, unknown>;
   streaming?: boolean;
   agentName?: string;
+  failed?: boolean;
 }
 
 export interface StreamEvent {

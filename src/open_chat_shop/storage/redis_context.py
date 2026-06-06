@@ -7,17 +7,19 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any
 
 from open_chat_shop.core.context import ContextManager
+from open_chat_shop.core.exceptions import ContextError
 from open_chat_shop.core.types import (
     AgentMessage,
     Message,
     SessionContext,
+    SessionMode,
     TokenBudget,
 )
-from open_chat_shop.core.exceptions import ContextError
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,8 @@ def _serialize_context(ctx: SessionContext) -> dict[str, str]:
         "user_role": ctx.user_role,
         "created_at": ctx.created_at.isoformat(),
         "last_active_at": ctx.last_active_at.isoformat(),
+        "mode": ctx.mode.value,
+        "human_agent_id": ctx.human_agent_id or "",
     }
 
 
@@ -67,6 +71,8 @@ def _deserialize_context(data: dict[str, str]) -> SessionContext:
         user_role=data.get("user_role", "customer"),
         created_at=datetime.fromisoformat(data["created_at"]),
         last_active_at=datetime.fromisoformat(data["last_active_at"]),
+        mode=SessionMode(data.get("mode", SessionMode.AI_MODE.value)),
+        human_agent_id=data.get("human_agent_id") or None,
     )
 
 
@@ -90,17 +96,26 @@ class RedisContextManager(ContextManager):
         self._max_history_tokens = max_history_tokens
         self._max_context_tokens = max_context_tokens
         self._prefix = key_prefix
+        # Write-through in-process cache so the sync ``get`` (used by API guards
+        # that cannot await Redis) can return the last loaded/saved context
+        # without blocking I/O. Redis remains the source of truth.
+        self._cache: dict[str, SessionContext] = {}
 
     def _key(self, session_id: str) -> str:
         return f"{self._prefix}{session_id}"
 
     async def load(self, session_id: str, channel: str = "web") -> SessionContext:
         """Load session from Redis or create a new one."""
+        # Bound the write-through cache (a sync-get optimization; Redis is the
+        # source of truth, so dropping it is safe) to avoid unbounded growth
+        # across distinct sessions over a long-running process (audit MEDIUM).
+        if len(self._cache) > 10_000:
+            self._cache.clear()
         key = self._key(session_id)
         try:
             data = await self._redis.hgetall(key)
             if not data:
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 ctx = SessionContext(
                     session_id=session_id,
                     user_id=None,
@@ -116,34 +131,29 @@ class RedisContextManager(ContextManager):
                     last_active_at=now,
                 )
                 await self._save_to_redis(key, ctx)
+                self._cache[session_id] = ctx
                 return ctx
-            return _deserialize_context(data)
+            ctx = _deserialize_context(data)
+            self._cache[session_id] = ctx
+            return ctx
         except ContextError:
             raise
         except Exception as e:
             raise ContextError(
                 f"Failed to load session {session_id}: {e}",
                 session_id=session_id,
-            )
+            ) from e
 
     async def save(self, context: SessionContext, response: AgentMessage) -> None:
         """Save updated context to Redis with TTL refresh."""
-        updated = SessionContext(
-            session_id=context.session_id,
-            user_id=context.user_id,
-            channel=context.channel,
+        updated = replace(
+            context,
             history=[*context.history],
-            summary=context.summary,
-            slots=context.slots,
-            fsm_state=context.fsm_state,
-            current_scenario=context.current_scenario,
-            token_usage=context.token_usage,
-            user_role=context.user_role,
-            created_at=context.created_at,
-            last_active_at=datetime.now(timezone.utc),
+            last_active_at=datetime.now(UTC),
         )
         key = self._key(context.session_id)
         await self._save_to_redis(key, updated)
+        self._cache[context.session_id] = updated
 
     async def _save_to_redis(self, key: str, ctx: SessionContext) -> None:
         try:
@@ -154,7 +164,7 @@ class RedisContextManager(ContextManager):
             raise ContextError(
                 f"Failed to save session: {e}",
                 session_id=ctx.session_id,
-            )
+            ) from e
 
     async def compress(self, context: SessionContext) -> SessionContext:
         """Compress history when it exceeds the token budget."""
@@ -169,19 +179,11 @@ class RedisContextManager(ContextManager):
         summary_prefix = f"[Previously compressed {len(dropped)} messages] "
         new_summary = (context.summary or "") + summary_prefix
 
-        return SessionContext(
-            session_id=context.session_id,
-            user_id=context.user_id,
-            channel=context.channel,
+        return replace(
+            context,
             history=kept,
             summary=new_summary,
-            slots=context.slots,
-            fsm_state=context.fsm_state,
-            current_scenario=context.current_scenario,
-            token_usage=context.token_usage,
-            user_role=context.user_role,
-            created_at=context.created_at,
-            last_active_at=datetime.now(timezone.utc),
+            last_active_at=datetime.now(UTC),
         )
 
     def get_token_budget(self, context: SessionContext) -> TokenBudget:
@@ -201,20 +203,15 @@ class RedisContextManager(ContextManager):
         )
 
     async def update_slots(
-        self, context: SessionContext, new_entities: dict
+        self, context: SessionContext, new_entities: dict[str, Any]
     ) -> SessionContext:
         merged_slots = {**context.slots, **new_entities}
-        return SessionContext(
-            session_id=context.session_id,
-            user_id=context.user_id,
-            channel=context.channel,
-            history=context.history,
-            summary=context.summary,
-            slots=merged_slots,
-            fsm_state=context.fsm_state,
-            current_scenario=context.current_scenario,
-            token_usage=context.token_usage,
-            user_role=context.user_role,
-            created_at=context.created_at,
-            last_active_at=context.last_active_at,
-        )
+        return replace(context, slots=merged_slots)
+
+    def get(self, session_id: str) -> SessionContext | None:
+        """Synchronous lookup from the write-through cache (no Redis I/O).
+
+        Returns the last context that ``load``/``save`` observed in this
+        process, or ``None`` if the session has not been touched here.
+        """
+        return self._cache.get(session_id)

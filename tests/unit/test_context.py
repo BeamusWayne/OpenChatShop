@@ -11,14 +11,13 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import datetime
 import time
+from datetime import datetime
 
 import pytest
 
 from open_chat_shop.core.context import InMemoryContextManager
 from open_chat_shop.core.types import AgentMessage, Message, SessionContext
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -94,7 +93,7 @@ async def test_load_creates_new_session_for_unknown_id():
 async def test_load_returns_existing_session():
     """Repeated loads for the same session_id return the same context."""
     mgr = InMemoryContextManager()
-    ctx1 = await mgr.load("sess-1")
+    await mgr.load("sess-1")
 
     # Modify and save
     updated = _make_context_with_history("sess-1", message_count=3)

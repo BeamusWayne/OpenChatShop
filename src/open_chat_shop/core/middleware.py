@@ -149,7 +149,7 @@ class BudgetMiddleware(Middleware):
         response: AgentMessage,
         context: SessionContext,
     ) -> AgentMessage:
-        cost = response.payload.get("token_usage", self._default_cost)
+        cost = response.meta.get("token_usage", self._default_cost)
         if isinstance(cost, int):
             self._budget.consume(message.session_id, cost)
         return response
@@ -230,15 +230,14 @@ class MiddlewarePipeline:
         :class:`UserMessage` and returns an :class:`AgentMessage`.
         """
         # --- Pre hooks (forward order) ---
-        current_msg: UserMessage | None = message
         for mw in self._middlewares:
-            current_msg = await mw.pre_process(current_msg, context)
+            current_msg: UserMessage | None = await mw.pre_process(message, context)
             if current_msg is None:
                 return self._blocked_response(mw, message)
             message = current_msg
 
         # --- Core handler ---
-        response = await handler(message)
+        response: AgentMessage = await handler(message)
 
         # --- Post hooks (reverse order) ---
         for mw in reversed(self._middlewares):

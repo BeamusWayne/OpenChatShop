@@ -1,26 +1,34 @@
 """FastAPI application — REST + WebSocket endpoints."""
 from __future__ import annotations
 
+import asyncio
+import hmac
 import importlib.metadata
+import json
 import logging
 import os
-from typing import Any, Callable, Optional
+from collections.abc import AsyncIterator, Callable
+from typing import Any, cast
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-import asyncio
-import json
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from jose import JWTError
+from jose import jwt as jose_jwt
+from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware as _BaseMiddleware
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.responses import Response as StarletteResponse
+from starlette.types import ASGIApp
 
-from open_chat_shop.api.auth import AuthMiddleware
-from open_chat_shop.core.types import AgentMessage, UserMessage, SessionMode
-from open_chat_shop.core.orchestrator import DialogueOrchestrator
-from open_chat_shop.channel.registry import default_registry
-from open_chat_shop.api.streaming import StreamEvent, StreamingOrchestrator
-from open_chat_shop.api.wechat import setup_wechat_routes
 from open_chat_shop.api.agent import create_agent_router
+from open_chat_shop.api.auth import AuthMiddleware
+from open_chat_shop.api.streaming import StreamingOrchestrator, build_done_event
+from open_chat_shop.api.wechat import setup_wechat_routes
+from open_chat_shop.channel.registry import default_registry
+from open_chat_shop.core.handoff import HumanAgent, TransferRequest
+from open_chat_shop.core.orchestrator import DialogueOrchestrator
+from open_chat_shop.core.types import AgentMessage, SessionMode, UserMessage
 
 logger = logging.getLogger(__name__)
 
@@ -30,21 +38,46 @@ except importlib.metadata.PackageNotFoundError:
     _VERSION = "0.1.0"
 
 
+def _resolve_ws_identity(token: str | None, jwt_secret: str | None) -> str | None:
+    """Return the server-verified ``sub`` for a customer WebSocket, else ``None``.
+
+    The WebSocket entry bypasses the HTTP ``AuthMiddleware``, so it must verify
+    the JWT itself (same jose/HS256/JWT_SECRET_KEY as the middleware). Returns
+    the token's ``sub`` only when ``jwt_secret`` is set AND the token is present
+    and valid; otherwise returns ``None``.
+
+    The caller decides what ``None`` means: when a secret is configured it MUST
+    treat ``None`` as "no identity" and never fall back to a client-supplied
+    ``user_id`` (an invalid/expired token must not let a caller impersonate
+    another user — the REST entry refuses this with a 401). Only when no secret
+    is configured does the caller accept the advisory client ``user_id``.
+    """
+    if not jwt_secret or not token:
+        return None
+    try:
+        claims = jose_jwt.decode(token, jwt_secret, algorithms=["HS256"])
+    except JWTError:
+        logger.warning("WebSocket JWT validation failed")
+        return None
+    sub = claims.get("sub")
+    return sub if isinstance(sub, str) and sub else None
+
+
 # ---------------------------------------------------------------------------
 # Request / Response models
 # ---------------------------------------------------------------------------
 
 
 class ChatRequest(BaseModel):
-    session_id: str
-    content: str
-    channel: str = "web"
-    user_id: Optional[str] = None
+    session_id: str = Field(..., max_length=128)
+    content: str = Field(..., min_length=1, max_length=2000)
+    channel: str = Field("web", max_length=32)
+    user_id: str | None = Field(None, max_length=128)
 
 
 class ChatResponse(BaseModel):
     message_type: str
-    payload: dict
+    payload: dict[str, Any]
     text_fallback: str
     suggestions: list[str] = []
     requires_confirmation: bool = False
@@ -74,15 +107,25 @@ class ReadyResponse(BaseModel):
 
 
 class SecurityHeadersMiddleware(_BaseMiddleware):
-    async def dispatch(self, request, call_next):
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> StarletteResponse:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+        csp = (
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'"
         )
+        if request.url.path in ("/docs", "/redoc"):
+            csp = (
+                "default-src 'self' cdn.jsdelivr.net unpkg.com; "
+                "script-src 'self' 'unsafe-inline' cdn.jsdelivr.net unpkg.com; "
+                "style-src 'self' 'unsafe-inline' cdn.jsdelivr.net unpkg.com"
+            )
+        response.headers["Content-Security-Policy"] = csp
         if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = (
                 "max-age=31536000; includeSubDomains"
@@ -97,7 +140,8 @@ class SecurityHeadersMiddleware(_BaseMiddleware):
 
 def create_app(
     orchestrator: DialogueOrchestrator | None = None,
-    lifespan: Callable | None = None,
+    lifespan: Callable[..., Any] | None = None,
+    agent_token: str | None = None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application.
 
@@ -120,7 +164,7 @@ def create_app(
     ).split(",")
 
     deploy_env = os.environ.get("DEPLOY_ENV", "development")
-    if deploy_env == "production" and cors_origins == ["http://localhost:3000,http://localhost:8000"]:
+    if deploy_env == "production" and not os.environ.get("CORS_ORIGINS"):
         logger.warning(
             "CORS_ORIGINS not set in production — using localhost defaults. "
             "Set CORS_ORIGINS to your actual domain(s)."
@@ -153,8 +197,38 @@ def create_app(
     # Shared state for WebSocket tracking and session message history
     _agent_sockets: dict[str, WebSocket] = {}
     _customer_sockets: dict[str, WebSocket] = {}
-    _session_messages: dict[str, list[dict]] = {}
+    _session_messages: dict[str, list[dict[str, Any]]] = {}
+
+    # Expose socket dicts for graceful shutdown via app.state
+    app.state.agent_sockets = _agent_sockets
+    app.state.customer_sockets = _customer_sockets
     _session_modes: dict[str, SessionMode] = {}
+    _background_tasks: set[asyncio.Task[None]] = set()
+
+    _msg_history_cap = 200
+
+    async def _delayed_session_cleanup(sid: str, delay: float = 300.0) -> None:
+        """Remove session message history after *delay* seconds.
+
+        Preserves messages long enough for agent dashboard to fetch history
+        after the customer disconnects.
+        """
+        await asyncio.sleep(delay)
+        _session_messages.pop(sid, None)
+
+    def _append_session_message(sid: str, entry: dict[str, Any]) -> None:
+        """Append *entry* to a session's history, trimming to the cap.
+
+        Single owner of the append + bounded-list invariant that was
+        copy-pasted across the customer WebSocket branches (user message in
+        HUMAN_MODE / TRANSFER_PENDING / AI path, and the assistant response).
+        Keeping it in one place means the ``_msg_history_cap`` bound cannot
+        drift between branches.
+        """
+        msgs = _session_messages.setdefault(sid, [])
+        msgs.append(entry)
+        if len(msgs) > _msg_history_cap:
+            _session_messages[sid] = msgs[-_msg_history_cap:]
 
     # ------------------------------------------------------------------
     # Health
@@ -174,6 +248,7 @@ def create_app(
             return CheckDetail(status="ok", latency_ms=0)
         try:
             import time
+
             from sqlalchemy import text
             t0 = time.monotonic()
             with engine.connect() as conn:
@@ -230,7 +305,7 @@ def create_app(
     # ------------------------------------------------------------------
 
     @app.post("/api/v1/chat", response_model=ChatResponse)
-    async def chat(request: ChatRequest) -> ChatResponse:
+    async def chat(request: ChatRequest, http_request: Request) -> ChatResponse:
         if _orchestrator is None:
             raise HTTPException(status_code=503, detail="Service not configured")
 
@@ -249,11 +324,16 @@ def create_app(
                     detail="Session in human service mode",
                 )
 
+        # Trust the server-verified identity (JWT sub bound by AuthMiddleware)
+        # over any client-supplied user_id, so a caller cannot impersonate
+        # another user to reach their orders. Falls back to the request body
+        # only when no auth is configured (local/dev mode).
+        effective_user_id = getattr(http_request.state, "user_id", None) or request.user_id
         msg = UserMessage(
             session_id=request.session_id,
             content=request.content,
             channel=request.channel,
-            user_id=request.user_id,
+            user_id=effective_user_id,
         )
 
         response: AgentMessage = await _orchestrator.handle_message(msg)
@@ -272,15 +352,18 @@ def create_app(
     # SSE streaming chat
     # ------------------------------------------------------------------
 
-    @app.get("/api/v1/chat/stream")
+    @app.post("/api/v1/chat/stream")
     async def chat_stream(
-        session_id: str = Query(...),
-        content: str = Query(...),
-        channel: str = Query("web"),
-        user_id: Optional[str] = Query(None),
+        http_request: Request,
+        request: ChatRequest,
     ) -> StreamingResponse:
+        # POST (not GET): the user message is sensitive (PII) and must travel in
+        # the body, never in the URL query string where it would land in access
+        # logs / proxies (audit MEDIUM). SSE clients use fetch()+ReadableStream.
         if _orchestrator is None:
             raise HTTPException(status_code=503, detail="Service not configured")
+        session_id = request.session_id
+        channel = request.channel
 
         # Session mode guard
         _s_mode = _session_modes.get(session_id)
@@ -297,38 +380,20 @@ def create_app(
                     detail="Session in human service mode",
                 )
 
+        effective_user_id = getattr(http_request.state, "user_id", None) or request.user_id
         msg = UserMessage(
             session_id=session_id,
-            content=content,
+            content=request.content,
             channel=channel,
-            user_id=user_id,
+            user_id=effective_user_id,
         )
         streaming = StreamingOrchestrator(_orchestrator)
         sse_adapter = _registry.get_adapter(channel)
 
-        async def event_generator():
+        async def event_generator() -> AsyncIterator[str]:
             async for event in streaming.handle_streaming(msg):
                 if event.type == "done":
-                    # Reconstruct AgentMessage from done event data and adapt
-                    agent_msg = AgentMessage(
-                        message_type=event.data.get("message_type", "text"),
-                        payload=event.data.get("payload", {}),
-                        text_fallback=event.data.get("payload", {}).get(
-                            "content", ""
-                        ),
-                    )
-                    channel_msg = sse_adapter.adapt_with_fallback(agent_msg)
-                    yield StreamEvent(
-                        type="done",
-                        data={
-                            "message_type": channel_msg.content_type,
-                            "payload": channel_msg.payload,
-                            "suggestions": event.data.get("suggestions", []),
-                            "requires_confirmation": event.data.get(
-                                "requires_confirmation", False
-                            ),
-                        },
-                    ).to_sse()
+                    yield build_done_event(event, sse_adapter).to_sse()
                 else:
                     yield event.to_sse()
 
@@ -346,13 +411,38 @@ def create_app(
         websocket: WebSocket,
         session_id: str,
         channel: str = Query("web"),
+        token: str | None = Query(None),
+        user_id: str | None = Query(None),
     ) -> None:
         await websocket.accept()
         _customer_sockets[session_id] = websocket
         ws_adapter = _registry.get_adapter(channel)
+
+        # Bind identity from the server-verified JWT 'sub' (this entry bypasses
+        # AuthMiddleware). When a secret IS configured, identity comes ONLY from
+        # the verified token: an absent/invalid/expired token yields no identity
+        # and the client-supplied ?user_id is NOT honoured (otherwise an attacker
+        # could impersonate any user by presenting a bad token — the REST entry
+        # already refuses this via AuthMiddleware's 401). The client ?user_id is
+        # accepted as advisory ONLY when no secret is configured (local/dev),
+        # matching the REST fail-open-when-auth-disabled posture.
+        effective_user_id = (
+            _resolve_ws_identity(token, jwt_secret) if jwt_secret else user_id
+        )
         try:
             while True:
                 data = await websocket.receive_text()
+
+                # Handle client heartbeat — respond immediately and skip
+                # normal processing so it is not treated as a chat message.
+                try:
+                    parsed = json.loads(data)
+                    if isinstance(parsed, dict) and parsed.get("type") == "heartbeat":
+                        await websocket.send_json({"type": "heartbeat"})
+                        continue
+                except (json.JSONDecodeError, ValueError):
+                    pass  # not JSON — treat as plain text chat message
+
                 if _orchestrator is None:
                     await websocket.send_json({"error": "Service not configured"})
                     continue
@@ -379,17 +469,15 @@ def create_app(
                                 "content": data,
                             },
                         }, ensure_ascii=False))
-                    _session_messages.setdefault(session_id, []).append({
-                        "role": "user",
-                        "content": data,
-                    })
+                    _append_session_message(
+                        session_id, {"role": "user", "content": data}
+                    )
                     continue
 
                 if _mode == SessionMode.TRANSFER_PENDING:
-                    _session_messages.setdefault(session_id, []).append({
-                        "role": "user",
-                        "content": data,
-                    })
+                    _append_session_message(
+                        session_id, {"role": "user", "content": data}
+                    )
                     await websocket.send_text(json.dumps({
                         "type": "transfer_status",
                         "data": {"status": "waiting"},
@@ -397,44 +485,26 @@ def create_app(
                     continue
 
                 # Record user message
-                _session_messages.setdefault(session_id, []).append({
-                    "role": "user",
-                    "content": data,
-                })
+                _append_session_message(
+                    session_id, {"role": "user", "content": data}
+                )
 
                 msg = UserMessage(
                     session_id=session_id,
                     content=data,
                     channel=channel,
+                    user_id=effective_user_id,
                 )
                 streaming = StreamingOrchestrator(_orchestrator)
                 async for event in streaming.handle_streaming(msg):
                     if event.type == "done":
-                        agent_msg = AgentMessage(
-                            message_type=event.data.get("message_type", "text"),
-                            payload=event.data.get("payload", {}),
-                            text_fallback=event.data.get("payload", {}).get(
-                                "content", ""
-                            ),
-                        )
-                        channel_msg = ws_adapter.adapt_with_fallback(agent_msg)
                         await websocket.send_text(
-                            StreamEvent(
-                                type="done",
-                                data={
-                                    "message_type": channel_msg.content_type,
-                                    "payload": channel_msg.payload,
-                                    "suggestions": event.data.get("suggestions", []),
-                                    "requires_confirmation": event.data.get(
-                                        "requires_confirmation", False
-                                    ),
-                                },
-                            ).to_json()
+                            build_done_event(event, ws_adapter).to_json()
                         )
                         # Record assistant response
-                        _session_messages[session_id].append({
+                        _append_session_message(session_id, {
                             "role": "assistant",
-                            "content": event.data.get("payload", {}).get("content", ""),
+                            "content": event.data.get("text_fallback", ""),
                             "message_type": event.data.get("message_type"),
                             "payload": event.data.get("payload"),
                         })
@@ -442,6 +512,11 @@ def create_app(
                         await websocket.send_text(event.to_json())
         except WebSocketDisconnect:
             _customer_sockets.pop(session_id, None)
+            # Delayed cleanup: remove session messages after 300s so agent
+            # dashboard can still fetch history after customer disconnects.
+            _cleanup_task = asyncio.create_task(_delayed_session_cleanup(session_id))
+            _background_tasks.add(_cleanup_task)
+            _cleanup_task.add_done_callback(_background_tasks.discard)
             logger.info(
                 "WebSocket disconnected",
                 extra={"session_id": session_id},
@@ -455,10 +530,12 @@ def create_app(
     _context_manager = getattr(_orchestrator, "_context_manager", None) if _orchestrator else None
 
     if _handoff_queue is not None:
+        _agent_secret = os.environ.get("AGENT_SECRET", "") or None
         agent_router = create_agent_router(
             _handoff_queue,
             context_manager=_context_manager,
             session_messages=_session_messages,
+            agent_secret=_agent_secret,
         )
         app.include_router(agent_router)
 
@@ -468,20 +545,47 @@ def create_app(
 
     if _handoff_queue is not None:
 
-        def _notify_agents(event_type: str, data: dict) -> None:
+        def _schedule_ws_send(websocket: WebSocket, payload: str) -> bool:
+            """Schedule a fire-and-forget WS send on the running event loop.
+
+            Returns ``True`` when the send was scheduled. The task is kept in
+            ``_background_tasks`` so the loop holds a strong reference and the
+            send cannot be garbage-collected mid-flight (per asyncio docs the
+            loop only keeps a weak ref to bare tasks). ``get_running_loop`` is
+            used deliberately over the deprecated ``get_event_loop`` so the
+            send binds to the loop actually running this callback; if there is
+            no running loop (a non-async caller) we log and report failure
+            instead of raising. Send failures are logged, never swallowed
+            silently, so a desynced dashboard leaves a trace.
+            """
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                logger.warning("WS send skipped: no running event loop")
+                return False
+            task = loop.create_task(websocket.send_text(payload))
+            _background_tasks.add(task)
+
+            def _on_done(t: asyncio.Task[None]) -> None:
+                _background_tasks.discard(t)
+                exc = t.exception()
+                if exc is not None:
+                    logger.warning("WS send failed: %s", exc)
+
+            task.add_done_callback(_on_done)
+            return True
+
+        def _notify_agents(event_type: str, data: dict[str, Any]) -> None:
             """Broadcast an event to all connected agent WebSockets."""
             msg = json.dumps({"type": event_type, "data": data}, ensure_ascii=False)
-            dead = []
+            dead: list[str] = []
             for aid, ws in _agent_sockets.items():
-                try:
-                    import asyncio as _aio
-                    _aio.get_event_loop().create_task(ws.send_text(msg))
-                except Exception:
+                if not _schedule_ws_send(ws, msg):
                     dead.append(aid)
             for aid in dead:
                 _agent_sockets.pop(aid, None)
 
-        def _on_enqueue_cb(request, position: int) -> None:
+        def _on_enqueue_cb(request: TransferRequest, position: int) -> None:
             _notify_agents("new_request", {
                 "request_id": request.request_id,
                 "session_id": request.session_id,
@@ -490,7 +594,7 @@ def create_app(
                 "position": position,
             })
 
-        def _on_assign_cb(request, agent) -> None:
+        def _on_assign_cb(request: TransferRequest, agent: HumanAgent) -> None:
             # Update session context to HUMAN_MODE
             _session_modes[request.session_id] = SessionMode.HUMAN_MODE
             if _context_manager is not None:
@@ -502,34 +606,26 @@ def create_app(
             # Notify customer about agent assignment
             cust_ws = _customer_sockets.get(request.session_id)
             if cust_ws is not None:
-                try:
-                    import asyncio as _aio
-                    _aio.get_event_loop().create_task(cust_ws.send_text(json.dumps({
-                        "type": "transfer_status",
-                        "data": {
-                            "status": "connected",
-                            "agent_name": agent.name,
-                        },
-                    }, ensure_ascii=False)))
-                except Exception:
-                    pass
+                _schedule_ws_send(cust_ws, json.dumps({
+                    "type": "transfer_status",
+                    "data": {
+                        "status": "connected",
+                        "agent_name": agent.name,
+                    },
+                }, ensure_ascii=False))
 
             # Send the accumulated session history to the assigned agent
             # directly so they have context even if history fetch races
             agent_ws = _agent_sockets.get(agent.agent_id)
             if agent_ws is not None:
                 history = _session_messages.get(request.session_id, [])
-                try:
-                    import asyncio as _aio
-                    _aio.get_event_loop().create_task(agent_ws.send_text(json.dumps({
-                        "type": "session_history",
-                        "data": {
-                            "session_id": request.session_id,
-                            "messages": history,
-                        },
-                    }, ensure_ascii=False)))
-                except Exception:
-                    pass
+                _schedule_ws_send(agent_ws, json.dumps({
+                    "type": "session_history",
+                    "data": {
+                        "session_id": request.session_id,
+                        "messages": history,
+                    },
+                }, ensure_ascii=False))
 
             _notify_agents("request_assigned", {
                 "session_id": request.session_id,
@@ -537,7 +633,7 @@ def create_app(
                 "agent_name": agent.name,
             })
 
-        def _on_complete_cb(transfer) -> None:
+        def _on_complete_cb(transfer: TransferRequest) -> None:
             # Reset session context to AI_MODE
             _session_modes[transfer.session_id] = SessionMode.AI_MODE
             if _context_manager is not None:
@@ -549,14 +645,10 @@ def create_app(
             # Notify customer that human service ended
             cust_ws = _customer_sockets.get(transfer.session_id)
             if cust_ws is not None:
-                try:
-                    import asyncio as _aio
-                    _aio.get_event_loop().create_task(cust_ws.send_text(json.dumps({
-                        "type": "transfer_ended",
-                        "data": {"message": "人工服务已结束，已回到智能助手模式。"},
-                    }, ensure_ascii=False)))
-                except Exception:
-                    pass
+                _schedule_ws_send(cust_ws, json.dumps({
+                    "type": "transfer_ended",
+                    "data": {"message": "人工服务已结束，已回到智能助手模式。"},
+                }, ensure_ascii=False))
 
             _notify_agents("transfer_completed", {
                 "session_id": transfer.session_id,
@@ -573,6 +665,13 @@ def create_app(
         name: str = Query(""),
         department: str = Query("general"),
     ) -> None:
+        # Validate agent token when AGENT_TOKEN is configured
+        if agent_token:
+            ws_token = websocket.query_params.get("token", "")
+            if not hmac.compare_digest(ws_token, agent_token):
+                await websocket.close(code=4001, reason="Invalid agent token")
+                return
+
         await websocket.accept()
         _agent_sockets[agent_id] = websocket
 
@@ -657,7 +756,7 @@ def create_app(
         from open_chat_shop.observability.metrics import metrics_app as _metrics_app
 
         if _metrics_app is not None:
-            app.mount("/metrics", _metrics_app)
+            app.mount("/metrics", cast(ASGIApp, _metrics_app))
     except Exception:
         logger.debug("Prometheus metrics endpoint not mounted")
 

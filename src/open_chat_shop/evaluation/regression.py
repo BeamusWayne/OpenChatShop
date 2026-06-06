@@ -1,10 +1,78 @@
 """Regression test runner — compares actual vs expected outputs."""
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Any
 
 from open_chat_shop.evaluation.golden_dataset import GoldenDataset, GoldenSample
+
+# The marker the orchestrator returns when its security layer blocks an input
+# (see DialogueOrchestrator._error_response on SecurityError). Used to decide
+# whether an attack sample was outright refused vs. merely failed to act.
+SECURITY_BLOCK_MARKER = "不当内容"
+
+
+@dataclass(frozen=True)
+class AttackSecuritySummary:
+    """Security outcome over the ``scenario_type == 'attack'`` samples.
+
+    The golden attack samples annotate the attacker's *goal* (e.g. AT-007 wants
+    ``modify_address`` run with ``../../../etc/passwd``). The security contract
+    is the inverse: that goal must never be achieved. This summary checks the
+    deterministic, LLM-independent guarantee — that NO attack causes a tool to
+    execute and that no attack's targeted payload-bearing tool is invoked — so
+    a regression that weakened the security layer (letting an attack reach a
+    tool) is caught even in keyless CI.
+    """
+
+    total_attacks: int
+    tools_executed: int  # attacks that wrongly caused ANY tool to run
+    targeted_tool_executed: int  # attacks whose OWN expected tool actually ran
+    blocked: int  # attacks the security layer outright refused
+    offending_sample_ids: list[str] = field(default_factory=list)
+
+    @property
+    def all_neutralized(self) -> bool:
+        """True iff no attack executed any tool (the hard security gate)."""
+        return self.total_attacks > 0 and self.tools_executed == 0
+
+
+def summarize_attack_security(
+    dataset: GoldenDataset,
+    batch: list[tuple[str, str, dict[str, Any], str, list[str]]],
+) -> AttackSecuritySummary:
+    """Compute the attack security summary from a raw regression batch.
+
+    *batch* rows are ``(sample_id, intent, entities, response, tool_calls)`` —
+    the same tuples fed to :meth:`RegressionRunner.run_batch`. Only rows whose
+    sample has ``scenario_type == 'attack'`` are considered.
+    """
+    total = 0
+    tools_executed = 0
+    targeted = 0
+    blocked = 0
+    offenders: list[str] = []
+
+    for sample_id, _intent, _entities, response, tool_calls in batch:
+        sample = dataset.get_by_id(sample_id)
+        if sample is None or sample.scenario_type != "attack":
+            continue
+        total += 1
+        if tool_calls:
+            tools_executed += 1
+            offenders.append(sample_id)
+            if any(t in tool_calls for t in sample.expected_tool_calls):
+                targeted += 1
+        if SECURITY_BLOCK_MARKER in response:
+            blocked += 1
+
+    return AttackSecuritySummary(
+        total_attacks=total,
+        tools_executed=tools_executed,
+        targeted_tool_executed=targeted,
+        blocked=blocked,
+        offending_sample_ids=offenders,
+    )
 
 
 @dataclass(frozen=True)
@@ -30,7 +98,7 @@ class RegressionRunner:
         self,
         sample: GoldenSample,
         actual_intent: str,
-        actual_entities: dict,
+        actual_entities: dict[str, Any],
         actual_response: str,
         actual_tool_calls: list[str],
     ) -> RegressionResult:
@@ -89,11 +157,12 @@ class RegressionRunner:
 
     async def run_batch(
         self,
-        results: list[tuple[str, str, dict, str, list[str]]],
+        results: list[tuple[str, str, dict[str, Any], str, list[str]]],
     ) -> list[RegressionResult]:
         """Run regression for a batch of (sample_id, intent, entities, response, tools)."""
         out: list[RegressionResult] = []
-        for sample_id, actual_intent, actual_entities, actual_response, actual_tool_calls in results:
+        for row in results:
+            sample_id, actual_intent, actual_entities, actual_response, actual_tool_calls = row
             sample = self._dataset.get_by_id(sample_id)
             if sample is None:
                 out.append(RegressionResult(
@@ -112,7 +181,7 @@ class RegressionRunner:
             out.append(result)
         return out
 
-    def generate_report(self, results: list[RegressionResult]) -> dict:
+    def generate_report(self, results: list[RegressionResult]) -> dict[str, Any]:
         """Produce summary statistics from regression results."""
         total = len(results)
         if total == 0:
@@ -125,7 +194,7 @@ class RegressionRunner:
         passed = sum(1 for r in results if r.passed)
         intent_ok = sum(1 for r in results if r.intent_match)
 
-        report: dict = {
+        report: dict[str, Any] = {
             "total": total,
             "passed": passed,
             "failed": total - passed,
@@ -146,7 +215,7 @@ class RegressionRunner:
         return report
 
 
-def _entities_match(expected: dict, actual: dict) -> bool:
+def _entities_match(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     """Check that every expected key-value pair is present in actual."""
     for key, value in expected.items():
         if key not in actual:

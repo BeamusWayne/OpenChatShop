@@ -14,7 +14,10 @@ from __future__ import annotations
 import base64
 import logging
 import re
-from typing import Any
+import unicodedata
+from dataclasses import replace
+from itertools import groupby
+from typing import Any, ClassVar
 
 from open_chat_shop.core.exceptions import SecurityError
 from open_chat_shop.core.types import UserMessage
@@ -26,8 +29,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _INJECTION_PATTERNS: list[re.Pattern[str]] = [
-    # Instruction override attempts (English)
-    re.compile(r"ignore\s+(previous|prior|all|above)\s+instructions?", re.IGNORECASE),
+    # Instruction override attempts (English). The qualifier may be stacked or
+    # reordered ("ignore [all] [the] [previous] instructions") and the object
+    # may be instructions or prompts; a prior-context qualifier is still
+    # required so benign "ignore the washing instructions" / "ignore the
+    # previous message" (self-correction) are not flagged.
+    re.compile(
+        r"ignore\s+(?:(?:all|any|the|your|these|those)\s+)*"
+        r"(?:previous|prior|above|earlier|all)\s+(?:instructions?|prompts?)",
+        re.IGNORECASE,
+    ),
     re.compile(r"disregard\s+(previous|prior|all|above|the)", re.IGNORECASE),
     re.compile(r"forget\s+(everything|all|previous|prior)", re.IGNORECASE),
     # Instruction override attempts (Chinese)
@@ -59,6 +70,70 @@ _INJECTION_PATTERNS: list[re.Pattern[str]] = [
 _MAX_INPUT_LENGTH = 2000
 _MAX_SPECIAL_CHAR_RATIO = 0.4
 _MIN_BASE64_LENGTH = 20
+# Below this length the special-char ratio heuristic is skipped entirely:
+# short Chinese reactions/greetings ("？？？！！！", "😀😀好的") are legitimately
+# punctuation/emoji-dense and must not be flagged as injection.
+_MIN_RATIO_CHECK_LENGTH = 20
+# Each run of one identical character is capped at this length before the ratio
+# is computed, so emphatic repetition ("好的~~~~~~", "!!!", "...") cannot inflate
+# it. Capped (not collapsed to 1) on purpose: short attack cycles such as path
+# traversal "../../../" have runs of length <=2 and must keep contributing.
+_MAX_RUN_LEN = 3
+
+
+def _is_cjk_or_fullwidth_punctuation(ch: str) -> bool:
+    """Return True for CJK/fullwidth punctuation (，。？！…、；：「」（） etc.).
+
+    These are normal sentence punctuation in Chinese text. ASCII punctuation
+    (``!?#@<>%``...) is deliberately excluded here so it still counts toward the
+    obfuscation ratio.
+    """
+    code = ord(ch)
+    return (
+        0x3000 <= code <= 0x303F  # CJK symbols and punctuation (。、《》…)
+        or 0xFF00 <= code <= 0xFF65  # fullwidth forms (！？，：；（） etc.)
+    )
+
+
+def _is_special_char(ch: str) -> bool:
+    """Return True if *ch* counts as a "special" character for the ratio heuristic.
+
+    Treated as NON-special (legitimate natural-language content):
+      * alphanumerics and whitespace;
+      * letters of any script, including CJK ideographs (category ``L*``);
+      * CJK / fullwidth punctuation (，。？！… etc.);
+      * emoji / other pictographic symbols (category ``So``).
+
+    Everything else — notably ASCII symbols (``#@<>%``...) and control chars —
+    still counts, so genuine obfuscation payloads are caught while punctuation-
+    or emoji-dense Chinese messages are not misclassified as injection.
+    """
+    if ch.isalnum() or ch.isspace():
+        return False
+    if _is_cjk_or_fullwidth_punctuation(ch):
+        return False
+    category = unicodedata.category(ch)
+    # L* = letters (incl. CJK ideographs); So = other symbols (most emoji).
+    return category[0] != "L" and category != "So"
+
+
+def _cap_repeated_runs(text: str) -> str:
+    """Cap every run of one identical character at ``_MAX_RUN_LEN`` characters.
+
+    ``"好的~~~~~~" -> "好的~~~"``, ``"!!!!!!" -> "!!!"``. Used only by the
+    special-char ratio heuristic: emphatic repetition of a single character
+    ("好的~~~", "谢谢~~~~", "等了。。。") is ubiquitous in Chinese chat and is NOT
+    obfuscation, but a long run lets one benign character dominate the ratio.
+
+    Capped rather than collapsed-to-1 so genuine short attack cycles survive:
+    path traversal ``../../../`` is made of length-2 ``..`` runs that stay intact
+    and keep AT-007 over the threshold. Multi-symbol obfuscation
+    (``<<<>>>###@@@``) is likewise unaffected — every distinct symbol still
+    counts, so an all-symbol string stays at ratio ~1.0.
+    """
+    return "".join(
+        ch * min(sum(1 for _ in grp), _MAX_RUN_LEN) for ch, grp in groupby(text)
+    )
 
 
 class PromptInjectionDetector:
@@ -78,10 +153,7 @@ class PromptInjectionDetector:
         if self._check_base64(text):
             return True
 
-        if self._check_special_char_ratio(text):
-            return True
-
-        return False
+        return bool(self._check_special_char_ratio(text))
 
     def _check_patterns(self, text: str) -> bool:
         """Match text against known injection patterns."""
@@ -103,11 +175,27 @@ class PromptInjectionDetector:
         return False
 
     def _check_special_char_ratio(self, text: str) -> bool:
-        """Heuristic: excessive special characters may indicate obfuscation."""
-        if not text:
+        """Heuristic: excessive special characters may indicate obfuscation.
+
+        Only applied to longer inputs (``>= _MIN_RATIO_CHECK_LENGTH``). Short
+        messages are skipped because Chinese chat reactions/greetings are often
+        legitimately punctuation- or emoji-dense (e.g. "？？？！！！", "😀😀好的")
+        and must not be misread as injection.
+
+        CJK letters/punctuation and emoji are NOT counted as "special": they
+        are normal content in the product's primary language. Only true control
+        / ASCII-symbol obfuscation contributes to the ratio.
+
+        Long runs of an identical character are capped first (see
+        ``_cap_repeated_runs``) so emphatic repetition ("好的~~~", "!!!",
+        trailing "...") cannot inflate the ratio, while multi-symbol
+        obfuscation — which has no long identical runs — is unaffected.
+        """
+        if len(text) < _MIN_RATIO_CHECK_LENGTH:
             return False
-        special_count = sum(1 for ch in text if not ch.isalnum() and not ch.isspace())
-        ratio = special_count / len(text)
+        capped = _cap_repeated_runs(text)
+        special_count = sum(1 for ch in capped if _is_special_char(ch))
+        ratio = special_count / len(capped)
         return ratio > _MAX_SPECIAL_CHAR_RATIO
 
 
@@ -139,7 +227,7 @@ _PII_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 class ContentSafetyFilter:
     """Filters content for PII and sensitive words."""
 
-    PII_PATTERNS: list[re.Pattern[str]] = [p for p, _ in _PII_PATTERNS]
+    PII_PATTERNS: ClassVar[list[re.Pattern[str]]] = [p for p, _ in _PII_PATTERNS]
 
     def check(self, text: str) -> tuple[bool, str]:
         """Return (is_safe, masked_text).
@@ -165,23 +253,46 @@ class ContentSafetyFilter:
 # 3. Permission Checker (RBAC)
 # ---------------------------------------------------------------------------
 
+# Canonical built-in customer-facing tool set (mirrors configs/security.yaml and
+# the ``required_roles=["customer"]`` declarations on every builtin tool).
+_CUSTOMER_TOOLS: list[str] = [
+    "query_order",
+    "query_logistics",
+    "search_product",
+    "check_refund_eligibility",
+    "create_refund",
+    "cancel_order",
+    "modify_address",
+    "handoff_to_human",
+]
+
+# Default (fallback) RBAC used only when no ``roles`` are supplied to
+# PermissionChecker — e.g. ``SecurityGuard({})`` in tests, or a deployment whose
+# security.yaml omits the rbac block.
+#
+# SECURITY (audit LOW — least privilege): elevated roles are intentionally
+# enumerated rather than granted ``["*"]``. On the runtime path only the
+# customer-facing WebSocket reaches this checker and it always passes
+# ``user_role="customer"`` (see SessionContext.user_role / orchestrator
+# _execute_tool). The agent dashboard authorises separately via X-Agent-Secret
+# and never calls PermissionChecker. So no elevated role is reachable here today;
+# were one to become reachable under the *default* config, a silent ``["*"]``
+# would hand it every tool — including any future/unknown tool. Enumerating the
+# known tools instead keeps the default least-privilege while still covering
+# every tool that actually exists.
+#
+# Wildcard (``["*"]``) semantics are NOT removed — an explicit config (the real
+# configs/security.yaml, or any caller passing ``tools: ["*"]``) still grants
+# all tools. This only changes the *implicit fallback*, never an explicit grant.
 _DEFAULT_RBAC: dict[str, Any] = {
     "roles": [
-        {
-            "name": "customer",
-            "tools": [
-                "query_order",
-                "query_logistics",
-                "search_product",
-                "check_refund_eligibility",
-                "create_refund",
-                "cancel_order",
-                "modify_address",
-                "handoff_to_human",
-            ],
-        },
-        {"name": "agent", "tools": ["*"]},
-        {"name": "admin", "tools": ["*"]},
+        {"name": "customer", "tools": list(_CUSTOMER_TOOLS)},
+        # agent: a human agent handling a handed-off conversation needs the same
+        # customer-facing toolset (no privileged/admin-only tools exist).
+        {"name": "agent", "tools": list(_CUSTOMER_TOOLS)},
+        # admin: same enumerated set; broaden via explicit config if/when
+        # privileged tools are introduced, rather than relying on a silent "*".
+        {"name": "admin", "tools": list(_CUSTOMER_TOOLS)},
     ]
 }
 
@@ -189,12 +300,9 @@ _DEFAULT_RBAC: dict[str, Any] = {
 class PermissionChecker:
     """RBAC permission checker for tool access."""
 
-    def __init__(self, config: dict | list) -> None:
+    def __init__(self, config: dict[str, Any] | list[Any]) -> None:
         self._role_tools: dict[str, set[str]] = {}
-        if isinstance(config, list):
-            roles = config
-        else:
-            roles = config.get("roles", _DEFAULT_RBAC["roles"])
+        roles = config if isinstance(config, list) else config.get("roles", _DEFAULT_RBAC["roles"])
         for role_entry in roles:
             name = role_entry.get("name", "")
             tools = role_entry.get("tools", [])
@@ -241,9 +349,9 @@ class OutputSanitizer:
 
     def sanitize(
         self,
-        data: dict,
+        data: dict[str, Any],
         sensitive_fields: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Return a new dict with sensitive field values replaced by ***."""
         fields_to_mask = (
             frozenset(sensitive_fields)
@@ -252,7 +360,7 @@ class OutputSanitizer:
         )
         return self._sanitize_dict(data, fields_to_mask)
 
-    def _sanitize_dict(self, data: dict, fields: frozenset[str]) -> dict:
+    def _sanitize_dict(self, data: dict[str, Any], fields: frozenset[str]) -> dict[str, Any]:
         """Recursively sanitize a dict, returning a new dict."""
         sanitized: dict[str, Any] = {}
         for key, value in data.items():
@@ -266,7 +374,7 @@ class OutputSanitizer:
                 sanitized[key] = value
         return sanitized
 
-    def _sanitize_list(self, items: list, fields: frozenset[str]) -> list:
+    def _sanitize_list(self, items: list[Any], fields: frozenset[str]) -> list[Any]:
         """Recursively sanitize list items."""
         result: list[Any] = []
         for item in items:
@@ -280,22 +388,91 @@ class OutputSanitizer:
 
 
 # ---------------------------------------------------------------------------
-# 5. Security Guard (orchestrator)
+# 5. Output Grounding Check (anti-hallucination for money amounts)
+# ---------------------------------------------------------------------------
+
+# A numeric token, optionally with thousands separators and decimals
+# ("199", "1,999.00", "50.5"). Commas are stripped before float conversion.
+_NUM = r"\d[\d,]*(?:\.\d+)?"
+# Money = a number bound to a currency marker, either as a prefix
+# (¥199  ￥199  $99  RMB 100) or a suffix (199元  100块  50块钱  199 RMB).
+_MONEY_RE = re.compile(
+    rf"(?:¥|￥|\$|RMB\s*)\s*({_NUM})|({_NUM})\s*(?:元|块钱|块|RMB)",
+    re.IGNORECASE,
+)
+_NUMBER_RE = re.compile(_NUM)
+
+
+def _to_float(token: str) -> float:
+    return float(token.replace(",", ""))
+
+
+def _money_values(text: str) -> set[float]:
+    """Return the numeric value of every money expression in *text*."""
+    values: set[float] = set()
+    for prefix_num, suffix_num in _MONEY_RE.findall(text):
+        token = prefix_num or suffix_num
+        if token:
+            values.add(_to_float(token))
+    return values
+
+
+def _all_numbers(text: str) -> set[float]:
+    """Return every numeric token in *text* (the grounded ground-truth set)."""
+    return {_to_float(tok) for tok in _NUMBER_RE.findall(text)}
+
+
+class OutputGroundingChecker:
+    """Verify money amounts in an LLM reply are grounded in the tool output.
+
+    Part of the V2.0 semantic-guardrail upgrade (module 4, output side). When
+    the LLM rewrites a tool result into natural language it can state a refund
+    or price figure the tool never returned ("凭空发钱"). Before such a reply
+    reaches the user, every money amount it mentions is checked against the
+    grounded sources (the deterministic formatted text + the raw tool data);
+    an ungrounded amount fails the check and the caller falls back to the
+    grounded formatted text.
+
+    Only *money* amounts in the reply are scrutinised (a reply with no money is
+    trivially grounded), and the match is exact on the numeric value
+    (199 == 199.00) — for money an approximation is a hallucination, not a
+    match. Grounding pulls *all* numbers from the sources, so a tool that prints
+    "退款 199" without a currency symbol still grounds a "¥199" reply.
+    """
+
+    def is_grounded(self, reply: str, *grounded_sources: str) -> bool:
+        """Return True if every money amount in *reply* appears in the sources."""
+        stated = _money_values(reply)
+        if not stated:
+            return True
+        grounded: set[float] = set()
+        for source in grounded_sources:
+            grounded |= _all_numbers(source)
+        return stated <= grounded
+
+
+# ---------------------------------------------------------------------------
+# 6. Security Guard (orchestrator)
 # ---------------------------------------------------------------------------
 
 class SecurityGuard:
     """4-layer security chain: injection -> content -> permission -> output."""
 
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: dict[str, Any]) -> None:
         self.injection_detector = PromptInjectionDetector()
         self.content_filter = ContentSafetyFilter()
         self.permission_checker = PermissionChecker(config.get("rbac", {}))
         self.output_sanitizer = OutputSanitizer()
+        self.output_grounding = OutputGroundingChecker()
 
-    def check_input(self, message: UserMessage) -> None:
+    def check_input(self, message: UserMessage) -> UserMessage:
         """Run injection + content checks on user input.
 
-        Raises SecurityError if blocked content is detected.
+        Layer 1 (injection) raises SecurityError when an attack is detected.
+        Layer 2 (PII) masks any detected PII and returns a *new* message
+        carrying the masked content, so downstream modules (intent, LLM,
+        history, tools) never see raw PII.  When no PII is present the
+        original message is returned unchanged.
         """
         text = message.content
 
@@ -311,14 +488,15 @@ class SecurityGuard:
                 details={"session_id": message.session_id},
             )
 
-        # Layer 2: content safety (PII detected — logged, not blocking)
+        # Layer 2: content safety — mask PII and write it back into the message.
         is_safe, masked = self.content_filter.check(text)
-        if not is_safe:
-            logger.info(
-                "PII detected in input (session=%s). Masked version: %s",
-                message.session_id,
-                masked,
-            )
+        if is_safe:
+            return message
+        logger.info(
+            "PII detected and masked in input (session=%s)",
+            message.session_id,
+        )
+        return replace(message, content=masked)
 
     def check_permission(self, role: str, tool_name: str) -> None:
         """Raise SecurityError if the role cannot use the tool."""
@@ -330,8 +508,17 @@ class SecurityGuard:
 
     def sanitize_output(
         self,
-        data: dict,
+        data: dict[str, Any],
         sensitive_fields: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Sanitize output data, returning a new dict."""
         return self.output_sanitizer.sanitize(data, sensitive_fields)
+
+    def is_output_grounded(self, reply: str, *grounded_sources: str) -> bool:
+        """Return True if every money amount in *reply* is grounded in sources.
+
+        Used before an LLM-rewritten tool reply reaches the user, to block a
+        hallucinated refund/price figure ("凭空发钱"). A reply with no money is
+        grounded. See OutputGroundingChecker.
+        """
+        return self.output_grounding.is_grounded(reply, *grounded_sources)

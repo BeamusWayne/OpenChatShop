@@ -1,12 +1,11 @@
 """Tests for ResponseCache — in-memory and Redis modes."""
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock
 
 import pytest
 
-from open_chat_shop.core.cache import ResponseCache, CACHE_TTL, _NO_CACHE_INTENTS
+from open_chat_shop.core.cache import _NO_CACHE_INTENTS, CACHE_TTL, ResponseCache
 from open_chat_shop.core.types import AgentMessage
 
 

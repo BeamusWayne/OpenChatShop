@@ -2,16 +2,64 @@
 
 Exposes counters, histograms, and gauges for chat requests, LLM calls,
 tool invocations, cache hits, and session state.
+
+Multiprocess deployments
+-------------------------
+Under gunicorn the app runs ``workers = CPU*2+1`` processes that each get
+their own copy of the module-level metric objects. With the default
+single-process registry, ``generate_latest()`` returns only the slice of
+the worker that happened to serve the scrape, so totals appear to jump and
+counters undercount by ~1/N.
+
+To get correct aggregation, set ``PROMETHEUS_MULTIPROC_DIR`` to a writable
+(tmpfs) directory **before** ``prometheus_client`` is imported. When that
+env var is present, :func:`get_metrics_content` (and the mounted
+``/metrics`` ASGI app) build a fresh ``CollectorRegistry`` backed by a
+``MultiProcessCollector`` that merges every worker's on-disk samples, so a
+single scrape reflects the whole process group.
+
+The gunicorn ``child_exit`` hook should call :func:`mark_process_dead`
+(re-exported here) so a dead worker's gauge files are cleaned up.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    REGISTRY,
+    CollectorRegistry,
     Counter,
     Gauge,
     Histogram,
     generate_latest,
-    CONTENT_TYPE_LATEST,
+    multiprocess,
 )
+from prometheus_client.multiprocess import mark_process_dead
+from prometheus_client.values import get_value_class
+
+__all__ = [
+    "ACTIVE_SESSIONS",
+    "CACHE_HITS_TOTAL",
+    "CHAT_DURATION_SECONDS",
+    "CHAT_REQUESTS_TOTAL",
+    "CONTENT_TYPE_LATEST",
+    "HANDOFF_QUEUE_SIZE",
+    "LLM_CALLS_TOTAL",
+    "LLM_COST_USD_TOTAL",
+    "LLM_TOKENS_TOTAL",
+    "TOOL_CALLS_TOTAL",
+    "get_metrics_content",
+    "mark_process_dead",
+    "metrics_app",
+    "multiprocess_enabled",
+    "observe_chat_duration",
+    "record_cache_hit",
+    "record_chat_request",
+    "record_llm_call",
+    "record_tool_call",
+]
 
 # ---------------------------------------------------------------------------
 # Counters
@@ -120,9 +168,51 @@ def record_cache_hit(intent: str) -> None:
     CACHE_HITS_TOTAL.labels(intent=intent).inc()
 
 
+# ---------------------------------------------------------------------------
+# Multiprocess-aware rendering
+# ---------------------------------------------------------------------------
+
+
+def multiprocess_enabled() -> bool:
+    """Return True when ``prometheus_client`` is in multiprocess mode.
+
+    Mirrors how ``prometheus_client`` itself decides: the multiprocess value
+    class is only selected when ``PROMETHEUS_MULTIPROC_DIR`` is set at import
+    time. Checking the live value class (rather than re-reading the env var)
+    means we never try to aggregate from a directory the metric objects were
+    not actually writing to.
+    """
+    # get_value_class returns the live value *class* whose ``_multiprocess``
+    # class attribute is True only when PROMETHEUS_MULTIPROC_DIR was set at the
+    # time the first metric was constructed. It is untyped upstream.
+    value_class = get_value_class()  # type: ignore[no-untyped-call]
+    return bool(getattr(value_class, "_multiprocess", False))
+
+
+def _build_registry() -> CollectorRegistry:
+    """Return a registry to serialize from.
+
+    In multiprocess mode this is a fresh registry fed by a
+    ``MultiProcessCollector`` that merges every worker's on-disk samples, so a
+    single scrape reflects the whole gunicorn process group instead of just
+    the worker that answered. Otherwise the default global registry is used.
+    """
+    if multiprocess_enabled():
+        registry = CollectorRegistry()
+        # MultiProcessCollector registers itself with the registry as a side
+        # effect; it is untyped upstream.
+        multiprocess.MultiProcessCollector(registry)  # type: ignore[no-untyped-call]
+        return registry
+    return REGISTRY
+
+
 def get_metrics_content() -> bytes:
-    """Return the latest Prometheus metrics exposition as bytes."""
-    return generate_latest()
+    """Return the latest Prometheus metrics exposition as bytes.
+
+    Aggregates across all workers when multiprocess mode is active (see the
+    module docstring), otherwise serializes the local process registry.
+    """
+    return generate_latest(_build_registry())
 
 
 # ---------------------------------------------------------------------------
@@ -137,12 +227,12 @@ try:
 
         async def __call__(
             self,
-            scope: dict,
-            receive: callable,  # type: ignore[type-arg]  # noqa: F821
-            send: callable,  # type: ignore[type-arg]  # noqa: F821
+            scope: dict[str, Any],
+            receive: Callable[..., Any],
+            send: Callable[..., Any],
         ) -> None:
             if scope["type"] == "http":
-                body = generate_latest()
+                body = get_metrics_content()
                 response = Response(
                     content=body,
                     media_type=CONTENT_TYPE_LATEST,

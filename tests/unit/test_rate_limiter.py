@@ -1,14 +1,12 @@
 """Tests for rate limiter — sliding window and rate limit guard."""
 from __future__ import annotations
 
-import time
 import pytest
 
 from open_chat_shop.core.rate_limiter import (
     InMemoryRateLimiter,
-    RateLimitRule,
-    RateLimitResult,
     RateLimitGuard,
+    RateLimitRule,
 )
 
 
@@ -125,7 +123,9 @@ class TestRateLimitGuard:
     def test_independent_dimensions(self):
         limiter = InMemoryRateLimiter()
         rules = {
-            "user_messages": RateLimitRule(key="user:{user_id}:msg", window_seconds=60, max_requests=1),
+            "user_messages": RateLimitRule(
+                key="user:{user_id}:msg", window_seconds=60, max_requests=1
+            ),
             "ip_requests": RateLimitRule(key="ip:{ip}:req", window_seconds=60, max_requests=100),
         }
         guard = RateLimitGuard(limiter=limiter, rules=rules)

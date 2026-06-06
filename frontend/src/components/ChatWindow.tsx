@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Input, Button, Badge, Space, Spin, theme } from 'antd';
-import { SendOutlined, ClearOutlined, RobotOutlined, CustomerServiceOutlined } from '@ant-design/icons';
+import { Input, Button, Badge, Space, Spin, theme, Modal, Alert } from 'antd';
+import { SendOutlined, ClearOutlined, RobotOutlined, CustomerServiceOutlined, WifiOutlined } from '@ant-design/icons';
 import { useChat } from '../hooks/useChat';
 import MessageBubble from './MessageBubble';
+import WelcomeScreen from './WelcomeScreen';
 import type { SessionMode } from '../types/chat';
 
 const AI_QUICK_ACTIONS = [
@@ -43,6 +44,17 @@ function getHeaderConfig(mode: SessionMode) {
   }
 }
 
+function getDateLabel(ts: number): string {
+  const msgDate = new Date(ts);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const msgDay = new Date(msgDate.getFullYear(), msgDate.getMonth(), msgDate.getDate());
+  if (msgDay.getTime() === today.getTime()) return '今天';
+  if (msgDay.getTime() === yesterday.getTime()) return '昨天';
+  return msgDate.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+}
+
 export default function ChatWindow() {
   const { token } = theme.useToken();
   const { messages, connection, isTyping, sessionMode, sendMessage, clearMessages } = useChat();
@@ -61,6 +73,7 @@ export default function ChatWindow() {
 
   const isHumanMode = sessionMode === 'human_mode';
   const isTransferPending = sessionMode === 'transfer_pending';
+  const hasUserMessages = messages.some((m) => m.role === 'user');
 
   const headerConfig = getHeaderConfig(sessionMode);
 
@@ -115,37 +128,80 @@ export default function ChatWindow() {
               </span>
             }
           />
-          <Button type="text" icon={<ClearOutlined />} onClick={clearMessages} />
+          <Button type="text" icon={<ClearOutlined />} aria-label="清空聊天记录" onClick={() => {
+            Modal.confirm({
+              title: '清空聊天记录',
+              content: '确定要清空所有聊天记录吗？此操作不可撤销。',
+              okText: '清空',
+              cancelText: '取消',
+              okButtonProps: { danger: true },
+              onOk: clearMessages,
+            });
+          }} />
         </Space>
       </div>
 
-      {/* Messages */}
-      <div
-        style={{
-          flex: 1,
-          overflow: 'auto',
-          padding: `20px ${token.paddingLG}px`,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: token.padding,
-        }}
-      >
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onSuggestionClick={sendMessage} />
-        ))}
-        {isTyping && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: token.colorTextSecondary, fontSize: 13 }}>
-            <Spin size="small" />
-            <span>{isHumanMode ? '客服正在输入...' : '正在思考...'}</span>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+      {/* Offline banner */}
+      {!connection.connected && connection.reconnecting && (
+        <Alert
+          message="连接已断开，正在重连..."
+          type="warning"
+          showIcon
+          icon={<WifiOutlined />}
+          banner
+          style={{ fontSize: 13 }}
+        />
+      )}
+
+      {/* Messages / Welcome */}
+      {!hasUserMessages ? (
+        <WelcomeScreen onAction={sendMessage} />
+      ) : (
+        <div
+          role="log"
+          aria-live="polite"
+          aria-label="聊天消息"
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: `20px ${token.paddingLG}px`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: token.padding,
+          }}
+        >
+          {messages.map((msg, i) => {
+            const showDateSep = i === 0 || (
+              msg.timestamp &&
+              messages[i - 1].timestamp &&
+              new Date(msg.timestamp).toDateString() !== new Date(messages[i - 1].timestamp).toDateString()
+            );
+            return (
+              <div key={msg.id}>
+                {showDateSep && msg.timestamp && (
+                  <div style={{ textAlign: 'center', margin: '8px 0', fontSize: 12, color: token.colorTextQuaternary }}>
+                    {getDateLabel(msg.timestamp)}
+                  </div>
+                )}
+                <MessageBubble message={msg} onSuggestionClick={sendMessage} />
+              </div>
+            );
+          })}
+          {isTyping && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: token.colorTextSecondary, fontSize: 13 }}>
+              <Spin size="small" />
+              <span>{isHumanMode ? '客服正在输入...' : '正在思考...'}</span>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+      )}
 
       {/* Input area */}
       <div
         style={{
           padding: `${token.padding}px ${token.paddingLG}px`,
+          paddingBottom: `max(${token.padding}px, env(safe-area-inset-bottom, 0px))`,
           background: token.colorBgContainer,
           borderTop: `1px solid ${token.colorBorderSecondary}`,
         }}
@@ -179,6 +235,7 @@ export default function ChatWindow() {
             type={isHumanMode ? 'default' : 'primary'}
             size="large"
             icon={<SendOutlined />}
+            aria-label="发送消息"
             onClick={handleSend}
             disabled={!input.trim() || !connection.connected || isTransferPending}
             style={isHumanMode ? { borderColor: AGENT_COLOR, color: AGENT_COLOR } : undefined}

@@ -3,15 +3,26 @@
 Provides an abstract base class for building state-machine-driven
 conversation scenarios (e.g. refund, exchange, complaint) and a concrete
 RefundScenarioFSM implementation.
+
+WIRING (intentional, NOT dead code): the concrete FSMs here and in
+``core/scenarios/`` are instantiated in the production composition root
+``main.py`` (``RefundScenarioFSM``/``ComplaintScenarioFSM``/
+``OrderInquiryScenarioFSM``) and registered via
+``DialogueOrchestrator.set_scenarios``. The orchestrator's ``switch_scenario``
+action then drives them through ``get_initial_state`` (see
+``orchestrator._execute_action``). ``can_transition`` / ``execute_transition``
+are the FSM's public contract for multi-turn flows and are exercised by the
+registered scenarios. A regression test in
+``tests/unit/test_reaudit_deadcode.py`` locks this orchestrator<->FSM seam so
+the subsystem is not mistaken for dead code and deleted.
 """
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
-from typing import Awaitable, Callable
+from typing import ClassVar
 
 from open_chat_shop.core.types import SessionContext, Transition
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +35,7 @@ class ScenarioFSM(ABC):
     """
 
     name: str
-    states: list[str]
+    states: ClassVar[list[str]]
     transitions: list[Transition]
     timeout_seconds: int = 300
 
@@ -48,9 +59,8 @@ class ScenarioFSM(ABC):
         only when both trigger matches and the guard passes.
         """
         for t in self.get_allowed_transitions(current_state):
-            if t.trigger == trigger:
-                if t.guard is None or t.guard(context):
-                    return True
+            if t.trigger == trigger and (t.guard is None or t.guard(context)):
+                return True
         return False
 
     async def execute_transition(
@@ -103,7 +113,7 @@ class RefundScenarioFSM(ScenarioFSM):
     """
 
     name = "refund"
-    states = ["initiated", "confirmed", "processing", "completed", "cancelled"]
+    states: ClassVar[list[str]] = ["initiated", "confirmed", "processing", "completed", "cancelled"]
     timeout_seconds = 300
 
     def __init__(self) -> None:

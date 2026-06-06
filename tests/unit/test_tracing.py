@@ -12,6 +12,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from open_chat_shop.observability.tracing import (
+    _console_enabled,
     get_tracer,
     setup_tracing,
     trace_channel_adapt,
@@ -26,7 +27,6 @@ from open_chat_shop.observability.tracing import (
     trace_tool_inject,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -37,9 +37,9 @@ def _reset_global_tracer() -> None:
     """Reset the module-level tracer between tests."""
     import open_chat_shop.observability.tracing as mod
 
-    mod._tracer = None  # noqa: PLW0602
+    mod._tracer = None
     yield
-    mod._tracer = None  # noqa: PLW0602
+    mod._tracer = None
 
 
 @pytest.fixture()
@@ -75,6 +75,49 @@ def test_get_tracer_lazy_init() -> None:
     """get_tracer creates a default tracer when none has been set up."""
     tracer = get_tracer()
     assert tracer is not None
+
+
+# ---------------------------------------------------------------------------
+# Exporter defaults — quiet by default, console opt-in (audit P2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestExporterDefaults:
+    """Default tracing must not spam stdout; console export is opt-in.
+
+    Previously setup_tracing() with no endpoint installed a
+    ConsoleSpanExporter, so every span was serialised to stdout — noisy and
+    slow across a 500-sample evaluation run.
+    """
+
+    def test_default_setup_writes_no_span_to_stdout(self, capsys) -> None:
+        """Core fix: a default tracer must not dump spans to stdout."""
+        setup_tracing(service_name="quiet")
+        with trace_orchestrator_handle("s1"):
+            pass
+        out = capsys.readouterr().out
+        assert "orchestrator.handle_message" not in out
+
+    # The console decision is a pure function (OTel's set-once provider makes
+    # runtime stdout switching unreliable across the suite, so we test the
+    # decision directly rather than the export side effect).
+    def test_console_disabled_by_default(self, monkeypatch) -> None:
+        monkeypatch.delenv("OTEL_CONSOLE_EXPORT", raising=False)
+        assert _console_enabled(None) is False
+
+    def test_console_explicit_arg_wins(self) -> None:
+        assert _console_enabled(True) is True
+        assert _console_enabled(False) is False
+
+    @pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes"])
+    def test_console_enabled_via_env(self, monkeypatch, value: str) -> None:
+        monkeypatch.setenv("OTEL_CONSOLE_EXPORT", value)
+        assert _console_enabled(None) is True
+
+    def test_console_env_falsey_stays_off(self, monkeypatch) -> None:
+        monkeypatch.setenv("OTEL_CONSOLE_EXPORT", "0")
+        assert _console_enabled(None) is False
 
 
 # ---------------------------------------------------------------------------
@@ -275,9 +318,8 @@ def test_trace_channel_adapt(memory_exporter: InMemorySpanExporter) -> None:
 @pytest.mark.unit
 def test_exception_is_recorded(memory_exporter: InMemorySpanExporter) -> None:
     """Exceptions raised inside a span are recorded and re-raised."""
-    with pytest.raises(ValueError, match="boom"):
-        with trace_provider_chat("test-model"):
-            raise ValueError("boom")
+    with pytest.raises(ValueError, match="boom"), trace_provider_chat("test-model"):
+        raise ValueError("boom")
 
     spans = memory_exporter.get_finished_spans()
     assert len(spans) == 1

@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from open_chat_shop.core.scenario import ScenarioFSM
-from open_chat_shop.core.scenarios.order_inquiry import OrderInquiryScenarioFSM
 from open_chat_shop.core.scenarios.complaint import ComplaintScenarioFSM
+from open_chat_shop.core.scenarios.order_inquiry import OrderInquiryScenarioFSM
 from open_chat_shop.core.types import SessionContext
 
 
@@ -230,7 +229,6 @@ class TestComplaintFSM:
     async def test_no_transition_from_resolved(self):
         """resolved is a terminal state — no transitions out."""
         fsm = ComplaintScenarioFSM()
-        ctx = _ctx()
         transitions = fsm.get_allowed_transitions("resolved")
         assert transitions == []
 
@@ -239,7 +237,6 @@ class TestComplaintFSM:
     async def test_no_transition_from_escalated(self):
         """escalated is a terminal state."""
         fsm = ComplaintScenarioFSM()
-        ctx = _ctx()
         transitions = fsm.get_allowed_transitions("escalated")
         assert transitions == []
 

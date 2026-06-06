@@ -6,7 +6,7 @@ that the in-memory repositories expose via ``_mock_data.py``.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import Engine, text
 from sqlmodel import Session
@@ -23,7 +23,7 @@ from open_chat_shop.tools.builtin import _mock_data as _md
 def seed_if_empty(engine: Engine) -> None:
     """Populate tables from ``_mock_data`` when the product table is empty."""
     with Session(engine) as session:
-        count = session.exec(text("SELECT COUNT(*) FROM product")).scalar()
+        count = session.execute(text("SELECT COUNT(*) FROM product")).scalar()
         if count and int(count) > 0:
             return
 
@@ -45,7 +45,7 @@ def seed_if_empty(engine: Engine) -> None:
             ))
 
         # --- Orders ---
-        for order_id, o in _md.ORDERS.items():
+        for _order_id, o in _md.ORDERS.items():
             created_str = o.get("created_at", "")
             created_at = _parse_iso(created_str)
             addr_json = json.dumps(
@@ -64,7 +64,7 @@ def seed_if_empty(engine: Engine) -> None:
             ))
 
         # --- Logistics ---
-        for order_id, lg in _md.LOGISTICS.items():
+        for _order_id, lg in _md.LOGISTICS.items():
             session.add(LogisticsRecord(
                 order_id=lg["order_id"],
                 carrier=lg["carrier"],
@@ -83,4 +83,4 @@ def _parse_iso(s: str) -> datetime:
     try:
         return datetime.fromisoformat(s)
     except ValueError:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)

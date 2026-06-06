@@ -4,6 +4,8 @@ All tools use dict-based mock data -- no database required.
 """
 from __future__ import annotations
 
+from typing import Any
+
 # ---------------------------------------------------------------------------
 # Categories
 # ---------------------------------------------------------------------------
@@ -22,9 +24,10 @@ CATEGORY_LABELS: dict[str, str] = {
 # Orders
 # ---------------------------------------------------------------------------
 
-ORDERS: dict[str, dict] = {
+ORDERS: dict[str, dict[str, Any]] = {
     "ORD-001": {
         "order_id": "ORD-001",
+        "customer_id": "user-001",
         "status": "shipped",
         "items": [
             {"name": "无线鼠标", "quantity": 1, "price": 79.00},
@@ -37,6 +40,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-002": {
         "order_id": "ORD-002",
+        "customer_id": "user-001",
         "status": "pending",
         "items": [
             {"name": "机械键盘", "quantity": 1, "price": 399.00},
@@ -48,6 +52,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-003": {
         "order_id": "ORD-003",
+        "customer_id": "user-001",
         "status": "processing",
         "items": [
             {"name": "显示器支架", "quantity": 2, "price": 120.00},
@@ -59,6 +64,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-004": {
         "order_id": "ORD-004",
+        "customer_id": "user-001",
         "status": "refunded",
         "items": [
             {"name": "高清摄像头", "quantity": 1, "price": 199.00},
@@ -70,6 +76,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-005": {
         "order_id": "ORD-005",
+        "customer_id": "user-001",
         "status": "delivered",
         "items": [
             {"name": "笔记本电脑包", "quantity": 1, "price": 59.00},
@@ -82,6 +89,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-006": {
         "order_id": "ORD-006",
+        "customer_id": "user-001",
         "status": "pending",
         "items": [
             {"name": "智能手表", "quantity": 1, "price": 1299.00},
@@ -94,6 +102,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-007": {
         "order_id": "ORD-007",
+        "customer_id": "user-001",
         "status": "pending",
         "items": [
             {"name": "空气净化器", "quantity": 1, "price": 2399.00},
@@ -105,6 +114,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-008": {
         "order_id": "ORD-008",
+        "customer_id": "user-001",
         "status": "processing",
         "items": [
             {"name": "平板电脑", "quantity": 1, "price": 3299.00},
@@ -117,6 +127,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-009": {
         "order_id": "ORD-009",
+        "customer_id": "user-001",
         "status": "processing",
         "items": [
             {"name": "打印机", "quantity": 1, "price": 899.00},
@@ -129,6 +140,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-010": {
         "order_id": "ORD-010",
+        "customer_id": "user-001",
         "status": "shipped",
         "items": [
             {"name": "笔记本电脑", "quantity": 1, "price": 6999.00},
@@ -140,6 +152,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-011": {
         "order_id": "ORD-011",
+        "customer_id": "user-001",
         "status": "shipped",
         "items": [
             {"name": "降噪耳机", "quantity": 1, "price": 899.00},
@@ -152,6 +165,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-012": {
         "order_id": "ORD-012",
+        "customer_id": "user-001",
         "status": "delivered",
         "items": [
             {"name": "咖啡机", "quantity": 1, "price": 1599.00},
@@ -164,6 +178,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-013": {
         "order_id": "ORD-013",
+        "customer_id": "user-001",
         "status": "refunded",
         "items": [
             {"name": "纯棉T恤", "quantity": 3, "price": 89.00},
@@ -175,6 +190,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-014": {
         "order_id": "ORD-014",
+        "customer_id": "user-001",
         "status": "cancelled",
         "items": [
             {"name": "显示器", "quantity": 1, "price": 2499.00},
@@ -187,6 +203,7 @@ ORDERS: dict[str, dict] = {
     },
     "ORD-015": {
         "order_id": "ORD-015",
+        "customer_id": "user-001",
         "status": "shipped",
         "items": [
             {"name": "冲锋衣", "quantity": 1, "price": 459.00},
@@ -204,7 +221,7 @@ ORDERS: dict[str, dict] = {
 # Logistics
 # ---------------------------------------------------------------------------
 
-LOGISTICS: dict[str, dict] = {
+LOGISTICS: dict[str, dict[str, Any]] = {
     "ORD-001": {
         "order_id": "ORD-001",
         "carrier": "顺丰速运",
@@ -213,7 +230,8 @@ LOGISTICS: dict[str, dict] = {
             {"time": "2026-05-15T11:00:00Z", "status": "picked_up", "location": "上海仓库"},
             {"time": "2026-05-16T03:00:00Z", "status": "in_transit", "location": "上海分拨中心"},
             {"time": "2026-05-16T18:00:00Z", "status": "in_transit", "location": "北京转运中心"},
-            {"time": "2026-05-17T08:00:00Z", "status": "out_for_delivery", "location": "北京配送站"},
+            {"time": "2026-05-17T08:00:00Z", "status": "out_for_delivery",
+             "location": "北京配送站"},
         ],
     },
     "ORD-005": {
@@ -235,7 +253,8 @@ LOGISTICS: dict[str, dict] = {
             {"time": "2026-05-14T02:00:00Z", "status": "in_transit", "location": "西安分拨中心"},
             {"time": "2026-05-15T06:00:00Z", "status": "in_transit", "location": "郑州转运中心"},
             {"time": "2026-05-17T10:00:00Z", "status": "in_transit", "location": "西安转运中心"},
-            {"time": "2026-05-18T09:30:00Z", "status": "out_for_delivery", "location": "雁塔区配送站"},
+            {"time": "2026-05-18T09:30:00Z", "status": "out_for_delivery",
+             "location": "雁塔区配送站"},
         ],
     },
     "ORD-011": {
@@ -246,7 +265,8 @@ LOGISTICS: dict[str, dict] = {
             {"time": "2026-05-14T16:30:00Z", "status": "picked_up", "location": "天津仓库"},
             {"time": "2026-05-15T08:00:00Z", "status": "in_transit", "location": "天津分拨中心"},
             {"time": "2026-05-16T11:00:00Z", "status": "in_transit", "location": "和平区营业部"},
-            {"time": "2026-05-18T07:30:00Z", "status": "out_for_delivery", "location": "南京路配送点"},
+            {"time": "2026-05-18T07:30:00Z", "status": "out_for_delivery",
+             "location": "南京路配送点"},
         ],
     },
     "ORD-012": {
@@ -256,7 +276,8 @@ LOGISTICS: dict[str, dict] = {
         "timeline": [
             {"time": "2026-05-05T15:00:00Z", "status": "picked_up", "location": "苏州仓库"},
             {"time": "2026-05-06T04:00:00Z", "status": "in_transit", "location": "苏州分拨中心"},
-            {"time": "2026-05-06T14:00:00Z", "status": "out_for_delivery", "location": "姑苏区配送站"},
+            {"time": "2026-05-06T14:00:00Z", "status": "out_for_delivery",
+             "location": "姑苏区配送站"},
             {"time": "2026-05-06T16:30:00Z", "status": "delivered", "location": "姑苏区配送站"},
         ],
     },
@@ -268,7 +289,8 @@ LOGISTICS: dict[str, dict] = {
             {"time": "2026-05-11T13:00:00Z", "status": "picked_up", "location": "青岛仓库"},
             {"time": "2026-05-12T05:00:00Z", "status": "in_transit", "location": "青岛分拨中心"},
             {"time": "2026-05-14T10:00:00Z", "status": "in_transit", "location": "济南转运中心"},
-            {"time": "2026-05-16T18:00:00Z", "status": "in_transit", "location": "青岛市南区营业部"},
+            {"time": "2026-05-16T18:00:00Z", "status": "in_transit",
+             "location": "青岛市南区营业部"},
         ],
     },
     "ORD-008": {
@@ -289,7 +311,8 @@ LOGISTICS: dict[str, dict] = {
             {"time": "2026-05-17T11:00:00Z", "status": "picked_up", "location": "重庆仓库"},
             {"time": "2026-05-18T03:00:00Z", "status": "in_transit", "location": "重庆分拨中心"},
             {"time": "2026-05-19T06:00:00Z", "status": "in_transit", "location": "渝北区营业部"},
-            {"time": "2026-05-20T08:00:00Z", "status": "out_for_delivery", "location": "金开大道配送点"},
+            {"time": "2026-05-20T08:00:00Z", "status": "out_for_delivery",
+             "location": "金开大道配送点"},
         ],
     },
 }
@@ -298,10 +321,11 @@ LOGISTICS: dict[str, dict] = {
 # Products
 # ---------------------------------------------------------------------------
 
-PRODUCTS: list[dict] = [
+PRODUCTS: list[dict[str, Any]] = [
     # --- existing P-001 through P-012 (unchanged) ---
     {"id": "P-001", "name": "无线鼠标", "price": 79.00, "category": "electronics", "image_url": "https://example.com/images/mouse.jpg"},
-    {"id": "P-002", "name": "USB-C 扩展坞", "price": 149.00, "category": "electronics", "image_url": "https://example.com/images/hub.jpg"},
+    {"id": "P-002", "name": "USB-C 扩展坞", "price": 149.00, "category": "electronics",
+     "image_url": "https://example.com/images/hub.jpg"},
     {"id": "P-003", "name": "机械键盘", "price": 399.00, "category": "electronics", "image_url": "https://example.com/images/keyboard.jpg"},
     {"id": "P-004", "name": "显示器支架", "price": 120.00, "category": "office", "image_url": "https://example.com/images/stand.jpg"},
     {"id": "P-005", "name": "高清摄像头", "price": 199.00, "category": "electronics", "image_url": "https://example.com/images/webcam.jpg"},
@@ -342,14 +366,14 @@ PRODUCTS: list[dict] = [
 # Refunds (mutable store for write operations)
 # ---------------------------------------------------------------------------
 
-REFUNDS: dict[str, dict] = {}
+REFUNDS: dict[str, dict[str, Any]] = {}
 REFUND_COUNTER: int = 0
 
 # ---------------------------------------------------------------------------
 # Human handoff
 # ---------------------------------------------------------------------------
 
-HANDOFF_RESPONSE: dict = {
+HANDOFF_RESPONSE: dict[str, Any] = {
     "transferred": True,
     "estimated_wait_seconds": 120,
     "queue_position": 3,

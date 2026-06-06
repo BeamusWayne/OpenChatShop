@@ -17,12 +17,12 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any, Literal
 
 
-class SessionMode(str, Enum):
+class SessionMode(StrEnum):
     """Which entity is handling the session — bot or human."""
     AI_MODE = "ai_mode"
     TRANSFER_PENDING = "transfer_pending"
@@ -40,7 +40,7 @@ class Message:
     role: Literal["system", "user", "assistant", "tool"]
     content: str
     metadata: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -75,6 +75,10 @@ class AgentMessage:
     text_fallback: str
     suggestions: list[str] = field(default_factory=list)
     requires_confirmation: bool = False
+    # Structured routing facts (intent/tools/entities/usage) for evaluation and
+    # observability. The channel `payload` carries rich-message content, not
+    # these facts, so they live here. Populated by the orchestrator.
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -277,8 +281,8 @@ class SessionContext:
     current_scenario: str | None = None
     token_usage: int = 0
     user_role: str = "customer"
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    last_active_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_active_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     mode: SessionMode = SessionMode.AI_MODE
     human_agent_id: str | None = None
 

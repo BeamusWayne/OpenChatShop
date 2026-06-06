@@ -2,16 +2,15 @@
 from __future__ import annotations
 
 import math
+
 import pytest
 
+from open_chat_shop.core.provider import MockProvider
 from open_chat_shop.core.semantic_search import (
-    InMemoryVectorStore,
     EmbeddingService,
-    SearchResult,
+    InMemoryVectorStore,
     _cosine_similarity,
 )
-from open_chat_shop.core.provider import MockProvider
-
 
 # ===========================================================================
 # Cosine similarity

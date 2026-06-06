@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from open_chat_shop.core.tool import BaseTool
 from open_chat_shop.core.types import SessionContext, ToolPermission, ToolResult
@@ -17,9 +17,12 @@ class QueryLogisticsTool(BaseTool):
     """Query logistics tracking information for an order."""
 
     name: str = "query_logistics"
-    description: str = "Query logistics tracking by order ID. Returns carrier, tracking number, and delivery timeline."
+    description: str = (
+        "Query logistics tracking by order ID. Returns carrier, "
+        "tracking number, and delivery timeline."
+    )
     category: str = "logistics"
-    params_schema: dict[str, Any] = {
+    params_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
             "order_id": {"type": "string", "description": "The order ID to track"},
@@ -40,10 +43,10 @@ class QueryLogisticsTool(BaseTool):
         self._order_repo = order_repo or InMemoryOrderRepository()
         self._logistics_repo = logistics_repo or InMemoryLogisticsRepository()
 
-    async def execute(self, params: dict, context: SessionContext) -> ToolResult:
+    async def execute(self, params: dict[str, Any], context: SessionContext) -> ToolResult:
         order_id = params["order_id"]
 
-        if self._order_repo.get(order_id) is None:
+        if self._order_repo.get_for_user(order_id, context.user_id) is None:
             return ToolResult(success=False, error=f"未找到订单 {order_id}")
 
         logistics = self._logistics_repo.get_by_order(order_id)
@@ -63,7 +66,7 @@ class QueryLogisticsTool(BaseTool):
             },
         )
 
-    _STATUS_MAP: dict[str, str] = {
+    _STATUS_MAP: ClassVar[dict[str, str]] = {
         "picked_up": "已揽收",
         "in_transit": "运输中",
         "out_for_delivery": "派送中",

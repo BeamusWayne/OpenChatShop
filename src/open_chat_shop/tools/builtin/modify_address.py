@@ -2,21 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
-from open_chat_shop.core.tool import BaseTool
-from open_chat_shop.core.types import CheckResult, SessionContext, ToolPermission, ToolResult
-from open_chat_shop.storage.repositories.abc import OrderRepository
-from open_chat_shop.storage.repositories.memory import InMemoryOrderRepository
+from open_chat_shop.core.types import SessionContext, ToolPermission, ToolResult
+from open_chat_shop.tools.builtin._order_mutation import OrderMutationTool
+
+_SHIPPED_STATUSES = ("shipped", "delivered")
 
 
-class ModifyAddressTool(BaseTool):
+class ModifyAddressTool(OrderMutationTool):
     """Modify the delivery address of an order that has not yet shipped."""
 
     name: str = "modify_address"
-    description: str = "Modify delivery address for an order. Order must not be shipped. Requires confirmation."
+    description: str = (
+        "Modify delivery address for an order. Order must not be "
+        "shipped. Requires confirmation."
+    )
     category: str = "order"
-    params_schema: dict[str, Any] = {
+    params_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
             "order_id": {"type": "string", "description": "The order ID to modify"},
@@ -32,51 +35,37 @@ class ModifyAddressTool(BaseTool):
         requires_confirmation=True,
     )
 
-    def __init__(self, order_repo: OrderRepository | None = None) -> None:
-        self._order_repo = order_repo or InMemoryOrderRepository()
-
-    async def pre_check(self, params: dict, context: SessionContext) -> CheckResult:
-        order_id = params["order_id"]
-        order = self._order_repo.get(order_id)
-        if order is None:
-            return CheckResult(passed=False, reason=f"订单 {order_id} 不存在")
-        shipped_statuses = ("shipped", "delivered")
-        if order["status"] in shipped_statuses:
-            return CheckResult(
-                passed=False,
-                reason=f"订单 {order_id} 已发货，无法修改地址",
-            )
-        return CheckResult(passed=True)
-
-    async def execute(self, params: dict, context: SessionContext) -> ToolResult:
-        order_id = params["order_id"]
-        new_address = params["address"]
-        new_phone = params.get("phone")
-
-        order = self._order_repo.get(order_id)
-        if order is None:
-            return ToolResult(success=False, error=f"Order {order_id} not found")
-
-        shipped_statuses = ("shipped", "delivered")
-        if order["status"] in shipped_statuses:
-            return ToolResult(
-                success=False,
-                error=f"Cannot modify address: order {order_id} has shipped (status: {order['status']})",
-            )
-
-        self._order_repo.save_snapshot(order_id)
-        _, old_address = self._order_repo.update_address(order_id, new_address, new_phone)
-
-        return ToolResult(
-            success=True,
-            data={
-                "order_id": order_id,
-                "old_address": old_address,
-                "new_address": new_address,
-            },
+    def _status_reasons(
+        self, order: dict[str, Any], order_id: str
+    ) -> tuple[str | None, str | None] | None:
+        if order["status"] not in _SHIPPED_STATUSES:
+            return None
+        return (
+            f"订单 {order_id} 已发货，无法修改地址",
+            (
+                f"Cannot modify address: order {order_id} has shipped "
+                f"(status: {order['status']})"
+            ),
         )
 
-    async def compensate(self, params: dict, context: SessionContext) -> None:
+    def _perform(
+        self,
+        order: dict[str, Any],
+        order_id: str,
+        params: dict[str, Any],
+        context: SessionContext,
+    ) -> dict[str, Any]:
+        new_address = params["address"]
+        new_phone = params.get("phone")
+        self._order_repo.save_snapshot(order_id)
+        _, old_address = self._order_repo.update_address(order_id, new_address, new_phone)
+        return {
+            "order_id": order_id,
+            "old_address": old_address,
+            "new_address": new_address,
+        }
+
+    async def compensate(self, params: dict[str, Any], context: SessionContext) -> None:
         """Restore the order address on failure."""
         self._order_repo.restore_snapshot(params["order_id"])
 

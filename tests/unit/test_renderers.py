@@ -167,7 +167,9 @@ class TestMissingRequiredFields:
         assert "render_error" in result["payload"]
 
     def test_logistics_missing_order_id(self) -> None:
-        result = renderer.render(_msg("logistics_timeline", {"steps": [{"status": "a", "time": "t", "location": "l"}]}))
+        result = renderer.render(
+            _msg("logistics_timeline", {"steps": [{"status": "a", "time": "t", "location": "l"}]})
+        )
         assert "render_error" in result["payload"]
 
     def test_confirm_missing_title(self) -> None:

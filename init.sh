@@ -44,7 +44,6 @@ case "${1:-default}" in
       echo "==> 安装 Python 依赖 (默认)"
       .venv/bin/pip install -e '.[dev]' 2>/dev/null || .venv/bin/pip install fastapi 'uvicorn[standard]' litellm sqlmodel pydantic pyyaml httpx structlog jsonschema websockets python-dotenv anthropic alembic psycopg2-binary
     fi
-    fi
 
     # Install frontend deps if package.json exists
     if [ -f "frontend/package.json" ] && [ ! -d "frontend/node_modules" ]; then
@@ -58,7 +57,6 @@ case "${1:-default}" in
     else
       echo "==> 运行基础验证 (默认)"
       PYTHONPATH=src .venv/bin/python -m pytest tests/ -x -q --tb=short 2>/dev/null || echo 'No tests yet'
-    fi
     fi
     if [ -n "$START_CMD" ]; then
       echo "==> 启动命令"

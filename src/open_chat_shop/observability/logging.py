@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, ClassVar
+
+logger = logging.getLogger(__name__)
 
 
 class StructuredFormatter(logging.Formatter):
@@ -24,7 +26,7 @@ class StructuredFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_entry: dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "module": getattr(record, "module_name", record.module),
             "event": record.getMessage(),
@@ -53,7 +55,7 @@ class AuditLogger:
         tool_name: str,
         user_id: str | None,
         session_id: str,
-        params: dict,
+        params: dict[str, Any],
         result: str,  # "success" | "failure"
     ) -> None:
         self._logger.info(
@@ -65,7 +67,7 @@ class AuditLogger:
                 "session_id": session_id,
                 "params": _sanitize_params(params),
                 "result": result,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -73,7 +75,7 @@ class AuditLogger:
         self,
         event: str,
         session_id: str | None,
-        details: dict,
+        details: dict[str, Any],
     ) -> None:
         self._logger.warning(
             event,
@@ -85,15 +87,15 @@ class CostTracker:
     """Track token consumption and costs per model."""
 
     # Approximate cost per 1K tokens (USD)
-    COST_TABLE: dict[str, dict[str, float]] = {
+    COST_TABLE: ClassVar[dict[str, dict[str, float]]] = {
         "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
         "gpt-4o": {"input": 0.005, "output": 0.015},
         "claude-sonnet": {"input": 0.003, "output": 0.015},
     }
-    DEFAULT_COST: dict[str, float] = {"input": 0.001, "output": 0.003}
+    DEFAULT_COST: ClassVar[dict[str, float]] = {"input": 0.001, "output": 0.003}
 
     def __init__(self) -> None:
-        self._usage: list[dict] = []
+        self._usage: list[dict[str, Any]] = []
 
     def record(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
         costs = self.COST_TABLE.get(model, self.DEFAULT_COST)
@@ -105,12 +107,12 @@ class CostTracker:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "cost_usd": round(cost, 6),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         self._usage.append(entry)
         return cost
 
-    def get_summary(self) -> dict:
+    def get_summary(self) -> dict[str, Any]:
         if not self._usage:
             return {"total_requests": 0, "total_tokens": 0, "total_cost_usd": 0.0}
         return {
@@ -146,7 +148,7 @@ def setup_logging(level: str = "INFO") -> None:
     root.addHandler(handler)
 
 
-def _sanitize_params(params: dict) -> dict:
+def _sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
     """Remove sensitive fields from params for audit logging."""
     sensitive_keys = {"password", "token", "secret", "api_key", "credit_card", "cvv"}
     return {
@@ -166,7 +168,7 @@ class DatabaseAuditLogger:
         tool_name: str,
         user_id: str | None,
         session_id: str,
-        params: dict,
+        params: dict[str, Any],
         result: str,
     ) -> None:
         self._fallback.log_tool_execution(tool_name, user_id, session_id, params, result)
@@ -183,9 +185,14 @@ class DatabaseAuditLogger:
                     metadata_json=json.dumps(_sanitize_params(params)),
                 ))
         except Exception:
-            pass
+            self._fallback._logger.error(
+                "Failed to persist audit tool_execution record to database",
+                exc_info=True,
+            )
 
-    def log_security_event(self, event: str, session_id: str | None, details: dict) -> None:
+    def log_security_event(
+        self, event: str, session_id: str | None, details: dict[str, Any]
+    ) -> None:
         self._fallback.log_security_event(event, session_id, details)
         try:
             from open_chat_shop.storage.database import get_session
@@ -199,7 +206,10 @@ class DatabaseAuditLogger:
                     metadata_json=json.dumps(details),
                 ))
         except Exception:
-            pass
+            self._fallback._logger.error(
+                "Failed to persist security_event record to database",
+                exc_info=True,
+            )
 
 
 class DatabaseCostTracker:
@@ -207,7 +217,7 @@ class DatabaseCostTracker:
 
     def __init__(self, engine: Any) -> None:
         self._engine = engine
-        self._usage: list[dict] = []
+        self._usage: list[dict[str, Any]] = []
 
     def record(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
         costs = CostTracker.COST_TABLE.get(model, CostTracker.DEFAULT_COST)
@@ -232,10 +242,10 @@ class DatabaseCostTracker:
                     cost_usd=round(cost, 6),
                 ))
         except Exception:
-            pass
+            logger.exception("Failed to persist cost record to database")
         return cost
 
-    def get_summary(self) -> dict:
+    def get_summary(self) -> dict[str, Any]:
         if not self._usage:
             return {"total_requests": 0, "total_tokens": 0, "total_cost_usd": 0.0}
         return {

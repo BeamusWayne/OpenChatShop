@@ -6,17 +6,18 @@ tool code and ToolResult payloads remain unchanged regardless of backend.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class OrderRepository(ABC):
     """Access and mutate order records."""
 
     @abstractmethod
-    def get(self, order_id: str) -> dict | None:
+    def get(self, order_id: str) -> dict[str, Any] | None:
         """Return order dict or None if not found."""
 
     @abstractmethod
-    def update_status(self, order_id: str, status: str, **extras: str) -> dict | None:
+    def update_status(self, order_id: str, status: str, **extras: str) -> dict[str, Any] | None:
         """Set order status (and optional extra fields). Returns updated order or None."""
 
     @abstractmethod
@@ -25,7 +26,7 @@ class OrderRepository(ABC):
         order_id: str,
         address: str,
         phone: str | None = None,
-    ) -> tuple[dict | None, str]:
+    ) -> tuple[dict[str, Any] | None, str]:
         """Update address (and optionally phone). Returns (updated_order, old_address)."""
 
     @abstractmethod
@@ -35,6 +36,27 @@ class OrderRepository(ABC):
     @abstractmethod
     def restore_snapshot(self, order_id: str) -> bool:
         """Restore previously saved snapshot. Returns True if restored."""
+
+    def get_for_user(self, order_id: str, user_id: str | None) -> dict[str, Any] | None:
+        """Return the order only if it belongs to *user_id* (ownership check).
+
+        This is the access point tools must use instead of :meth:`get`, to
+        prevent IDOR/BOLA: an authenticated user must not read or mutate
+        another user's order by guessing its ID.
+
+        Ownership is enforced only when a caller identity is known (*user_id*
+        is not None) and the order records an owner (``customer_id``). When no
+        identity is established — e.g. auth disabled in local/dev mode — the
+        order is returned as-is. A non-owned order is reported as None,
+        indistinguishable from a missing one, to prevent order-ID enumeration.
+        """
+        order = self.get(order_id)
+        if order is None:
+            return None
+        owner = order.get("customer_id")
+        if user_id is not None and owner is not None and owner != user_id:
+            return None
+        return order
 
 
 class ProductRepository(ABC):
@@ -46,11 +68,11 @@ class ProductRepository(ABC):
         keyword: str,
         category: str | None = None,
         limit: int = 10,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Search products by keyword and optional category."""
 
     @abstractmethod
-    def get(self, product_id: str) -> dict | None:
+    def get(self, product_id: str) -> dict[str, Any] | None:
         """Return single product dict or None."""
 
 
@@ -58,7 +80,7 @@ class LogisticsRepository(ABC):
     """Access logistics / shipping records."""
 
     @abstractmethod
-    def get_by_order(self, order_id: str) -> dict | None:
+    def get_by_order(self, order_id: str) -> dict[str, Any] | None:
         """Return logistics dict for the given order, or None."""
 
 
@@ -71,7 +93,7 @@ class RefundRepository(ABC):
         order_id: str,
         amount: float,
         reason: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create a new refund record. Returns the created refund dict."""
 
     @abstractmethod
@@ -83,5 +105,5 @@ class HandoffRepository(ABC):
     """Static handoff configuration (read-only)."""
 
     @abstractmethod
-    def get_response(self) -> dict:
+    def get_response(self) -> dict[str, Any]:
         """Return the handoff response template dict."""

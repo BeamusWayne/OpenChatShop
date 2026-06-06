@@ -1,19 +1,20 @@
 """Web and WeChat channel adapters."""
 from __future__ import annotations
 
+from typing import ClassVar
+
+from open_chat_shop.channel.base import ChannelAdapter
 from open_chat_shop.core.types import (
     AgentMessage,
     ChannelCapabilities,
     ChannelMessage,
 )
 
-from open_chat_shop.channel.base import ChannelAdapter
-
 
 class WebAdapter(ChannelAdapter):
     """Web channel adapter — supports all 11 message types from contracts.md section 12."""
 
-    SUPPORTED_TYPES = [
+    SUPPORTED_TYPES: ClassVar[list[str]] = [
         "text",
         "product_card",
         "product_list",
@@ -62,7 +63,7 @@ class WechatAdapter(ChannelAdapter):
     All other types are downgraded to plain text.
     """
 
-    SUPPORTED_TYPES = [
+    SUPPORTED_TYPES: ClassVar[list[str]] = [
         "text",
         "product_card",
         "order_card",

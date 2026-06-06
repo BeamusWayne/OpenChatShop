@@ -1,8 +1,6 @@
 """Tests for the Prometheus metrics module."""
 from __future__ import annotations
 
-import pytest
-
 
 def _metrics_text() -> str:
     """Return the current metrics exposition as a decoded string."""

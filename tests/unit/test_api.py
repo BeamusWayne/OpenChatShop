@@ -1,11 +1,9 @@
 """Unit tests for FastAPI application endpoints."""
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
 from open_chat_shop.api.app import create_app
-
 
 # ---------------------------------------------------------------------------
 # Helpers

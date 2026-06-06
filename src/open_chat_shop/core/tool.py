@@ -6,10 +6,10 @@ Implements contracts.md sections 4-5:
 """
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import fnmatch
 import logging
-from typing import Any
+from abc import ABC, abstractmethod
+from typing import Any, ClassVar
 
 import jsonschema
 
@@ -23,7 +23,6 @@ from open_chat_shop.core.types import (
     ToolResult,
     ValidationResult,
 )
-from open_chat_shop.core.exceptions import ToolError
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +37,11 @@ class BaseTool(ABC):
     name: str
     description: str
     category: str = "general"
-    params_schema: dict[str, Any]
+    params_schema: ClassVar[dict[str, Any]]
     permissions: ToolPermission
 
     @abstractmethod
-    async def execute(self, params: dict, context: SessionContext) -> ToolResult:
+    async def execute(self, params: dict[str, Any], context: SessionContext) -> ToolResult:
         """Execute tool logic.  Subclasses MUST implement."""
 
     def format_result(self, result: ToolResult) -> str:
@@ -58,7 +57,7 @@ class BaseTool(ABC):
     # Lifecycle hooks with sensible defaults
     # ------------------------------------------------------------------
 
-    def validate(self, params: dict) -> ValidationResult:
+    def validate(self, params: dict[str, Any]) -> ValidationResult:
         """Validate *params* against the tool's JSON Schema."""
         try:
             jsonschema.validate(params, self.params_schema)
@@ -66,12 +65,12 @@ class BaseTool(ABC):
         except jsonschema.ValidationError as exc:
             return ValidationResult(valid=False, errors=[exc.message])
 
-    async def pre_check(self, params: dict, context: SessionContext) -> CheckResult:
+    async def pre_check(self, params: dict[str, Any], context: SessionContext) -> CheckResult:
         """Business pre-check.  Default: always passes."""
         return CheckResult(passed=True)
 
-    async def compensate(self, params: dict, context: SessionContext) -> None:
-        """Compensation logic for failed writes.  Default: no-op."""
+    async def compensate(self, params: dict[str, Any], context: SessionContext) -> None:  # noqa: B027
+        """Compensation logic for failed writes.  Default: no-op (optional hook)."""
 
     # ------------------------------------------------------------------
     # Introspection
@@ -205,9 +204,7 @@ class ToolInjector:
         """Keep only tools whose ``required_roles`` allow *role*."""
         result: list[BaseTool] = []
         for tool in tools:
-            if not tool.permissions.required_roles:
-                result.append(tool)
-            elif (
+            if not tool.permissions.required_roles or (
                 role in tool.permissions.required_roles
                 or "*" in tool.permissions.required_roles
             ):

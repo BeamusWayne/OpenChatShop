@@ -1,7 +1,7 @@
 {
   "project": "OpenChatShop",
   "_status": "active",
-  "last_updated": "2026-05-20",
+  "last_updated": "2026-06-06",
   "autonomous_config": {
     "enabled": true,
     "max_iterations_per_feature": 5,
@@ -662,7 +662,9 @@
       "priority": 4,
       "status": "passing",
       "description": "(1) 创建 .env.production.example，与 .env.example 分离，所有密码/密钥标记为必填，无占位符默认值。(2) CORS_ORIGINS 在生产配置中无默认值，必须显式设置。(3) LOG_LEVEL 生产默认 INFO。(4) 增加 DEPLOY_ENV 环境变量区分 dev/prod。",
-      "depends_on": ["feat-040"],
+      "depends_on": [
+        "feat-040"
+      ],
       "verification": ".env.production.example 存在且所有敏感字段标为必填。代码中有 DEPLOY_ENV 检查逻辑。",
       "plan_file": "",
       "evidence": ".env.production.example created with all required fields (ANTHROPIC_API_KEY, JWT_SECRET_KEY, CORS_ORIGINS, POSTGRES_*, REDIS_PASSWORD, GRAFANA_PASSWORD). DEPLOY_ENV=production CORS warning added to app.py. All tests passing.",
@@ -684,6 +686,208 @@
       "blocked_reason": "",
       "iteration_count": 0,
       "iteration_budget": 3
+    },
+    {
+      "id": "feat-048",
+      "title": "DomainAgent 基类 + AgentRegistry（Multi-Agent 基础）",
+      "phase": 8,
+      "priority": 1,
+      "status": "passing",
+      "description": "doc 模块一基础设施。DomainAgent 基类：持领域名、领域专属工具子集、专属 system prompt、handle()。AgentRegistry：注册/按领域查找。纯附加、不改现有编排流，行为零变化。⚠️设计决策：DomainAgent 复用现有 ToolInjector/Strategy 还是自带——编码前在 plan 里定。",
+      "depends_on": [],
+      "verification": "DomainAgent 基类 + Registry 有单测；现有全量测试零回归；mypy --strict 绿。",
+      "plan_file": ".harness/plans/active/20260606-1239-feat-048.md",
+      "evidence": "## 代码审查\n- 安全：扫描 domain_agent.py + test_domain_agent.py，无硬编码密钥/token；无外部输入入口（纯内部值对象+注册表，无 API/CLI/文件读）；无 SQL/HTML/命令拼接；不绕过 RBAC（只声明工具名归属，权限门仍由 security.py/ToolInjector 在 feat-051 集成时把守）。\n- 正确性：边界 empty tool_names(allows False/scope [])、unknown domain→None、unknown tool→None、shared tool 确定性(sorted)、scope_tools 不可变保序 均有测试；无失败路径(无 I/O/解析/网络)；register 单次 dict 赋值原子，无并发状态。\n- 可维护性：5 个新方法均 <10 行(最大 route_tool 4 行)；domain_agent.py 87 行；最大嵌套 2 层；命名清晰；与 ToolInjector 无重复(本类只做工具名归属，不做 intent 匹配/权限过滤)。\n- 测试：12 个新测试(test_domain_agent.py)覆盖 DomainAgent 3 法 + AgentRegistry 4 法全部公开路径 + 4 边界；每测带意图说明；无 skip；pytest tests/ -q → 1323 passed，ruff/mypy --strict/harness 全绿。\n- 结论：通过。handle()/编排器集成按设计推迟 feat-051(plan 已记)。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-049",
+      "title": "TriageRouter 意图路由网关",
+      "phase": 8,
+      "priority": 2,
+      "status": "passing",
+      "description": "doc 模块一。Triage：分析初始意图/情绪/紧迫性，路由到下游 DomainAgent，或检测极高负面情绪直接 handoff。用低成本模型或复用现有 rule-based intent 引擎。",
+      "depends_on": [
+        "feat-048"
+      ],
+      "verification": "给定消息路由到正确 domain；高负面情绪→handoff；+测试（MockProvider）。",
+      "plan_file": ".harness/plans/active/20260606-1351-feat-049.md",
+      "evidence": "## 代码审查\n- 安全：扫描 triage_router.py + test_triage_router.py，无硬编码密钥/token；text 只做子串匹配不 eval/exec，无注入面；不绕过 RBAC（只决策不执行，权限门仍由 security.py 在 feat-051 集成时把守）；升级词表收紧防误判（工商局非工商→避开工商银行；去掉裸 315 避开订单号）。\n- 正确性：情绪优先于路由(test_emotion_takes_priority)、unknown intent→fallback、温和不满不误转(test_ignores_normal_and_mild)、escalation→handoff 均有测试；无失败路径(纯决策、无 I/O)；route_tool 未匹配安全降级 fallback；TriageDecision frozen 不可变。\n- 可维护性：detect_escalation/triage/__init__ 均 <10 行；triage_router.py 82 行；最大嵌套 2 层；命名清晰；无重复(新概念，复用 feat-048 registry.route_tool + 现有 Intent)。\n- 测试：18 测试(test_triage_router.py)覆盖升级检测(flags 6/ignores 4)+路由+fallback+情绪优先+不可变+reason；每测带意图说明；无 skip；pytest tests/ -q → 1341 passed，ruff/mypy --strict/harness 全绿。\n- 结论：通过。handoff 队列接线 + 选中 agent 执行按设计推迟 feat-051。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-050",
+      "title": "Refund/Sales/Logistics 三领域专家 Agent",
+      "phase": 8,
+      "priority": 3,
+      "status": "passing",
+      "description": "doc 模块一。三个 DomainAgent 实例：Refund（售后，仅退款相关工具）、Sales（导购，搜品/推荐）、Logistics（物流，查件）。每个仅携带本领域工具 + 专属 prompt（导购不知道退款接口）。",
+      "depends_on": [
+        "feat-048"
+      ],
+      "verification": "每个 agent 仅暴露本领域工具；专属 prompt 生效；+测试。",
+      "plan_file": ".harness/plans/active/20260606-1359-feat-050.md",
+      "evidence": "## 代码审查\n- 安全：domain_agents.py 无密钥；纯静态专家定义，无输入入口/注入面；不绕 RBAC。\n- 正确性：三专家工具子集 + 隔离(sales 不含退款)+ 工厂 registry 路由 + handoff 非领域工具 均有测试。\n- 可维护性：build_default_agents 8 行；文件 55 行；无嵌套>2；命名清晰。\n- 测试：7 测试(test_domain_agents.py)，改前 RED；pytest→1348 passed，四关全绿。\n- 结论：通过。执行接线 feat-051。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-051",
+      "title": "编排器接入 Triage→DomainAgent 流（feature-flag）",
+      "phase": 8,
+      "priority": 4,
+      "status": "passing",
+      "description": "doc 模块一。DialogueOrchestrator 增加 Triage→DomainAgent 路径，feature-flag 控制（默认关→回退现有单体流）。开启时：Triage 路由→选中 DomainAgent 用其 scoped tools+prompt 处理。⚠️主流程重构，须保现有流可逐字回退。",
+      "depends_on": [
+        "feat-049",
+        "feat-050"
+      ],
+      "verification": "flag 开时走 Multi-Agent，关时行为与现状逐字一致；两路都有 e2e；全量零回归。",
+      "plan_file": ".harness/plans/active/20260606-1405-feat-051.md",
+      "evidence": "## 代码审查\n- 安全：orchestrator/triage 改动无密钥；triage 用 message.content(上游已过 SecurityGuard)；_domain_prompt 走 _ 前缀 slot(已被 cache/LLM-payload 下划线过滤)，每轮清理无残留；**不绕 RBAC**：scope_tools 只缩小工具集不扩大，权限门仍在执行处把守；handoff 复用既有 transfer 路径。\n- 正确性：**router 未注入→逐字零回归(1348 不变，triage 块被 if 门控)**；escalation>routing、按域 scope、fallback、router-off 均有集成测试；domain_prompt 仅 route 时设、每触发轮先 pop 防陈旧。\n- 可维护性：triage 块约 18 行；用 slot 避免改 _execute_action 多分支签名；set_triage_router 小。\n- 测试：4 集成测试(test_triage_integration.py)，**stash 实证 RED**(4 failed)→GREEN；pytest→1352 passed，四关全绿。\n- 结论：通过。decision→执行复用现有 transfer/enhance；scoped tools+prompt 已落地。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-052",
+      "title": "UserPersona 存储模型 + PersonaRepository",
+      "phase": 8,
+      "priority": 5,
+      "status": "passing",
+      "description": "doc 模块三基础。UserPersona 模型（user_id 维度：尺码偏好/价格敏感/风格标签等）+ PersonaRepository ABC + InMemory/DB 实现 + Alembic 迁移。",
+      "depends_on": [],
+      "verification": "Persona 存取（InMemory + DB）；迁移建表；+测试。",
+      "plan_file": ".harness/plans/active/20260606-1415-feat-052.md",
+      "evidence": "## 代码审查\n- 安全：persona.py 无密钥；attributes_json 走 JSON 序列化(无注入)；user_id 主键；无外部输入入口(被 feat-053/054 调用)。\n- 正确性：get 未命中→None、upsert merge(保留/覆盖)、DB 跨 session 持久化、get 返回副本(不可变) 均有测试；两实现共享契约参数化。\n- 可维护性：方法均 <12 行；persona.py 88 行；alembic 003 chains 002(test_alembic 只验 001，安全)。\n- 测试：11 测试(test_persona.py，InMemory+DB 参数化 + 跨 session)，改前 RED；pytest→1363 passed，四关全绿。\n- 结论：通过。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-053",
+      "title": "异步用户画像提取流水线",
+      "phase": 8,
+      "priority": 6,
+      "status": "passing",
+      "description": "doc 模块三。对话结束/长时不活跃后异步触发提取任务，用小模型总结用户核心特征（'尺码 L'/'价格敏感'）写入 Persona。复用现有 background task 机制。",
+      "depends_on": [
+        "feat-052"
+      ],
+      "verification": "会话结束触发提取→persona 更新；异步不阻塞主流程；+测试。",
+      "plan_file": ".harness/plans/active/20260606-1419-feat-053.md",
+      "evidence": "## 代码审查\n- 安全：无密钥；LLM 输出经 _parse_attributes 严格校验(只收 str 值、失败→{})，绝不污染 persona；provider 调用 try/except 兜底。\n- 正确性：有效JSON→upsert、含散文的JSON→抽出、无provider/空对话→{}不写、坏JSON→{}、非str值过滤、schedule后台任务完成后写入 均有测试。\n- 可维护性：extract 约 15 行、_parse_attributes 12 行；persona_extractor.py 96 行；schedule 用 _tasks 集合+done-callback(防 GC，RUF006 模式)。\n- 测试：7 测试(test_persona_extractor.py，MockProvider)，改前 RED；pytest→1370 passed，四关全绿。\n- 结论：通过。对话结束触发点接线在 feat-054/集成时调 schedule()。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-054",
+      "title": "Persona 上下文注入（千人千面）",
+      "phase": 8,
+      "priority": 7,
+      "status": "passing",
+      "description": "doc 模块三。用户再次发起对话时，Triage 检索其 persona 标签，静默注入下游 DomainAgent 的 system prompt，实现'按您上次习惯推荐'。",
+      "depends_on": [
+        "feat-052",
+        "feat-049"
+      ],
+      "verification": "有 persona 的用户下游 prompt 含其标签；无 persona 行为不变；+测试。",
+      "plan_file": ".harness/plans/active/20260606-1423-feat-054.md",
+      "evidence": "## 代码审查\n- 安全：personalize_prompt 纯函数无密钥/注入；persona 只在 user_id 已知时注入；persona_repo 默认 None→不注入。\n- 正确性：有 persona 追加标签、空/None→base 原样、集成路由轮 _domain_prompt 含标签、无 repo→纯域 prompt 均有测试；**persona_repo 默认 None→现有全部测试逐字零回归**(1372→只 +2 集成)。\n- 可维护性：personalize_prompt 6 行；route 块注入 5 行(本地 import 对齐 TransferRequest 惯例)；set_persona_repository 小。\n- 测试：4 测试(test_persona_injection.py，纯函数 2 + 集成 2)，改前 RED；pytest→1374 passed，四关全绿。\n- 结论：通过。schedule()(feat-053)的对话结束触发点可在主程序 wire（与 set_persona_repository 一起，属部署接线）。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-044",
+      "title": "VectorStore 抽象接口 + InMemory 重构",
+      "phase": 8,
+      "priority": 8,
+      "status": "passing",
+      "description": "doc 模块二基础。把现有 InMemoryVectorStore（全表线性扫描）抽到 VectorStore ABC 后面（add_documents/search/delete），现有内存实现作默认。为 pgvector 迁移铺路，行为零变化。",
+      "depends_on": [],
+      "verification": "VectorStore ABC 定义；InMemoryVectorStore 实现它；现有 semantic_search 测试零修改通过；mypy 绿。",
+      "plan_file": ".harness/plans/active/20260606-1428-feat-044.md",
+      "evidence": "## 代码审查\n- 安全：纯结构抽象，无密钥/输入/注入面。\n- 正确性：InMemory 是 VectorStore、ABC 不可实例化、自定义子类多态、现有 add→search 逐字不变 均有测试；**ABC 对齐现有 API(add/search/get_intents/clear)→ InMemoryVectorStore 仅加继承、零行为变化**(现有 semantic_search/intent 测试零回归佐证)。\n- 可维护性：VectorStore ABC ~22 行；semantic_search.py 150 行；命名沿用现有。\n- 测试：4 测试(test_vector_store.py)，改前 RED；pytest→1378 passed，四关全绿。\n- 结论：通过。方案书的 add_documents/delete 命名按 Rule 7/11 改为对齐现有 API(避免破坏调用方)。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-046",
+      "title": "Hybrid RAG 检索路由（结构化 FC / 非结构化 RAG）",
+      "phase": 8,
+      "priority": 9,
+      "status": "passing",
+      "description": "doc 模块二。查询分流：结构化查询（订单状态）走现有 Function Calling；非结构化查询（'这款会缩水吗'）走 VectorStore 检索商品详情/FAQ。新增 FAQ/商品知识库 ingest。",
+      "depends_on": [
+        "feat-044"
+      ],
+      "verification": "非结构化问题命中 RAG 并把 Top-K 注入 LLM；结构化仍走 FC；+回归测试。",
+      "plan_file": ".harness/plans/active/20260606-1431-feat-046.md",
+      "evidence": "## 代码审查\n- 安全：无密钥；query 仅用于 embedding+检索，无注入面；纯检索不改数据。\n- 正确性：should_use_rag(fallback→True, 结构化→False)、ingest+retrieve 返回最相关 doc、top_k 限量、空 KB→[] 均有测试。\n- 可维护性：HybridRetriever 3 法各 ≤3 行；hybrid_retrieval.py 56 行；复用 feat-044 VectorStore + 现有 EmbeddingService。\n- 测试：7 测试(test_hybrid_retrieval.py)，改前 RED；pytest→1385 passed，四关全绿。\n- 结论：通过。接入对话流(fallback→RAG 注入)属部署接线，按设计留在核心路径外。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-047",
+      "title": "RAG 重排序（Top-10 召回 → Top-3）",
+      "phase": 8,
+      "priority": 10,
+      "status": "passing",
+      "description": "doc 模块二。初步召回 Top-10 后用轻量 Re-ranker 提取最相关 Top-3 喂 LLM，降无关干扰。Reranker 抽象，默认可降级为'取前 3'。",
+      "depends_on": [
+        "feat-046"
+      ],
+      "verification": "召回→重排→Top-3 链路；reranker 缺失时降级不崩；+测试。",
+      "plan_file": ".harness/plans/active/20260606-1433-feat-047.md",
+      "evidence": "## 代码审查\n- 安全：无密钥/输入入口；纯排序，无注入面。\n- 正确性：TruncateReranker 保序取前N(降级安全)、LexicalReranker 把高重叠候选提前(即使召回分更低)、top_n 限量、retrieve_reranked 召回→重排管道 均有测试；稳定排序保证 ties 不劣于召回。\n- 可维护性：rerank 各 ≤6 行；reranker.py 64 行；retrieve_reranked 加在 HybridRetriever(additive，feat-046 零回归)。\n- 测试：5 测试(test_reranker.py)，改前 RED；pytest→1390 passed，四关全绿。\n- 结论：通过。真实 cross-encoder reranker 可后续实现 Reranker ABC 插入。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-045",
+      "title": "pgvector PgVectorStore 实现 + HNSW 索引",
+      "phase": 8,
+      "priority": 11,
+      "status": "passing",
+      "description": "doc 模块二。PostgreSQL + pgvector 的 VectorStore 实现：HNSW 向量索引，按 DATABASE_URL 切换。Alembic 迁移建向量表/索引。⚠️需 Postgres+pgvector 环境，验证须 docker/CI。",
+      "depends_on": [
+        "feat-044"
+      ],
+      "verification": "DATABASE_URL 指向 pgvector 时 add/search 走 SQL HNSW；迁移建表成功；集成测试（需 docker pgvector）。",
+      "plan_file": ".harness/plans/active/20260606-1438-feat-045.md",
+      "evidence": "## 代码审查\n- 安全：SQL 全部参数化(text()+绑定参数，无字符串拼接用户值；_format_vector 只格式化数值向量)；无密钥。\n- 正确性：_format_vector 字面量、工厂 DATABASE_URL 切换(无→InMemory/有→PgVectorStore 不连库)、ABC 合规、迁移 004 含 CREATE EXTENSION/vector(384)/USING hnsw/vector_cosine_ops 均有测试；search 用余弦 <=> + score=1-距离。\n- 可维护性：方法各 ≤10 行；pgvector_store.py 95 行；不 import pgvector 包(用原生 SQL)→不破坏无 Postgres 环境。\n- 测试：5 测试(test_pgvector_store.py)，改前 RED；pytest→1395 passed，四关全绿。\n- ⚠️**验证限制(Rule 12)：本机无 Postgres、pgvector Python 包未装，故 live add/search 往返未本机运行**——只验了工厂选择/ABC/SQL 与 DDL 结构/向量格式化。**真实 pgvector HNSW 往返需 docker(pgvector/pgvector:pg16)或 CI 验**。\n- 结论：实现完整、本机可验部分全绿；live DB 验证 deferred to docker/CI(已在 evidence 与会话汇报明确标注)。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-055",
+      "title": "V2.0 部署接线：Multi-Agent 路由注入 main.py（env-gated）",
+      "phase": 8,
+      "priority": 12,
+      "status": "passing",
+      "description": "在 main.py build_orchestrator 加 _wire_v2_features：ENABLE_MULTI_AGENT 时注入 TriageRouter(build_default_agents)。默认关→现有行为逐字不变。persona 注入/RAG 流整合/画像提取触发需碰核心对话流，留后续 feature。",
+      "depends_on": [
+        "feat-049",
+        "feat-050",
+        "feat-051"
+      ],
+      "verification": "默认(无 env) build_orchestrator → _triage_router is None；ENABLE_MULTI_AGENT=1 → 注入 TriageRouter；现有 test_main 零回归；四关全绿。",
+      "plan_file": ".harness/plans/active/20260606-1459-feat-055.md",
+      "evidence": "## 代码审查\n- 安全：无密钥；_env_flag 只读 env；本地 import 对齐 _wire_support_services 惯例；不改认证/RBAC。\n- 正确性：默认(无 env)→_triage_router None(逐字不变)、ENABLE_MULTI_AGENT=1→注入 TriageRouter(三专家域) 均有测试；**默认关→现有 test_main + 全套零回归**(1395→只 +2)。\n- 可维护性：_env_flag 2 行、_wire_v2_features 8 行；在 build_orchestrator 单点调用。注：main.py 不在 CI ruff 范围(src/ tests/)，E402 是 load_dotenv 既有(非本次)；本次新增函数 lint 干净。\n- 测试：2 测试(test_v2_wiring.py)，改前 RED(enable 注入失败)；pytest→1397 passed，四关全绿(CI ruff 范围 src/ tests/ All passed)。\n- 结论：通过。Multi-Agent 现可 env-gated 在真实 app 生效。persona 注入/RAG 流整合/画像提取触发需碰核心对话流，留后续 feature。",
+      "blocked_reason": "",
+      "iteration_count": 1,
+      "iteration_budget": 5
     }
   ]
 }

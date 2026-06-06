@@ -5,11 +5,10 @@ in-memory counters or Redis-backed sorted sets with Lua scripts.
 """
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
-
 import logging
+import time
+from dataclasses import dataclass
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +30,15 @@ class RateLimitResult:
     retry_after_seconds: float = 0.0
 
 
+# Cap on the number of distinct keys retained in-memory. Once exceeded, a
+# sweep drops keys whose newest timestamp is older than this many seconds
+# (i.e. fully outside the longest plausible window). This bounds RSS in a
+# long-running process where every distinct user/IP/tool would otherwise add
+# a permanent dict entry. Mirrors the orchestrator's _session_locks cap.
+_MAX_KEYS = 10_000
+_STALE_AFTER_SECONDS = 3600
+
+
 class InMemoryRateLimiter:
     """In-memory sliding window rate limiter.
 
@@ -40,6 +48,21 @@ class InMemoryRateLimiter:
 
     def __init__(self) -> None:
         self._requests: dict[str, list[float]] = {}
+
+    def _sweep_if_needed(self) -> None:
+        """Evict stale keys when the dict grows past the cap.
+
+        A key is stale when its most recent timestamp is older than
+        ``_STALE_AFTER_SECONDS`` — its window has long since expired and it is
+        only being kept alive by never being touched again. Without this the
+        dict grows by one entry per distinct identifier forever.
+        """
+        if len(self._requests) <= _MAX_KEYS:
+            return
+        cutoff = time.time() - _STALE_AFTER_SECONDS
+        stale = [k for k, ts in self._requests.items() if not ts or ts[-1] <= cutoff]
+        for k in stale:
+            self._requests.pop(k, None)
 
     def check(self, key: str, rule: RateLimitRule) -> RateLimitResult:
         """Check if a request is allowed under the rate limit.
@@ -51,13 +74,14 @@ class InMemoryRateLimiter:
         requests = self._requests.get(key, [])
         # Prune old entries
         current = [t for t in requests if t > window_start]
+        # Drop the key entirely when nothing remains in-window, so read-only
+        # checks against expired keys don't leave permanent empty entries.
+        if not current and key in self._requests:
+            self._requests.pop(key, None)
         count = len(current)
         remaining = max(0, rule.max_requests - count)
         # Find when the oldest request in window expires
-        if current:
-            reset_at = current[0] + rule.window_seconds
-        else:
-            reset_at = now + rule.window_seconds
+        reset_at = current[0] + rule.window_seconds if current else now + rule.window_seconds
 
         if count >= rule.max_requests:
             retry_after = reset_at - now
@@ -80,6 +104,7 @@ class InMemoryRateLimiter:
         if key not in self._requests:
             self._requests[key] = []
         self._requests[key].append(now)
+        self._sweep_if_needed()
 
     def check_and_consume(self, key: str, rule: RateLimitRule) -> RateLimitResult:
         """Check rate limit and consume if allowed. Atomic operation."""
@@ -200,7 +225,7 @@ class RedisRateLimiter:
         now_ms = int(time.time() * 1000)
         try:
             self._redis.zremrangebyscore(key, "-inf", now_ms - window_seconds * 1000)
-            return self._redis.zcard(key)
+            return cast(int, self._redis.zcard(key))
         except Exception:
             return 0
 
@@ -234,6 +259,7 @@ class RateLimitGuard:
         rules: dict[str, RateLimitRule] | None = None,
         redis_client: Any | None = None,
     ) -> None:
+        self._limiter: InMemoryRateLimiter | RedisRateLimiter
         if redis_client is not None:
             self._limiter = RedisRateLimiter(redis_client)
         else:

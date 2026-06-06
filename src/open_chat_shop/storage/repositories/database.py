@@ -8,11 +8,11 @@ from __future__ import annotations
 import copy
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Engine, text
-from sqlmodel import Session, select
+from sqlalchemy import Engine
+from sqlmodel import Session, col, select
 
 from open_chat_shop.storage.models import (
     LogisticsRecord,
@@ -28,7 +28,7 @@ from open_chat_shop.storage.repositories.abc import (
 )
 
 
-def _order_to_dict(row: Order) -> dict:
+def _order_to_dict(row: Order) -> dict[str, Any]:
     """Convert a SQLModel Order row to the dict shape used by tools."""
     items = json.loads(row.items_json) if row.items_json else []
     addr_data = json.loads(row.address_json) if row.address_json else {}
@@ -38,6 +38,10 @@ def _order_to_dict(row: Order) -> dict:
         created_iso += "Z"
     return {
         "order_id": row.id,
+        # Map the model column ``user_id`` to the dict key ``customer_id`` that
+        # OrderRepository.get_for_user() checks for ownership. Without this the
+        # IDOR/BOLA guard silently no-ops on the SQL backend (owner stays None).
+        "customer_id": row.user_id,
         "status": row.status,
         "items": items,
         "total_amount": row.total_amount,
@@ -47,7 +51,7 @@ def _order_to_dict(row: Order) -> dict:
     }
 
 
-def _product_to_dict(row: Product) -> dict:
+def _product_to_dict(row: Product) -> dict[str, Any]:
     """Convert a SQLModel Product row to the dict shape used by tools."""
     return {
         "id": row.id,
@@ -58,7 +62,7 @@ def _product_to_dict(row: Product) -> dict:
     }
 
 
-def _logistics_to_dict(row: LogisticsRecord) -> dict:
+def _logistics_to_dict(row: LogisticsRecord) -> dict[str, Any]:
     """Convert a SQLModel LogisticsRecord row to the dict shape used by tools."""
     timeline = json.loads(row.timeline_json) if row.timeline_json else []
     return {
@@ -79,16 +83,16 @@ class DatabaseOrderRepository(OrderRepository):
 
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
-        self._snapshots: dict[str, dict] = {}
+        self._snapshots: dict[str, dict[str, Any]] = {}
 
-    def get(self, order_id: str) -> dict | None:
+    def get(self, order_id: str) -> dict[str, Any] | None:
         with Session(self._engine) as session:
             row = session.get(Order, order_id)
             if row is None:
                 return None
             return _order_to_dict(row)
 
-    def update_status(self, order_id: str, status: str, **extras: str) -> dict | None:
+    def update_status(self, order_id: str, status: str, **extras: str) -> dict[str, Any] | None:
         with Session(self._engine) as session:
             row = session.get(Order, order_id)
             if row is None:
@@ -97,7 +101,7 @@ class DatabaseOrderRepository(OrderRepository):
             for k, v in extras.items():
                 if hasattr(row, k):
                     setattr(row, k, v)
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
             session.add(row)
             session.commit()
             session.refresh(row)
@@ -108,7 +112,7 @@ class DatabaseOrderRepository(OrderRepository):
         order_id: str,
         address: str,
         phone: str | None = None,
-    ) -> tuple[dict | None, str]:
+    ) -> tuple[dict[str, Any] | None, str]:
         with Session(self._engine) as session:
             row = session.get(Order, order_id)
             if row is None:
@@ -119,7 +123,7 @@ class DatabaseOrderRepository(OrderRepository):
             if phone is not None:
                 new_data["phone"] = phone
             row.address_json = json.dumps(new_data, ensure_ascii=False)
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
             session.add(row)
             session.commit()
             session.refresh(row)
@@ -143,7 +147,7 @@ class DatabaseOrderRepository(OrderRepository):
             row.items_json = json.dumps(snapshot["items"], ensure_ascii=False)
             addr = {"full": snapshot.get("address", ""), "phone": snapshot.get("phone", "")}
             row.address_json = json.dumps(addr, ensure_ascii=False)
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
             session.add(row)
             session.commit()
         return True
@@ -165,10 +169,10 @@ class DatabaseProductRepository(ProductRepository):
         keyword: str,
         category: str | None = None,
         limit: int = 10,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         with Session(self._engine) as session:
             statement = select(Product).where(
-                Product.name.ilike(f"%{keyword}%")
+                col(Product.name).ilike(f"%{keyword}%")
             )
             if category:
                 statement = statement.where(Product.category == category)
@@ -176,7 +180,7 @@ class DatabaseProductRepository(ProductRepository):
             rows = session.exec(statement).all()
             return [_product_to_dict(r) for r in rows]
 
-    def get(self, product_id: str) -> dict | None:
+    def get(self, product_id: str) -> dict[str, Any] | None:
         with Session(self._engine) as session:
             row = session.get(Product, product_id)
             if row is None:
@@ -195,7 +199,7 @@ class DatabaseLogisticsRepository(LogisticsRepository):
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
 
-    def get_by_order(self, order_id: str) -> dict | None:
+    def get_by_order(self, order_id: str) -> dict[str, Any] | None:
         with Session(self._engine) as session:
             statement = select(LogisticsRecord).where(
                 LogisticsRecord.order_id == order_id
@@ -217,9 +221,9 @@ class DatabaseRefundRepository(RefundRepository):
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
 
-    def create(self, order_id: str, amount: float, reason: str) -> dict:
+    def create(self, order_id: str, amount: float, reason: str) -> dict[str, Any]:
         refund_id = f"REF-{uuid.uuid4().hex[:8].upper()}"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         row = RefundRecord(
             id=refund_id,
             order_id=order_id,

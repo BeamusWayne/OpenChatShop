@@ -3,15 +3,16 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, cast
 
 import litellm
 import yaml
 
 from open_chat_shop.core.exceptions import ProviderError
-from open_chat_shop.core.provider import LLMProvider
+from open_chat_shop.core.provider import LLMProvider, TransientProviderError
 from open_chat_shop.core.types import (
     GenerateConfig,
     LLMChunk,
@@ -48,10 +49,7 @@ class LiteLLMProvider(LLMProvider):
         self._api_key = api_key
         self._base_url = base_url
         self._capabilities = capabilities or _DEFAULT_CAPABILITIES
-
-    @property
-    def name(self) -> str:
-        return self._model
+        self.name = model
 
     async def chat(
         self,
@@ -97,7 +95,7 @@ class LiteLLMProvider(LLMProvider):
 
     def estimate_tokens(self, text: str) -> int:
         try:
-            return litellm.token_counter(model=self._model, text=text)
+            return int(litellm.token_counter(model=self._model, text=text))
         except Exception:
             return max(1, len(text) // 4)
 
@@ -108,11 +106,11 @@ class LiteLLMProvider(LLMProvider):
         config: GenerateConfig | None,
         *,
         stream: bool,
-    ) -> dict:
+    ) -> dict[str, Any]:
         formatted_messages = [
             {"role": m.role, "content": m.content} for m in messages
         ]
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": formatted_messages,
             "api_key": self._api_key,
@@ -141,7 +139,8 @@ class LiteLLMProvider(LLMProvider):
 
     @staticmethod
     def _parse_response(response: object) -> LLMResponse:
-        choice = response.choices[0]
+        resp = cast(Any, response)
+        choice = resp.choices[0]
         content = choice.message.content or ""
 
         tool_calls: list[ToolCall] = []
@@ -159,9 +158,9 @@ class LiteLLMProvider(LLMProvider):
                 )
 
         usage = TokenUsage(
-            prompt_tokens=response.usage.prompt_tokens,
-            completion_tokens=response.usage.completion_tokens,
-            total_tokens=response.usage.total_tokens,
+            prompt_tokens=resp.usage.prompt_tokens,
+            completion_tokens=resp.usage.completion_tokens,
+            total_tokens=resp.usage.total_tokens,
         )
         return LLMResponse(
             content=content,
@@ -172,19 +171,77 @@ class LiteLLMProvider(LLMProvider):
 
     @staticmethod
     def _parse_chunk(chunk: object) -> LLMChunk:
-        delta = chunk.choices[0].delta
+        ch = cast(Any, chunk)
+        delta = ch.choices[0].delta
         return LLMChunk(
             content_delta=delta.content or "",
             tool_call_delta=None,
-            finish_reason=chunk.choices[0].finish_reason,
+            finish_reason=ch.choices[0].finish_reason,
         )
 
     def _wrap_error(self, exc: Exception) -> ProviderError:
-        return ProviderError(
+        """Map a LiteLLM/transport exception to the right ProviderError flavour.
+
+        Transient upstream failures (timeout, connection drop, 5xx, rate limit)
+        become ``TransientProviderError`` so ``resilience.RetryPolicy`` retries
+        them; everything else (auth, bad request, content policy, parsing) stays
+        a plain, non-retryable ``ProviderError``. This mirrors
+        ``AnthropicProvider._to_provider_error`` — without it a wrapped transient
+        from the LiteLLM fallback path was a plain ``ProviderError`` that matched
+        no entry in ``_RETRYABLE`` and so was never retried (audit PROVIDER HIGH).
+        """
+        if isinstance(exc, TransientProviderError):
+            return exc
+        cls = (
+            TransientProviderError if self._is_transient(exc) else ProviderError
+        )
+        return cls(
             message=str(exc),
             provider=self._model,
             details={"exception_type": type(exc).__name__},
         )
+
+    @staticmethod
+    def _is_transient(exc: Exception) -> bool:
+        """Return True if *exc* is a retryable transient upstream failure.
+
+        Raw transport errors (``TimeoutError``/``ConnectionError``/``OSError``)
+        are transient. LiteLLM's SDK exceptions are rooted at ``OpenAIError`` and
+        are NOT builtin ``OSError`` subclasses, so the retryable ones (timeout,
+        connection, 5xx, rate limit) must be matched explicitly or retry misses
+        them. Permanent failures (auth, bad request, not found, content policy)
+        return False so we fail fast instead of hammering a broken upstream.
+        """
+        if isinstance(exc, TimeoutError | ConnectionError | OSError):
+            return True
+        try:
+            import httpx
+            from litellm.exceptions import (
+                APIConnectionError,
+                BadGatewayError,
+                InternalServerError,
+                RateLimitError,
+                ServiceUnavailableError,
+                Timeout,
+            )
+
+            # httpx.TransportError covers connect/read/write/pool timeouts and
+            # network errors. LiteLLM is httpx-backed and usually wraps these in
+            # its own Timeout/APIConnectionError, but can let some escape raw;
+            # they are NOT builtin OSError subclasses, so they must be matched
+            # explicitly or retry would miss them (mirrors AnthropicProvider).
+            return isinstance(
+                exc,
+                Timeout
+                | APIConnectionError
+                | InternalServerError
+                | ServiceUnavailableError
+                | BadGatewayError
+                | RateLimitError
+                | httpx.TransportError,
+            )
+        except ImportError:  # pragma: no cover - both are hard dependencies
+            return False
 
 
 @dataclass

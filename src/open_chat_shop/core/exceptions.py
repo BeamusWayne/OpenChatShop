@@ -9,6 +9,8 @@ See docs/design/contracts.md section 2 for the full specification.
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class OpenChatShopError(Exception):
     """Base exception for all OpenChatShop modules.
@@ -24,7 +26,7 @@ class OpenChatShopError(Exception):
         self,
         error_code: str,
         message: str,
-        details: dict | None = None,
+        details: dict[str, Any] | None = None,
         recoverable: bool = True,
     ) -> None:
         self.error_code = error_code
@@ -37,7 +39,7 @@ class OpenChatShopError(Exception):
 class SecurityError(OpenChatShopError):
     """Security layer exception -- not recoverable by default."""
 
-    def __init__(self, message: str, details: dict | None = None) -> None:
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(
             f"SEC-{abs(hash(message)) % 1000:03d}",
             message,
@@ -50,7 +52,7 @@ class ProviderError(OpenChatShopError):
     """LLM Provider exception."""
 
     def __init__(
-        self, message: str, provider: str, details: dict | None = None
+        self, message: str, provider: str, details: dict[str, Any] | None = None
     ) -> None:
         super().__init__(
             f"PROV-{abs(hash(message)) % 1000:03d}",
@@ -64,7 +66,7 @@ class ContextError(OpenChatShopError):
     """Context management exception."""
 
     def __init__(
-        self, message: str, session_id: str, details: dict | None = None
+        self, message: str, session_id: str, details: dict[str, Any] | None = None
     ) -> None:
         super().__init__(
             f"CTX-{abs(hash(message)) % 1000:03d}",
@@ -77,7 +79,7 @@ class ContextError(OpenChatShopError):
 class IntentError(OpenChatShopError):
     """Intent recognition exception."""
 
-    def __init__(self, message: str, details: dict | None = None) -> None:
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(
             f"INTENT-{abs(hash(message)) % 1000:03d}",
             message,
@@ -89,7 +91,7 @@ class ToolError(OpenChatShopError):
     """Tool execution exception."""
 
     def __init__(
-        self, message: str, tool_name: str, details: dict | None = None
+        self, message: str, tool_name: str, details: dict[str, Any] | None = None
     ) -> None:
         super().__init__(
             f"TOOL-{abs(hash(message)) % 1000:03d}",
@@ -103,7 +105,7 @@ class ChannelError(OpenChatShopError):
     """Channel adapter exception."""
 
     def __init__(
-        self, message: str, channel: str, details: dict | None = None
+        self, message: str, channel: str, details: dict[str, Any] | None = None
     ) -> None:
         super().__init__(
             f"CHAN-{abs(hash(message)) % 1000:03d}",

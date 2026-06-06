@@ -22,6 +22,13 @@ interface UseAgentReturn {
   refreshActive: () => Promise<void>;
 }
 
+const INITIAL_RECONNECT_DELAY = 3000;
+const MAX_RECONNECT_DELAY = 60000;
+
+function getReconnectDelay(retryCount: number): number {
+  return Math.min(INITIAL_RECONNECT_DELAY * Math.pow(2, retryCount), MAX_RECONNECT_DELAY);
+}
+
 export function useAgent(agentId: string, agentName = '', agentDepartment = 'general'): UseAgentReturn {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
@@ -31,6 +38,7 @@ export function useAgent(agentId: string, agentName = '', agentDepartment = 'gen
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
   const messagesRef = useRef<Record<string, ChatMessage[]>>({});
   messagesRef.current = messages;
 
@@ -66,6 +74,7 @@ export function useAgent(agentId: string, agentName = '', agentDepartment = 'gen
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws/agent/${agentId}?${params}`);
 
     ws.onopen = () => {
+      retryCountRef.current = 0;
       setConnected(true);
     };
 
@@ -86,6 +95,29 @@ export function useAgent(agentId: string, agentName = '', agentDepartment = 'gen
             const item = msg.data as QueueItem | undefined;
             if (item) {
               setQueueItems((prev) => [...prev, item]);
+              // Audio notification
+              try {
+                const ctx = new AudioContext();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.frequency.value = 880;
+                gain.gain.value = 0.1;
+                osc.start();
+                osc.stop(ctx.currentTime + 0.15);
+              } catch { /* audio not available */ }
+              // Browser notification
+              try {
+                if (Notification.permission === 'granted') {
+                  new Notification('新客户请求', {
+                    body: `${item.reason || '客户请求人工服务'}`,
+                    tag: item.session_id,
+                  });
+                } else if (Notification.permission !== 'denied') {
+                  void Notification.requestPermission();
+                }
+              } catch { /* notifications not available */ }
             }
             break;
           }
@@ -183,9 +215,11 @@ export function useAgent(agentId: string, agentName = '', agentDepartment = 'gen
 
     ws.onclose = () => {
       setConnected(false);
+      const delay = getReconnectDelay(retryCountRef.current);
+      retryCountRef.current += 1;
       reconnectTimerRef.current = setTimeout(() => {
         connect();
-      }, 3000);
+      }, delay);
     };
 
     ws.onerror = () => {

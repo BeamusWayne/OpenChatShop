@@ -87,17 +87,26 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Ro
 <script>
 (function(){
   var WS_BASE = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/chat/';
+  var SESSION_KEY = 'openchatshop_session_id';
+  var INITIAL_RETRY_DELAY = 3000;
+  var MAX_RETRY_DELAY = 60000;
   var messagesEl = document.getElementById('messages');
   var inputEl = document.getElementById('input');
   var sendBtn = document.getElementById('sendBtn');
   var statusDot = document.getElementById('statusDot');
   var statusText = document.getElementById('statusText');
 
-  var sessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : 'sess-' + Math.random().toString(36).slice(2);
+  // Session persistence: reuse sessionId from localStorage
+  var sessionId = localStorage.getItem(SESSION_KEY);
+  if (!sessionId) {
+    sessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : 'sess-' + Math.random().toString(36).slice(2);
+    localStorage.setItem(SESSION_KEY, sessionId);
+  }
 
   var ws = null;
+  var retryDelay = INITIAL_RETRY_DELAY;
   var currentBotRow = null;
   var currentBotBubble = null;
   var botContent = '';
@@ -177,6 +186,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Ro
     ws = new WebSocket(WS_BASE + sessionId);
 
     ws.onopen = function() {
+      retryDelay = INITIAL_RETRY_DELAY;
       setStatus(true);
       addRow('bot', '欢迎使用 OpenChatShop 智能客服！我可以帮您查询订单、处理退换货、推荐商品等。请问有什么可以帮您？');
     };
@@ -219,7 +229,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Ro
 
     ws.onclose = function() {
       setStatus(false);
-      setTimeout(connect, 3000);
+      setTimeout(connect, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
     };
 
     ws.onerror = function() {

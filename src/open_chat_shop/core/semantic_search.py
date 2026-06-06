@@ -6,10 +6,12 @@ Designed to be swapped in when a real embedding provider is available.
 """
 from __future__ import annotations
 
+import heapq
 import logging
 import math
-from dataclasses import dataclass, field
-from typing import Any
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,32 @@ class SearchResult:
     text: str
 
 
-class InMemoryVectorStore:
+class VectorStore(ABC):
+    """Pluggable vector store contract (V2.0 module 2).
+
+    The ABC mirrors the in-memory store's existing API so the default backend
+    is unchanged; a production backend (pgvector, feat-045) implements the same
+    four methods and can be swapped in without touching callers.
+    """
+
+    @abstractmethod
+    def add(self, intent: str, text: str, vector: list[float]) -> None:
+        """Add a text sample with its embedding under *intent*."""
+
+    @abstractmethod
+    def search(self, query_vector: list[float], top_k: int = 3) -> list[SearchResult]:
+        """Return the top-k most similar samples across all intents."""
+
+    @abstractmethod
+    def get_intents(self) -> list[str]:
+        """Return all registered intents."""
+
+    @abstractmethod
+    def clear(self, intent: str | None = None) -> None:
+        """Clear vectors for a specific intent, or all when *intent* is None."""
+
+
+class InMemoryVectorStore(VectorStore):
     """Simple in-memory vector store using cosine similarity.
 
     Suitable for development and testing. For production, replace
@@ -43,18 +70,23 @@ class InMemoryVectorStore:
         self._texts[intent].append(text)
 
     def search(self, query_vector: list[float], top_k: int = 3) -> list[SearchResult]:
-        """Find the top-k most similar samples across all intents."""
-        results: list[SearchResult] = []
-        for intent, vectors in self._vectors.items():
-            for i, vec in enumerate(vectors):
-                score = _cosine_similarity(query_vector, vec)
-                results.append(SearchResult(
-                    intent=intent,
-                    score=score,
-                    text=self._texts[intent][i],
-                ))
-        results.sort(key=lambda r: r.score, reverse=True)
-        return results[:top_k]
+        """Find the top-k most similar samples across all intents.
+
+        This is a dev/test store (production should route to pgvector/Milvus,
+        per the class docstring). Scoring is still a full linear scan, but we use
+        a bounded top-k heap (``heapq.nlargest``) instead of sorting every
+        result, so cost is O(n log top_k) rather than O(n log n) on the sort.
+        """
+        results = (
+            SearchResult(
+                intent=intent,
+                score=_cosine_similarity(query_vector, vec),
+                text=self._texts[intent][i],
+            )
+            for intent, vectors in self._vectors.items()
+            for i, vec in enumerate(vectors)
+        )
+        return heapq.nlargest(top_k, results, key=lambda r: r.score)
 
     def get_intents(self) -> list[str]:
         """Return all registered intents."""
@@ -85,14 +117,14 @@ class EmbeddingService:
         """Get embedding for a single text string."""
         if self._provider is not None:
             embeddings = await self._provider.embed([text])
-            return embeddings[0]
+            return cast("list[float]", embeddings[0])
         # Fallback: simple bag-of-words hashing for testing
         return self._simple_hash_embedding(text)
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Get embeddings for multiple texts."""
         if self._provider is not None:
-            return await self._provider.embed(texts)
+            return cast("list[list[float]]", await self._provider.embed(texts))
         return [self._simple_hash_embedding(t) for t in texts]
 
     def _simple_hash_embedding(self, text: str) -> list[float]:
@@ -111,7 +143,7 @@ class EmbeddingService:
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Compute cosine similarity between two vectors."""
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     mag_a = math.sqrt(sum(x * x for x in a))
     mag_b = math.sqrt(sum(x * x for x in b))
     if mag_a == 0 or mag_b == 0:

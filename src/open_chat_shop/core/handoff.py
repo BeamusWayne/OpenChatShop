@@ -5,24 +5,40 @@ session assignment, queue tracking, and timeout escalation.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Any
-import asyncio
-
+import contextlib
 import logging
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+# Metrics gauge — safe no-op if prometheus_client is not installed
+try:
+    from open_chat_shop.observability.metrics import HANDOFF_QUEUE_SIZE
+    _METRICS_AVAILABLE = True
+except ImportError:
+    _METRICS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
 
-class AgentStatus(str, Enum):
+def _utcnow() -> datetime:
+    """Return the current time as a tz-aware UTC datetime.
+
+    Centralised so every timestamp in this module is offset-aware and
+    comparisons (e.g. in :meth:`HandoffQueue.check_timeouts`) never mix
+    naive and aware datetimes.
+    """
+    return datetime.now(UTC)
+
+
+class AgentStatus(StrEnum):
     OFFLINE = "offline"
     ONLINE = "online"
     BUSY = "busy"
 
 
-class TransferStatus(str, Enum):
+class TransferStatus(StrEnum):
     QUEUED = "queued"
     ASSIGNED = "assigned"
     ACTIVE = "active"
@@ -53,7 +69,10 @@ class TransferRequest:
     department: str = "general"
     status: TransferStatus = TransferStatus.QUEUED
     assigned_agent_id: str | None = None
-    queued_at: datetime = field(default_factory=datetime.utcnow)
+    # tz-aware (UTC) so it can be compared against datetime.now(UTC) in
+    # check_timeouts without raising "can't subtract offset-naive and
+    # offset-aware datetimes".
+    queued_at: datetime = field(default_factory=_utcnow)
     assigned_at: datetime | None = None
     completed_at: datetime | None = None
     priority: int = 0  # Higher = more urgent
@@ -105,12 +124,12 @@ class HandoffQueue:
         """Add a transfer request to the queue. Returns queue position."""
         self._queue.append(request)
         self._queue.sort(key=lambda r: r.priority, reverse=True)
+        if _METRICS_AVAILABLE:
+            HANDOFF_QUEUE_SIZE.set(len(self._queue))
         position = self._queue.index(request) + 1
         for cb in self._on_enqueue:
-            try:
+            with contextlib.suppress(Exception):
                 cb(request, position)
-            except Exception:
-                pass
         return position
 
     def assign(self, request: TransferRequest) -> HumanAgent | None:
@@ -143,21 +162,21 @@ class HandoffQueue:
 
         request.status = TransferStatus.ASSIGNED
         request.assigned_agent_id = agent.agent_id
-        request.assigned_at = datetime.now(timezone.utc)
+        request.assigned_at = _utcnow()
 
         self._active_transfers[request.session_id] = request
         # Remove from queue if present
         self._queue = [r for r in self._queue if r.request_id != request.request_id]
+        if _METRICS_AVAILABLE:
+            HANDOFF_QUEUE_SIZE.set(len(self._queue))
 
         logger.info(
             "Assigned session %s to agent %s",
             request.session_id, agent.name,
         )
         for cb in self._on_assign:
-            try:
+            with contextlib.suppress(Exception):
                 cb(request, agent)
-            except Exception:
-                pass
         return agent
 
     def complete_transfer(self, session_id: str) -> None:
@@ -167,7 +186,7 @@ class HandoffQueue:
             return
 
         transfer.status = TransferStatus.COMPLETED
-        transfer.completed_at = datetime.now(timezone.utc)
+        transfer.completed_at = _utcnow()
 
         agent = self._agents.get(transfer.assigned_agent_id or "")
         if agent:
@@ -177,10 +196,8 @@ class HandoffQueue:
             agent.status = AgentStatus.ONLINE
 
         for cb in self._on_complete:
-            try:
+            with contextlib.suppress(Exception):
                 cb(transfer)
-            except Exception:
-                pass
 
     def get_queue_position(self, session_id: str) -> int | None:
         """Get the queue position for a session. None if not queued."""
@@ -206,7 +223,7 @@ class HandoffQueue:
 
     def check_timeouts(self) -> list[TransferRequest]:
         """Check for timed-out queued requests. Returns timed-out list."""
-        now = datetime.now(timezone.utc)
+        now = _utcnow()
         timed_out = []
         remaining = []
         for req in self._queue:

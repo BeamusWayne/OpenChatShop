@@ -1,28 +1,30 @@
 """Integration tests for DialogueOrchestrator with mock components."""
 from __future__ import annotations
 
-import pytest
-from datetime import datetime
+from typing import ClassVar
 
-from open_chat_shop.core.types import (
-    UserMessage, AgentMessage, SessionContext, Intent, Message,
-    ToolResult, ToolDefinition, ToolPermission, RoutingRule,
-    Action, TokenUsage, LLMResponse,
-)
-from open_chat_shop.core.provider import MockProvider
+import pytest
+
 from open_chat_shop.core.context import InMemoryContextManager
-from open_chat_shop.core.intent import CascadeIntentEngine, RuleBasedMatcher, IntentInfo
+from open_chat_shop.core.intent import CascadeIntentEngine, IntentInfo, RuleBasedMatcher
+from open_chat_shop.core.orchestrator import DialogueOrchestrator
 from open_chat_shop.core.security import SecurityGuard
 from open_chat_shop.core.strategy import RuleBasedStrategy
 from open_chat_shop.core.tool import BaseTool, ToolInjector
-from open_chat_shop.core.orchestrator import DialogueOrchestrator
+from open_chat_shop.core.types import (
+    AgentMessage,
+    RoutingRule,
+    ToolPermission,
+    ToolResult,
+    UserMessage,
+)
 
 
 class MockQueryOrderTool(BaseTool):
     name = "query_order"
     description = "查询订单"
     category = "order"
-    params_schema = {
+    params_schema: ClassVar[dict] = {
         "type": "object",
         "properties": {"order_id": {"type": "string"}},
         "required": ["order_id"],
@@ -40,7 +42,7 @@ class MockHandoffTool(BaseTool):
     name = "handoff_to_human"
     description = "转人工客服"
     category = "support"
-    params_schema = {"type": "object", "properties": {}}
+    params_schema: ClassVar[dict] = {"type": "object", "properties": {}}
     permissions = ToolPermission(required_roles=["customer"])
 
     async def execute(self, params, context):
@@ -103,7 +105,11 @@ class TestOrchestrator:
         msg = UserMessage(session_id="s1", content="我的订单状态怎样了？", channel="web")
         response = await orchestrator.handle_message(msg)
         assert isinstance(response, AgentMessage)
-        assert "订单" in response.text_fallback or "参数" in response.text_fallback or "成功" in response.text_fallback
+        assert (
+            "订单" in response.text_fallback
+            or "参数" in response.text_fallback
+            or "成功" in response.text_fallback
+        )
 
     @pytest.mark.unit
     @pytest.mark.asyncio

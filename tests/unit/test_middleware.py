@@ -1,7 +1,6 @@
 """Tests for the middleware pipeline (feat-033)."""
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -18,7 +17,6 @@ from open_chat_shop.core.middleware import (
 from open_chat_shop.core.rate_limiter import InMemoryRateLimiter, RateLimitGuard, RateLimitRule
 from open_chat_shop.core.slot_tracker import SlotDefinition, SlotTracker
 from open_chat_shop.core.types import AgentMessage, SessionContext, UserMessage
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -153,8 +151,9 @@ class TestBudgetMiddleware:
         # Drain the budget via post_process
         response = AgentMessage(
             message_type="text",
-            payload={"token_usage": 100},
+            payload={},
             text_fallback="ok",
+            meta={"token_usage": 100},
         )
         await mw.post_process(msg, response, ctx)
 
@@ -164,7 +163,7 @@ class TestBudgetMiddleware:
 
     @pytest.mark.asyncio
     async def test_records_cost_on_post_process(self) -> None:
-        """post_process records the token cost from response payload."""
+        """post_process records the real token cost from response.meta."""
         budget = SessionBudgetManager(BudgetConfig(max_tokens=1000))
         mw = BudgetMiddleware(budget, default_cost=50)
 
@@ -172,8 +171,9 @@ class TestBudgetMiddleware:
         ctx = _make_context()
         response = AgentMessage(
             message_type="text",
-            payload={"token_usage": 200},
+            payload={},
             text_fallback="ok",
+            meta={"token_usage": 200},
         )
 
         await mw.post_process(msg, response, ctx)
@@ -182,8 +182,8 @@ class TestBudgetMiddleware:
         assert status.used_tokens == 200
 
     @pytest.mark.asyncio
-    async def test_uses_default_cost_when_payload_has_no_usage(self) -> None:
-        """post_process falls back to default_cost if payload lacks token_usage."""
+    async def test_uses_default_cost_when_meta_has_no_usage(self) -> None:
+        """post_process falls back to default_cost if meta lacks token_usage."""
         budget = SessionBudgetManager(BudgetConfig(max_tokens=1000))
         mw = BudgetMiddleware(budget, default_cost=75)
 
@@ -410,8 +410,8 @@ class TestMiddlewarePipeline:
         msg = _make_message()
         ctx = _make_context()
         await mw.post_process(msg, AgentMessage(
-            message_type="text", payload={"token_usage": 10},
-            text_fallback="ok",
+            message_type="text", payload={},
+            text_fallback="ok", meta={"token_usage": 10},
         ), ctx)
 
         pipeline = MiddlewarePipeline([mw])

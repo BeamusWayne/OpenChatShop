@@ -1,20 +1,19 @@
 """Tests for BaseTool ABC and ToolInjector."""
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
+from open_chat_shop.core.tool import BaseTool, ToolInjector
 from open_chat_shop.core.types import (
-    CheckResult,
     Intent,
     RoutingRule,
     SessionContext,
     ToolDefinition,
     ToolPermission,
     ToolResult,
-    ValidationResult,
 )
-from open_chat_shop.core.tool import BaseTool, ToolInjector
-
 
 # ---------------------------------------------------------------------------
 # Concrete test tool
@@ -27,7 +26,7 @@ class DummyTool(BaseTool):
     name = "dummy_tool"
     description = "A test tool"
     category = "test"
-    params_schema = {
+    params_schema: ClassVar[dict] = {
         "type": "object",
         "properties": {"input": {"type": "string"}},
         "required": ["input"],
@@ -44,7 +43,7 @@ class AdminTool(BaseTool):
     name = "admin_tool"
     description = "Admin-only tool"
     category = "admin"
-    params_schema = {
+    params_schema: ClassVar[dict] = {
         "type": "object",
         "properties": {"action": {"type": "string"}},
         "required": ["action"],
@@ -61,7 +60,7 @@ class OpenTool(BaseTool):
     name = "open_tool"
     description = "Open to all"
     category = "general"
-    params_schema = {"type": "object", "properties": {}}
+    params_schema: ClassVar[dict] = {"type": "object", "properties": {}}
     permissions = ToolPermission(required_roles=[])
 
     async def execute(self, params: dict, context: SessionContext) -> ToolResult:

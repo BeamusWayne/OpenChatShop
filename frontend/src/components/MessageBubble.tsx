@@ -1,5 +1,5 @@
-import { Typography, Space, Tag, theme } from 'antd';
-import { RobotOutlined, UserOutlined, CustomerServiceOutlined } from '@ant-design/icons';
+import { Typography, Space, Tag, Button, theme } from 'antd';
+import { RobotOutlined, UserOutlined, CustomerServiceOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ChatMessage } from '../types/chat';
 import OrderCard from './rich/OrderCard';
 import LogisticsTimeline from './rich/LogisticsTimeline';
@@ -25,12 +25,16 @@ export default function MessageBubble({ message, onSuggestionClick }: Props) {
   const isSystem = message.role === 'system';
   const isFromBot = isAssistant;
 
+  const timeStr = message.timestamp
+    ? new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    : '';
+
   return (
     <div
       style={{
         display: 'flex',
         gap: 8,
-        maxWidth: isSystem ? '95%' : '75%',
+        maxWidth: isSystem ? '100%' : '85%',
         alignSelf: isUser ? 'flex-end' : 'flex-start',
         flexDirection: isUser ? 'row-reverse' : 'row',
       }}
@@ -114,6 +118,33 @@ export default function MessageBubble({ message, onSuggestionClick }: Props) {
               </Tag>
             ))}
           </Space>
+        )}
+        {timeStr && (
+          <div
+            style={{
+              fontSize: 11,
+              color: token.colorTextQuaternary,
+              marginTop: 4,
+              textAlign: isUser ? 'right' : 'left',
+              paddingRight: isUser ? 4 : 0,
+              paddingLeft: isUser ? 0 : 4,
+            }}
+          >
+            {timeStr}
+          </div>
+        )}
+        {message.failed && (
+          <div style={{ marginTop: 4, textAlign: isUser ? 'right' : 'left' }}>
+            <Button
+              type="link"
+              danger
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => onSuggestionClick?.(message.content)}
+            >
+              重试
+            </Button>
+          </div>
         )}
       </div>
     </div>

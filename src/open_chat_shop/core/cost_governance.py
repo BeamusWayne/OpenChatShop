@@ -5,16 +5,14 @@ budgets and trigger alerts when spending exceeds configured thresholds.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
-
 import logging
+from dataclasses import dataclass, field
+from enum import StrEnum
 
 logger = logging.getLogger(__name__)
 
 
-class AlertLevel(str, Enum):
+class AlertLevel(StrEnum):
     NONE = "none"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -41,7 +39,10 @@ class BudgetStatus:
 
     def __post_init__(self) -> None:
         self.remaining_tokens = max(0, self.max_tokens - self.used_tokens)
-        self.usage_percent = round(self.used_tokens / self.max_tokens * 100, 1) if self.max_tokens > 0 else 0.0
+        if self.max_tokens > 0:
+            self.usage_percent = round(self.used_tokens / self.max_tokens * 100, 1)
+        else:
+            self.usage_percent = 0.0
 
 
 @dataclass
@@ -54,6 +55,14 @@ class CostAlert:
     message: str
 
 
+# Cap on the number of distinct sessions retained in-memory. Each session
+# adds one int that is only removed by explicit reset(); over days of distinct
+# sessions this grows without bound. When the cap is exceeded we evict the
+# least-recently-touched sessions (dict insertion order, refreshed on write)
+# to bound RSS — mirrors the orchestrator's _session_locks cap.
+_MAX_SESSIONS = 10_000
+
+
 class SessionBudgetManager:
     """Track and enforce per-session token budgets."""
 
@@ -61,9 +70,26 @@ class SessionBudgetManager:
         self._config = config or BudgetConfig()
         self._sessions: dict[str, int] = {}  # session_id -> used_tokens
 
+    def _touch(self, session_id: str, used: int) -> None:
+        """Write a session's usage and mark it most-recently-used.
+
+        Re-inserting moves the key to the end of the dict so eviction drops the
+        oldest (least-recently-written) sessions first.
+        """
+        self._sessions.pop(session_id, None)
+        self._sessions[session_id] = used
+        if len(self._sessions) > _MAX_SESSIONS:
+            # Evict from the front (oldest) until back under the cap.
+            for stale in list(self._sessions.keys()):
+                if len(self._sessions) <= _MAX_SESSIONS:
+                    break
+                if stale == session_id:
+                    continue  # never evict the session we just wrote
+                del self._sessions[stale]
+
     def consume(self, session_id: str, tokens: int) -> BudgetStatus:
         """Record token consumption and return current status."""
-        self._sessions[session_id] = self._sessions.get(session_id, 0) + tokens
+        self._touch(session_id, self._sessions.get(session_id, 0) + tokens)
         return self.get_status(session_id)
 
     def get_status(self, session_id: str) -> BudgetStatus:
@@ -99,7 +125,7 @@ class SessionBudgetManager:
 
     def set_budget(self, session_id: str, tokens: int) -> None:
         """Override budget for a specific session."""
-        self._sessions[session_id] = tokens
+        self._touch(session_id, tokens)
 
 
 class CostAlertEngine:

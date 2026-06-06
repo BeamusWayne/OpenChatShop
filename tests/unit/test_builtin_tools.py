@@ -7,10 +7,10 @@ the security matrix (requires_confirmation) for all 8 tools.
 from __future__ import annotations
 
 import copy
+
 import pytest
 
-from open_chat_shop.core.types import CheckResult, SessionContext, ToolResult
-
+from open_chat_shop.core.types import SessionContext, ToolResult
 from open_chat_shop.tools.builtin import (
     ALL_TOOLS,
     CancelOrderTool,
@@ -21,9 +21,8 @@ from open_chat_shop.tools.builtin import (
     QueryLogisticsTool,
     QueryOrderTool,
     SearchProductTool,
+    _mock_data,
 )
-from open_chat_shop.tools.builtin import _mock_data
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -93,7 +92,9 @@ class TestSearchProductValidation:
         assert result.valid is True
 
     def test_valid_full(self):
-        result = SearchProductTool().validate({"keyword": "mouse", "category": "electronics", "limit": 3})
+        result = SearchProductTool().validate(
+            {"keyword": "mouse", "category": "electronics", "limit": 3}
+        )
         assert result.valid is True
 
     def test_missing_keyword(self):
@@ -107,7 +108,9 @@ class TestCreateRefundValidation:
         assert result.valid is True
 
     def test_valid_with_amount(self):
-        result = CreateRefundTool().validate({"order_id": "ORD-001", "reason": "defective", "amount": 100.0})
+        result = CreateRefundTool().validate(
+            {"order_id": "ORD-001", "reason": "defective", "amount": 100.0}
+        )
         assert result.valid is True
 
     def test_missing_reason(self):
@@ -141,7 +144,9 @@ class TestModifyAddressValidation:
         assert result.valid is True
 
     def test_valid_with_phone(self):
-        result = ModifyAddressTool().validate({"order_id": "ORD-002", "address": "999 New St", "phone": "13100131000"})
+        result = ModifyAddressTool().validate(
+            {"order_id": "ORD-002", "address": "999 New St", "phone": "13100131000"}
+        )
         assert result.valid is True
 
     def test_missing_address(self):
@@ -272,7 +277,9 @@ class TestCreateRefundExecute:
     @pytest.mark.asyncio
     async def test_create_refund_custom_amount(self, ctx: SessionContext):
         tool = CreateRefundTool()
-        result = await tool.execute({"order_id": "ORD-002", "reason": "partial issue", "amount": 50.0}, ctx)
+        result = await tool.execute(
+            {"order_id": "ORD-002", "reason": "partial issue", "amount": 50.0}, ctx
+        )
         assert result.success is True
         assert result.data["amount"] == 50.0
 
@@ -545,3 +552,73 @@ class TestCompensate:
 
         await tool.compensate({"order_id": "ORD-002", "reason": "test"}, ctx)
         assert refund_id not in _mock_data.REFUNDS
+
+
+class TestOrderOwnershipIDOR:
+    """Regression for the IDOR/BOLA fix (audit CRITICAL-1).
+
+    Seeded orders are owned by ``user-001``. Order tools reach them via
+    OrderRepository.get_for_user, so an authenticated user must not read or
+    mutate another user's order by guessing its ID. A non-owned order is
+    reported as 'not found' — no enumeration oracle, no mutation.
+    """
+
+    @pytest.fixture()
+    def attacker(self) -> SessionContext:
+        return SessionContext(
+            session_id="attacker-session",
+            user_id="user-999",  # owns none of the seeded orders
+            channel="web",
+            user_role="customer",
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_order_denies_other_users_order(self, attacker: SessionContext):
+        result = await QueryOrderTool().execute({"order_id": "ORD-001"}, attacker)
+        assert result.success is False
+        assert "ORD-001" in result.error  # surfaced as not-found, leaks nothing
+
+    @pytest.mark.asyncio
+    async def test_query_logistics_denies_other_users_order(self, attacker: SessionContext):
+        result = await QueryLogisticsTool().execute({"order_id": "ORD-001"}, attacker)
+        assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_cancel_order_denies_and_does_not_mutate(self, attacker: SessionContext):
+        result = await CancelOrderTool().execute(
+            {"order_id": "ORD-002", "reason": "malicious"}, attacker
+        )
+        assert result.success is False
+        assert _mock_data.ORDERS["ORD-002"]["status"] == "pending"  # untouched
+
+    @pytest.mark.asyncio
+    async def test_create_refund_denies_other_users_order(self, attacker: SessionContext):
+        result = await CreateRefundTool().execute(
+            {"order_id": "ORD-001", "reason": "malicious"}, attacker
+        )
+        assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_modify_address_denies_and_does_not_mutate(self, attacker: SessionContext):
+        before = _mock_data.ORDERS["ORD-001"]["address"]
+        result = await ModifyAddressTool().execute(
+            {"order_id": "ORD-001", "address": "attacker-controlled address"}, attacker
+        )
+        assert result.success is False
+        assert _mock_data.ORDERS["ORD-001"]["address"] == before  # untouched
+
+    @pytest.mark.asyncio
+    async def test_legitimate_owner_is_unaffected(self, ctx: SessionContext):
+        # Sanity: the real owner (user-001) still succeeds — no false positives.
+        result = await QueryOrderTool().execute({"order_id": "ORD-001"}, ctx)
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_no_identity_falls_back_to_advisory(self) -> None:
+        # When no identity is established (user_id=None, e.g. auth disabled),
+        # ownership is not enforced so the local/dev demo keeps working.
+        anon = SessionContext(
+            session_id="anon", user_id=None, channel="web", user_role="customer"
+        )
+        result = await QueryOrderTool().execute({"order_id": "ORD-001"}, anon)
+        assert result.success is True

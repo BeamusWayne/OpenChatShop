@@ -1,24 +1,38 @@
 """LLM Provider abstraction layer with cascade strategy."""
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import AsyncIterator
-
-from open_chat_shop.core.types import (
-    Message,
-    ToolDefinition,
-    GenerateConfig,
-    LLMResponse,
-    LLMChunk,
-    TokenUsage,
-    ProviderCapabilities,
-)
-from open_chat_shop.core.exceptions import ProviderError
-
 import logging
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from typing import Any
+
+from open_chat_shop.core.exceptions import ProviderError
+from open_chat_shop.core.types import (
+    GenerateConfig,
+    LLMChunk,
+    LLMResponse,
+    Message,
+    ProviderCapabilities,
+    TokenUsage,
+    ToolDefinition,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class TransientProviderError(ProviderError, TimeoutError):
+    """A provider failure that is safe to retry (timeout / connection / 5xx).
+
+    Real providers wrap every downstream exception into ``ProviderError`` before
+    it can escape, and ``ProviderError`` is NOT a ``TimeoutError``/``OSError`` —
+    so ``RetryPolicy._RETRYABLE`` never matched a wrapped transient failure and
+    the retry layer was dead for production traffic (audit PROVIDER HIGH). This
+    subclass also inherits ``TimeoutError`` so it matches ``_RETRYABLE`` while
+    still being a ``ProviderError`` for the cascade's ``except ProviderError``.
+    Providers raise it only for genuinely transient upstream errors; permanent
+    failures (auth, bad request) stay as plain ``ProviderError`` and are NOT
+    retried.
+    """
 
 
 class LLMProvider(ABC):
@@ -40,7 +54,7 @@ class LLMProvider(ABC):
         """Synchronous chat interface. tools=None disables function calling."""
 
     @abstractmethod
-    async def stream(
+    def stream(
         self,
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
@@ -69,6 +83,18 @@ class CascadeStrategy:
     - tool_calling → text parsing
     - streaming → sync
     - vision → reject
+
+    DELIBERATE EXTENSION POINT (kept on purpose, not dead code): this is the
+    concrete realization of the ``LLMProvider`` ABC contract — "This layer
+    handles cascade strategy and capability degradation." Today ``main.py``'s
+    ``_build_provider`` returns a single provider (Anthropic → LiteLLM try
+    fallback), so the multi-provider cascade is not yet wired into the
+    composition root, but the contract is intentionally provided for callers
+    that pass more than one provider. It is coupled to ``TransientProviderError``
+    above (whose docstring references "the cascade's ``except ProviderError``").
+    Its capability-degradation contract is pinned by a regression test in
+    ``tests/unit/test_reaudit_deadcode.py``; removing it would orphan that test
+    and contradict the ABC docstring, so it is retained rather than deleted.
     """
 
     def __init__(self, providers: list[LLMProvider]) -> None:
@@ -131,10 +157,10 @@ class MockProvider(LLMProvider):
     ) -> None:
         self._default_response = default_response
         self._default_embeddings = default_embeddings or [[0.1] * 384]
-        self._call_log: list[dict] = []
+        self._call_log: list[dict[str, Any]] = []
 
     @property
-    def call_log(self) -> list[dict]:
+    def call_log(self) -> list[dict[str, Any]]:
         return list(self._call_log)
 
     async def chat(
@@ -210,7 +236,7 @@ class FailingProvider(LLMProvider):
         config: GenerateConfig | None = None,
     ) -> AsyncIterator[LLMChunk]:
         raise ProviderError("Provider intentionally failed", self.name)
-        yield  # noqa: unreachable — makes this an async generator
+        yield  # makes this an async generator (unreachable by design)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise ProviderError("Provider intentionally failed", self.name)

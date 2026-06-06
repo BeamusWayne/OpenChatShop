@@ -7,7 +7,6 @@ from open_chat_shop.core.cost_governance import (
     AlertLevel,
     BudgetConfig,
     BudgetStatus,
-    CostAlert,
     CostAlertEngine,
     SessionBudgetManager,
 )
@@ -153,7 +152,9 @@ class TestCostAlertEngine:
     @pytest.mark.unit
     def test_critical_alert(self):
         engine = CostAlertEngine()
-        status = BudgetStatus(used_tokens=48_000, max_tokens=50_000, alert_level=AlertLevel.CRITICAL)
+        status = BudgetStatus(
+            used_tokens=48_000, max_tokens=50_000, alert_level=AlertLevel.CRITICAL
+        )
         alert = engine.check_and_alert("s1", status)
         assert alert is not None
         assert alert.level == AlertLevel.CRITICAL
@@ -162,7 +163,9 @@ class TestCostAlertEngine:
     @pytest.mark.unit
     def test_exceeded_alert(self):
         engine = CostAlertEngine()
-        status = BudgetStatus(used_tokens=55_000, max_tokens=50_000, alert_level=AlertLevel.EXCEEDED)
+        status = BudgetStatus(
+            used_tokens=55_000, max_tokens=50_000, alert_level=AlertLevel.EXCEEDED
+        )
         alert = engine.check_and_alert("s1", status)
         assert alert is not None
         assert alert.level == AlertLevel.EXCEEDED
@@ -170,8 +173,12 @@ class TestCostAlertEngine:
     @pytest.mark.unit
     def test_get_all_alerts(self):
         engine = CostAlertEngine()
-        s1_status = BudgetStatus(used_tokens=42_000, max_tokens=50_000, alert_level=AlertLevel.WARNING)
-        s2_status = BudgetStatus(used_tokens=50_000, max_tokens=50_000, alert_level=AlertLevel.EXCEEDED)
+        s1_status = BudgetStatus(
+            used_tokens=42_000, max_tokens=50_000, alert_level=AlertLevel.WARNING
+        )
+        s2_status = BudgetStatus(
+            used_tokens=50_000, max_tokens=50_000, alert_level=AlertLevel.EXCEEDED
+        )
         engine.check_and_alert("s1", s1_status)
         engine.check_and_alert("s2", s2_status)
         assert len(engine.get_alerts()) == 2
@@ -179,8 +186,12 @@ class TestCostAlertEngine:
     @pytest.mark.unit
     def test_get_alerts_by_session(self):
         engine = CostAlertEngine()
-        s1_status = BudgetStatus(used_tokens=42_000, max_tokens=50_000, alert_level=AlertLevel.WARNING)
-        s2_status = BudgetStatus(used_tokens=50_000, max_tokens=50_000, alert_level=AlertLevel.EXCEEDED)
+        s1_status = BudgetStatus(
+            used_tokens=42_000, max_tokens=50_000, alert_level=AlertLevel.WARNING
+        )
+        s2_status = BudgetStatus(
+            used_tokens=50_000, max_tokens=50_000, alert_level=AlertLevel.EXCEEDED
+        )
         engine.check_and_alert("s1", s1_status)
         engine.check_and_alert("s2", s2_status)
         assert len(engine.get_alerts("s1")) == 1
@@ -198,8 +209,12 @@ class TestCostAlertEngine:
     @pytest.mark.unit
     def test_clear_session_alerts(self):
         engine = CostAlertEngine()
-        s1_status = BudgetStatus(used_tokens=42_000, max_tokens=50_000, alert_level=AlertLevel.WARNING)
-        s2_status = BudgetStatus(used_tokens=50_000, max_tokens=50_000, alert_level=AlertLevel.EXCEEDED)
+        s1_status = BudgetStatus(
+            used_tokens=42_000, max_tokens=50_000, alert_level=AlertLevel.WARNING
+        )
+        s2_status = BudgetStatus(
+            used_tokens=50_000, max_tokens=50_000, alert_level=AlertLevel.EXCEEDED
+        )
         engine.check_and_alert("s1", s1_status)
         engine.check_and_alert("s2", s2_status)
         count = engine.clear_alerts("s1")

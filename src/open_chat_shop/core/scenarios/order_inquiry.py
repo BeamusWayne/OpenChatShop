@@ -5,6 +5,8 @@ Flow: idle -> querying -> located -> displaying -> follow_up -> completed
 """
 from __future__ import annotations
 
+from typing import ClassVar
+
 from open_chat_shop.core.scenario import ScenarioFSM
 from open_chat_shop.core.types import SessionContext, Transition
 
@@ -23,7 +25,7 @@ class OrderInquiryScenarioFSM(ScenarioFSM):
     """
 
     name = "order_inquiry"
-    states = [
+    states: ClassVar[list[str]] = [
         "idle", "querying", "located", "displaying",
         "follow_up", "completed", "cancelled",
     ]

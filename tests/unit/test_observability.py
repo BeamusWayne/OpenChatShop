@@ -22,7 +22,6 @@ from open_chat_shop.observability.logging import (
     setup_logging,
 )
 
-
 # -- StructuredFormatter ------------------------------------------------------
 
 

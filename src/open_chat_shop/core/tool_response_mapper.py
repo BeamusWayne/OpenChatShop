@@ -5,6 +5,7 @@ so the channel layer can render it.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from open_chat_shop.core.types import AgentMessage, SessionContext, ToolResult
@@ -100,7 +101,7 @@ def _map_handoff_to_human(data: dict[str, Any]) -> AgentMessage:
     )
 
 
-_MAPPERS: dict[str, Any] = {
+_MAPPERS: dict[str, Callable[[dict[str, Any]], AgentMessage]] = {
     "query_order": _map_query_order,
     "query_logistics": _map_query_logistics,
     "search_product": _map_search_product,

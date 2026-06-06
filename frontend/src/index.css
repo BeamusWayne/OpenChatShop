@@ -17,3 +17,11 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Mobile responsive — prevent iOS zoom on input focus */
+@media (max-width: 480px) {
+  .ant-input-affix-wrapper,
+  .ant-input {
+    font-size: 16px !important;
+  }
+}

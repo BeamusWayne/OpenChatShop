@@ -3,18 +3,18 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 import xml.etree.ElementTree as ET
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from open_chat_shop.api.wechat import setup_wechat_routes
 from open_chat_shop.channel.miniprogram import MiniProgramAdapter
 from open_chat_shop.channel.registry import ChannelRegistry, default_registry
 from open_chat_shop.channel.web import WebAdapter, WechatAdapter
 from open_chat_shop.core.config import ChannelsFileModel, ConfigLoader
-from open_chat_shop.api.wechat import wechat_router, setup_wechat_routes
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -229,7 +229,7 @@ class TestWechatWebhook:
     """Tests for WeChat webhook GET verification and POST message handling."""
 
     def test_verify_signature_valid(self, wechat_client, wechat_token) -> None:
-        timestamp = "1234567890"
+        timestamp = str(int(time.time()))
         nonce = "abc123"
         signature = _make_signature("test_token_abc", timestamp, nonce)
         echostr = "hello_from_wechat"
@@ -282,7 +282,7 @@ class TestWechatWebhook:
         assert resp.status_code == 503
 
     def test_post_message_handles_text(self, wechat_client, wechat_token) -> None:
-        timestamp = "1234567890"
+        timestamp = str(int(time.time()))
         nonce = "abc123"
         signature = _make_signature("test_token_abc", timestamp, nonce)
 

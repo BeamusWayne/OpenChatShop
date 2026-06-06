@@ -15,7 +15,6 @@ import re
 from abc import ABC, abstractmethod
 from typing import Any
 
-from open_chat_shop.core.exceptions import IntentError
 from open_chat_shop.core.types import (
     Intent,
     IntentInfo,
@@ -126,6 +125,10 @@ class CascadeIntentEngine(IntentEngine):
 
         self._intent_registry: dict[str, IntentInfo] = {}
         self._samples: dict[str, list[str]] = {}
+        # Precomputed token set per sample, parallel to ``_samples``. Sample
+        # texts are static, so their token sets are built once on registration
+        # instead of being rebuilt for all samples on every classification.
+        self._sample_tokens: dict[str, list[set[str]]] = {}
 
         # LLM provider for levels 2/3 -- set via set_provider()
         self._provider: Any = None
@@ -176,7 +179,9 @@ class CascadeIntentEngine(IntentEngine):
     async def add_samples(self, intent_name: str, samples: list[str]) -> None:
         if intent_name not in self._samples:
             self._samples[intent_name] = []
+            self._sample_tokens[intent_name] = []
         self._samples[intent_name].extend(samples)
+        self._sample_tokens[intent_name].extend(self._tokenize(s) for s in samples)
 
     def register_intent(self, info: IntentInfo) -> None:
         """Register an intent in the engine's metadata registry."""
@@ -184,19 +189,39 @@ class CascadeIntentEngine(IntentEngine):
 
     # -- Level 2: semantic search ----------------------------------------
 
+    @staticmethod
+    def _tokenize(text: str) -> set[str]:
+        """Return a token set suitable for Jaccard similarity.
+
+        Uses the union of whitespace tokens and character bigrams so that
+        both English/space-separated text and Chinese (which has no spaces)
+        produce meaningful overlap.  Character bigrams alone handle Chinese;
+        whitespace tokens help when the caller already space-separated words.
+        """
+        lowered = text.lower()
+        space_tokens: set[str] = set(lowered.split())
+        bigrams: set[str] = {lowered[i] + lowered[i + 1] for i in range(len(lowered) - 1)}
+        return space_tokens | bigrams
+
     async def _semantic_search(self, text: str) -> Intent | None:
-        """Simplified semantic search using Jaccard-like word overlap."""
+        """Simplified semantic search using Jaccard-like word overlap.
+
+        Tokenisation uses character bigrams unioned with whitespace tokens so
+        that Chinese text (no spaces) produces non-zero Jaccard scores against
+        semantically similar samples.
+        """
         if not self._samples:
             return None
 
         best_intent: str | None = None
         best_score = 0.0
 
-        text_words = set(text.lower().split())
+        text_words = self._tokenize(text)
 
-        for intent_name, samples in self._samples.items():
-            for sample in samples:
-                sample_words = set(sample.lower().split())
+        # Iterate over the precomputed sample token sets; only the incoming
+        # query is tokenised per call.
+        for intent_name, token_sets in self._sample_tokens.items():
+            for sample_words in token_sets:
                 overlap = len(sample_words & text_words)
                 total = len(sample_words | text_words)
                 score = overlap / total if total > 0 else 0.0
@@ -244,6 +269,7 @@ class CascadeIntentEngine(IntentEngine):
                         display_name=registered_name,
                         confidence=0.75,
                         source="llm",
+                        entities=_extract_entities(message.content, registered_name),
                     )
 
             # Could not map the LLM response to a known intent
@@ -288,9 +314,38 @@ class CascadeIntentEngine(IntentEngine):
 # ---------------------------------------------------------------------------
 
 _ORDER_ID_RE = re.compile(r"ORD-[\w]+", re.IGNORECASE)
+# Trigger words are whole alternatives inside an atomic group ``(?>...)``
+# (longest first). The atomic group is the fix for the old "搜索?" bug: once a
+# full trigger like "搜索" matches it will NOT backtrack into the shorter "搜"
+# alternative, so a bare "搜索" leaves nothing for the capture group and yields
+# no keyword — instead of wrongly capturing the trailing "索".
 _PRODUCT_KEYWORD_RE = re.compile(
-    r"(?:搜索?|查找?|找一下|有没有|想买|来[一几]个|search)\s*(.+)", re.IGNORECASE
+    r"(?>搜索|查找|找一下|来[一几]个|有没有|想买|想要|搜|查|找|search)\s*(.+)",
+    re.IGNORECASE,
 )
+# Leading quantifier/filler stripped from the captured keyword
+# (e.g. "一个手机壳" -> "手机壳").
+_KEYWORD_PREFIX_RE = re.compile(r"^(?:[一二三两几]?[个件只双]|一些|一点|点)\s*")
+# Trailing price/qualifier phrases stripped from the captured keyword
+# (e.g. "充电器多少钱" -> "充电器").
+_KEYWORD_SUFFIX_RE = re.compile(
+    r"(?:多少钱|价格|贵不贵|怎么样|好不好|有货吗|有没有货|吗|呢|啊|[?？!！。，,]+)\s*$"
+)
+
+
+def _clean_keyword(raw: str) -> str | None:
+    """Normalise a captured product keyword.
+
+    Strips a leading quantifier ("一个", "几件" …) and trailing price/qualifier
+    phrases ("多少钱", "怎么样" …). Returns ``None`` when nothing meaningful
+    remains so the caller can fall back to asking for the keyword rather than
+    searching for noise.
+    """
+    keyword = raw.strip()
+    keyword = _KEYWORD_PREFIX_RE.sub("", keyword)
+    keyword = _KEYWORD_SUFFIX_RE.sub("", keyword)
+    keyword = keyword.strip()
+    return keyword or None
 
 
 def _extract_entities(text: str, intent_name: str) -> dict[str, Any]:
@@ -311,6 +366,8 @@ def _extract_entities(text: str, intent_name: str) -> dict[str, Any]:
         # Try to extract keyword after the trigger word
         m = _PRODUCT_KEYWORD_RE.search(text)
         if m:
-            entities["keyword"] = m.group(1).strip()
+            keyword = _clean_keyword(m.group(1))
+            if keyword is not None:
+                entities["keyword"] = keyword
 
     return entities

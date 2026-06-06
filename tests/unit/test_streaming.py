@@ -4,12 +4,10 @@ from __future__ import annotations
 import json
 
 import pytest
-import pytest_asyncio
 
 from open_chat_shop.api.streaming import StreamEvent, StreamingOrchestrator
 from open_chat_shop.core.provider import MockProvider
 from open_chat_shop.core.types import AgentMessage, UserMessage
-
 
 # ---------------------------------------------------------------------------
 # Helpers

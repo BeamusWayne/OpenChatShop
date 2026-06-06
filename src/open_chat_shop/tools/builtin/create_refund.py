@@ -2,24 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
-from open_chat_shop.core.tool import BaseTool
-from open_chat_shop.core.types import CheckResult, SessionContext, ToolPermission, ToolResult
+from open_chat_shop.core.types import SessionContext, ToolPermission, ToolResult
 from open_chat_shop.storage.repositories.abc import OrderRepository, RefundRepository
-from open_chat_shop.storage.repositories.memory import (
-    InMemoryOrderRepository,
-    InMemoryRefundRepository,
-)
+from open_chat_shop.storage.repositories.memory import InMemoryRefundRepository
+from open_chat_shop.tools.builtin._order_mutation import OrderMutationTool
 
 
-class CreateRefundTool(BaseTool):
+class CreateRefundTool(OrderMutationTool):
     """Create a refund request for an order."""
 
     name: str = "create_refund"
     description: str = "Create a refund request. Requires confirmation for amounts over 500."
     category: str = "refund"
-    params_schema: dict[str, Any] = {
+    params_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
             "order_id": {"type": "string", "description": "The order ID to refund"},
@@ -41,45 +38,40 @@ class CreateRefundTool(BaseTool):
         order_repo: OrderRepository | None = None,
         refund_repo: RefundRepository | None = None,
     ) -> None:
-        self._order_repo = order_repo or InMemoryOrderRepository()
+        super().__init__(order_repo)
         self._refund_repo = refund_repo or InMemoryRefundRepository()
 
-    async def pre_check(self, params: dict, context: SessionContext) -> CheckResult:
-        order_id = params["order_id"]
-        order = self._order_repo.get(order_id)
-        if order is None:
-            return CheckResult(passed=False, reason=f"订单 {order_id} 不存在")
+    def _status_reasons(
+        self, order: dict[str, Any], order_id: str
+    ) -> tuple[str | None, str | None] | None:
+        # Rejected at pre_check (zh) only; execute historically did not re-guard
+        # an already-refunded order, so the English entry stays None.
         if order["status"] == "refunded":
-            return CheckResult(passed=False, reason=f"订单 {order_id} 已退款")
-        return CheckResult(passed=True)
+            return (f"订单 {order_id} 已退款", None)
+        return None
 
-    async def execute(self, params: dict, context: SessionContext) -> ToolResult:
-        order_id = params["order_id"]
+    def _perform(
+        self,
+        order: dict[str, Any],
+        order_id: str,
+        params: dict[str, Any],
+        context: SessionContext,
+    ) -> dict[str, Any]:
         reason = params["reason"]
         amount = params.get("amount")
-
-        order = self._order_repo.get(order_id)
-        if order is None:
-            return ToolResult(success=False, error=f"Order {order_id} not found")
-
         refund_amount = amount if amount is not None else order["total_amount"]
-
         record = self._refund_repo.create(order_id, refund_amount, reason)
+        return {
+            "refund_id": record["refund_id"],
+            "status": record["status"],
+            "amount": record["amount"],
+        }
 
-        return ToolResult(
-            success=True,
-            data={
-                "refund_id": record["refund_id"],
-                "status": record["status"],
-                "amount": record["amount"],
-            },
-        )
-
-    async def compensate(self, params: dict, context: SessionContext) -> None:
+    async def compensate(self, params: dict[str, Any], context: SessionContext) -> None:
         """Cancel the refund on failure by removing it from the store."""
         self._refund_repo.delete_processing_by_order(params["order_id"])
 
-    _REFUND_STATUS_MAP: dict[str, str] = {
+    _REFUND_STATUS_MAP: ClassVar[dict[str, str]] = {
         "processing": "处理中",
         "approved": "已批准",
         "rejected": "已拒绝",

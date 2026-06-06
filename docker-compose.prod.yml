@@ -18,10 +18,21 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       - API_KEY=${API_KEY:-}
+      # Agent-channel auth. AGENT_SECRET gates the REST register/status/accept
+      # surface; the agent WebSocket gate reads AGENT_TOKEN. Both are sourced
+      # from the SAME AGENT_SECRET so a single configured secret activates the
+      # whole human-agent channel. Without this the shipped prod container left
+      # both unset -> agent REST + WS auth fully bypassed (SE-02). Required.
+      - AGENT_SECRET=${AGENT_SECRET:?AGENT_SECRET is required}
+      - AGENT_TOKEN=${AGENT_SECRET:?AGENT_SECRET is required}
+      - DEPLOY_ENV=${DEPLOY_ENV:-production}
       - DATABASE_URL=postgresql://${POSTGRES_USER:?POSTGRES_USER required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@postgres:5432/${POSTGRES_DB:-open_chat_shop}
       - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD required}@redis:6379/0
       - CORS_ORIGINS=${CORS_ORIGINS:?CORS_ORIGINS is required}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Single-worker is the safe default: per-process in-memory handoff/socket
+      # state is not shared across workers (see gunicorn.conf.py).
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-1}
     depends_on:
       postgres:
         condition: service_healthy

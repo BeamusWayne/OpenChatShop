@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from open_chat_shop.core.types import Message, SessionContext, AgentMessage
+from open_chat_shop.core.types import AgentMessage, Message, SessionContext, SessionMode
 from open_chat_shop.storage.db_context import DatabaseContextManager
 
 
@@ -28,9 +28,13 @@ class TestDatabaseContextManager:
             text_fallback="hello",
         )
         await mgr.save(ctx, response)
-        # Load again — creates new empty context (metadata not fully persisted in MVP)
+        # Updated from the MVP behavior: save now actually round-trips the
+        # assistant turn (audit STORAGE HIGH). The reload must contain the
+        # persisted assistant message, not an empty history.
         ctx2 = await mgr.load("s1")
         assert ctx2.session_id == "s1"
+        assert [m.content for m in ctx2.history] == ["hello"]
+        assert ctx2.history[0].role == "assistant"
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -90,6 +94,34 @@ class TestDatabaseContextManager:
         updated = await mgr.update_slots(ctx, {"b": "2"})
         assert updated.slots == {"a": "1", "b": "2"}
         assert ctx.slots == {"a": "1"}
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_save_load_preserves_mode_and_human_agent_id(self):
+        """Regression: mode=HUMAN_MODE and human_agent_id survive a full save→load cycle."""
+        mgr = DatabaseContextManager(db_url="sqlite:///:memory:")
+        from datetime import datetime
+
+        ctx = SessionContext(
+            session_id="s-human",
+            user_id="u1",
+            channel="web",
+            history=[],
+            created_at=datetime.utcnow(),
+            last_active_at=datetime.utcnow(),
+            mode=SessionMode.HUMAN_MODE,
+            human_agent_id="agent-7",
+        )
+        response = AgentMessage(
+            message_type="text",
+            payload={"content": "ok"},
+            text_fallback="ok",
+        )
+        await mgr.save(ctx, response)
+
+        loaded = await mgr.load("s-human")
+        assert loaded.mode == SessionMode.HUMAN_MODE
+        assert loaded.human_agent_id == "agent-7"
 
     @pytest.mark.unit
     @pytest.mark.asyncio

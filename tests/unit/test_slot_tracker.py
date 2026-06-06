@@ -6,9 +6,7 @@ import pytest
 from open_chat_shop.core.slot_tracker import (
     SlotDefinition,
     SlotTracker,
-    SlotStatus,
     create_builtin_tracker,
-    BUILTIN_SCENARIOS,
 )
 
 

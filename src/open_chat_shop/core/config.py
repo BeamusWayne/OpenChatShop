@@ -6,11 +6,12 @@ See docs/design/contracts.md section 13 for schema definitions.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, TypeVar
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 # ---------------------------------------------------------------------------
 # Custom exception
@@ -210,7 +211,7 @@ class ConfigLoader:
     """Load and validate YAML config files using Pydantic models."""
 
     @staticmethod
-    def _load_yaml(path: str) -> dict:
+    def _load_yaml(path: str) -> dict[str, Any]:
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
@@ -223,13 +224,14 @@ class ConfigLoader:
                     "type": "dict_type",
                     "loc": (),
                     "input": data,
-                    "msg": "YAML root must be a mapping",
                 }],
             ))
         return data
 
     @staticmethod
-    def _validate(data: dict, model_cls: type[BaseModel], path: str):
+    def _validate(
+        data: dict[str, Any], model_cls: type[_ModelT], path: str
+    ) -> _ModelT:
         try:
             return model_cls.model_validate(data)
         except ValidationError as exc:
@@ -261,7 +263,7 @@ class ConfigLoader:
         return cls._validate(data, ChannelsFileModel, path)
 
     @classmethod
-    def load_all(cls, config_dir: str) -> dict:
+    def load_all(cls, config_dir: str) -> dict[str, Any]:
         """Load all config files from *config_dir*.
 
         Returns a dict with keys: providers, tool_routing, security,

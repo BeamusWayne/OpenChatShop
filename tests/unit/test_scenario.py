@@ -1,13 +1,10 @@
 """Unit tests for the Scenario FSM framework (feat-010)."""
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 
 from open_chat_shop.core.scenario import RefundScenarioFSM, ScenarioFSM
 from open_chat_shop.core.types import SessionContext, Transition
-
 
 # ---------------------------------------------------------------------------
 # Helpers
