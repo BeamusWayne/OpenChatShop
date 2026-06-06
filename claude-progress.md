@@ -5,11 +5,31 @@
 - 仓库根目录：/Users/katya/Files/TestField/电商智能对话系统
 - 标准启动路径：./init.sh
 - 标准验证路径：./init.sh verify
-- 当前最高优先级未完成功能：全部完成（Phase 1-7）；**V2.0 架构升级方案（docs/架构升级方案书_V2.0.md，未提交）已启动——见 Session 8**
-- 当前 blocker：无
-- CI 状态：**ruff / mypy --strict / pytest（1311 passed，77 源文件）/ harness 四关全绿（2026-06-06，Session 8 逐关复跑确认）**
+- 当前最高优先级未完成功能：**全部完成（Phase 1-8，54/54 passing）。V2.0 架构升级方案 4 模块全部落地——见 Session 8。**
+- 当前 blocker：无（仅 feat-045 pgvector live 往返需 docker/CI 验，见下）
+- CI 状态：**ruff / mypy --strict / pytest（1395 passed，84 源文件）/ harness 四关全绿（2026-06-06，Session 8 逐关复跑确认）**
   - ⚠️ Session 5 复跑时发现 **`./init.sh` 自 `aea5527` 起 bash 语法坏**（install/verify 两个 if/else 块各多一个 `fi`，line 47/62）——四关都直接跑、从不走 init.sh，故一直没暴露。已修（commit `2bf9c48`），`bash -n` 干净。固定工作循环 step 7「检查端到端路径是否损坏」正是为抓这类问题。
 - 已完成：lint 债 114→0、mypy 224→0、真实 LLM e2e 验证（GLM-5.1 via 智谱，chat/FC/streaming + 全管道）、**3 轮全量审计 + 修复**（审计1 53 项 → 再审 47 → 三审 20；所有 CRITICAL/HIGH 全清。报告：docs/code-health-audit-2026-06-03.md、docs/audit-2026-06-04.md、docs/reaudit-2026-06-04.md）
+
+### ✅ Phase 8 = V2.0 架构升级全量完成（Session 8，2026-06-06）
+
+方案书《架构升级方案书_V2.0.md》4 模块全部落地，11 个 feature（feat-044..054）全 passing。
+每个：harness 计划 → test-first（RED 实证）→ 四关全绿 → review-checklist 写入 evidence → 单独提交。
+
+| 模块 | feature | 交付 |
+|------|---------|------|
+| **四 语义护栏**（本会话先做） | 护栏误杀修复 + 英文注入洞 + **输出幻觉校验** | 见下方 Session 8 详记；防误杀 + 防"凭空发钱"（OutputGroundingChecker） |
+| **一 Multi-Agent** | feat-048 DomainAgent+Registry · feat-049 TriageRouter · feat-050 三领域专家 · feat-051 编排器接入 | 网关路由 + 领域专家，feature-flag（set_triage_router，默认关=零回归）；情绪→handoff、意图→scoped tools+prompt |
+| **三 长期记忆** | feat-052 UserPersona 存储 · feat-053 异步画像提取 · feat-054 Persona 注入 | 跨会话画像 + LLM 异步提取 + 路由轮静默注入下游 prompt（千人千面），set_persona_repository 默认关=零回归 |
+| **二 pgvector RAG** | feat-044 VectorStore 抽象 · feat-046 Hybrid 检索 · feat-047 Re-ranker · feat-045 PgVectorStore | VectorStore ABC（InMemory 零变化）+ FC/RAG 分流 + Top10→Top3 重排 + pgvector HNSW（DATABASE_URL 切换） |
+
+**测试 1311 → 1395（+84），ruff/mypy --strict/harness 全程全绿，现有功能零回归。** 提交 `558e96b`…`1dcd3ef`（含 Rule 6 改 `b080fd4`、拆解 `5cb9366`）。
+
+**⚠️ 唯一验证缺口（Rule 12 如实）：feat-045 pgvector 的 live add/search 往返本机未跑**（无 Postgres + pgvector Python 包未装）。本机已验工厂选择/ABC/SQL 参数化/迁移 004 的 HNSW DDL 结构；**真实 pgvector HNSW 往返需 docker(pgvector/pgvector:pg16) 或 CI**。其余 53 feature 全部本机四关实测通过。
+
+**设计要点：** Multi-Agent / 记忆注入都做成 **feature-flag 注入式**（默认 None → 现有单体流逐字不变），核心整合点（feat-051）用 `_domain_prompt` 透明 slot 避免改 _execute_action 多分支签名。各新组件纯附加、可独立测。**未接线的部署整合**（RAG 注入对话流、persona schedule() 的对话结束触发点）按设计留在核心路径外，需主程序 wire。
+
+**docs/架构升级方案书_V2.0.md 仍未提交**（用户的文档，保持 untracked）。
 
 ### 下一会话优先（按此顺序）
 1. ~~orchestrator god-object 重构~~ **✅ 完成（Session 6，commit `61f0415`）**：抽出 ConfirmationResolver（`confirmation_resolver.py`）+ PendingSlotResolver（`pending_slot_resolver.py`，含原 #4 槽位边界原样平移）+ build_done_event 平移到 `streaming.py` 模块级（adapter 类型收紧）+ _persist_turn helper。orchestrator.py **1126→930**，行为零变化，四关每步全绿。详见下方 Session 6 节。
