@@ -707,16 +707,16 @@
       "title": "TriageRouter 意图路由网关",
       "phase": 8,
       "priority": 2,
-      "status": "not_started",
+      "status": "passing",
       "description": "doc 模块一。Triage：分析初始意图/情绪/紧迫性，路由到下游 DomainAgent，或检测极高负面情绪直接 handoff。用低成本模型或复用现有 rule-based intent 引擎。",
       "depends_on": [
         "feat-048"
       ],
       "verification": "给定消息路由到正确 domain；高负面情绪→handoff；+测试（MockProvider）。",
-      "plan_file": "",
-      "evidence": "",
+      "plan_file": ".harness/plans/active/20260606-1351-feat-049.md",
+      "evidence": "## 代码审查\n- 安全：扫描 triage_router.py + test_triage_router.py，无硬编码密钥/token；text 只做子串匹配不 eval/exec，无注入面；不绕过 RBAC（只决策不执行，权限门仍由 security.py 在 feat-051 集成时把守）；升级词表收紧防误判（工商局非工商→避开工商银行；去掉裸 315 避开订单号）。\n- 正确性：情绪优先于路由(test_emotion_takes_priority)、unknown intent→fallback、温和不满不误转(test_ignores_normal_and_mild)、escalation→handoff 均有测试；无失败路径(纯决策、无 I/O)；route_tool 未匹配安全降级 fallback；TriageDecision frozen 不可变。\n- 可维护性：detect_escalation/triage/__init__ 均 <10 行；triage_router.py 82 行；最大嵌套 2 层；命名清晰；无重复(新概念，复用 feat-048 registry.route_tool + 现有 Intent)。\n- 测试：18 测试(test_triage_router.py)覆盖升级检测(flags 6/ignores 4)+路由+fallback+情绪优先+不可变+reason；每测带意图说明；无 skip；pytest tests/ -q → 1341 passed，ruff/mypy --strict/harness 全绿。\n- 结论：通过。handoff 队列接线 + 选中 agent 执行按设计推迟 feat-051。",
       "blocked_reason": "",
-      "iteration_count": 0,
+      "iteration_count": 1,
       "iteration_budget": 5
     },
     {
