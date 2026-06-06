@@ -4,7 +4,7 @@ import {
   SearchOutlined,
   CarOutlined,
   UndoOutlined,
-  HeadsetOutlined,
+  CustomerServiceOutlined,
 } from '@ant-design/icons';
 
 interface WelcomeScreenProps {
@@ -16,7 +16,7 @@ const CAPABILITIES = [
   { icon: <CarOutlined />, label: '物流追踪', text: '物流查询', color: '#1677ff' },
   { icon: <UndoOutlined />, label: '退换货', text: '我要退款', color: '#52c41a' },
   { icon: <SearchOutlined />, label: '搜索商品', text: '推荐一些热门商品', color: '#722ed1' },
-  { icon: <HeadsetOutlined />, label: '转人工', text: '转人工客服', color: '#fa8c16' },
+  { icon: <CustomerServiceOutlined />, label: '转人工', text: '转人工客服', color: '#fa8c16' },
 ];
 
 export default function WelcomeScreen({ onAction }: WelcomeScreenProps) {
