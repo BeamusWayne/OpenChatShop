@@ -95,6 +95,7 @@ class DialogueOrchestrator:
         self._middleware_pipeline: Any = None
         self._response_cache: Any = None
         self._triage_router: Any = None
+        self._persona_repo: Any = None
 
     def set_provider(self, provider: Any) -> None:
         """Inject an LLM provider for natural language response generation.
@@ -156,6 +157,15 @@ class DialogueOrchestrator:
         in which case behaviour is byte-identical to before.
         """
         self._triage_router = router
+
+    def set_persona_repository(self, repo: Any) -> None:
+        """Inject a PersonaRepository to personalise routed prompts (feat-054).
+
+        When set, a routed turn appends the user's stored persona tags to the
+        specialist's prompt. Pass None (the default) to disable personalisation;
+        the routed prompt is then exactly the specialist's own.
+        """
+        self._persona_repo = repo
 
     def _trace_extras(self, session_id: str = "") -> dict[str, str]:
         """Build structured log extras with trace_id / span_id when available."""
@@ -424,7 +434,14 @@ class DialogueOrchestrator:
                 if agent is not None:
                     # Scope the turn to the specialist: only its tools, its prompt.
                     tools = agent.scope_tools(tools)
-                    context.slots["_domain_prompt"] = agent.system_prompt
+                    prompt = agent.system_prompt
+                    # feat-054: silently personalise with the user's persona tags.
+                    if self._persona_repo is not None and context.user_id:
+                        from open_chat_shop.storage.persona import personalize_prompt
+                        prompt = personalize_prompt(
+                            prompt, self._persona_repo.get(context.user_id)
+                        )
+                    context.slots["_domain_prompt"] = prompt
                     triage_domain = decision.domain
 
         # 5. Strategy decision (skipped when triage already chose a handoff).

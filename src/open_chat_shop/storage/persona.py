@@ -22,6 +22,18 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def personalize_prompt(base_prompt: str, persona: dict[str, str] | None) -> str:
+    """Append the user's persona tags to *base_prompt* (V2.0 module 3, feat-054).
+
+    Returns *base_prompt* unchanged when there is no persona, so the caller can
+    apply it unconditionally.
+    """
+    if not persona:
+        return base_prompt
+    tags = "；".join(f"{k}：{v}" for k, v in persona.items())
+    return f"{base_prompt}\n\n【用户画像】{tags}。请结合该画像个性化回复。"
+
+
 class UserPersona(SQLModel, table=True):
     """Persisted per-user profile attributes."""
 

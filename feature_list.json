@@ -791,17 +791,17 @@
       "title": "Persona 上下文注入（千人千面）",
       "phase": 8,
       "priority": 7,
-      "status": "not_started",
+      "status": "passing",
       "description": "doc 模块三。用户再次发起对话时，Triage 检索其 persona 标签，静默注入下游 DomainAgent 的 system prompt，实现'按您上次习惯推荐'。",
       "depends_on": [
         "feat-052",
         "feat-049"
       ],
       "verification": "有 persona 的用户下游 prompt 含其标签；无 persona 行为不变；+测试。",
-      "plan_file": "",
-      "evidence": "",
+      "plan_file": ".harness/plans/active/20260606-1423-feat-054.md",
+      "evidence": "## 代码审查\n- 安全：personalize_prompt 纯函数无密钥/注入；persona 只在 user_id 已知时注入；persona_repo 默认 None→不注入。\n- 正确性：有 persona 追加标签、空/None→base 原样、集成路由轮 _domain_prompt 含标签、无 repo→纯域 prompt 均有测试；**persona_repo 默认 None→现有全部测试逐字零回归**(1372→只 +2 集成)。\n- 可维护性：personalize_prompt 6 行；route 块注入 5 行(本地 import 对齐 TransferRequest 惯例)；set_persona_repository 小。\n- 测试：4 测试(test_persona_injection.py，纯函数 2 + 集成 2)，改前 RED；pytest→1374 passed，四关全绿。\n- 结论：通过。schedule()(feat-053)的对话结束触发点可在主程序 wire（与 set_persona_repository 一起，属部署接线）。",
       "blocked_reason": "",
-      "iteration_count": 0,
+      "iteration_count": 1,
       "iteration_budget": 5
     },
     {
