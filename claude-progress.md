@@ -7,7 +7,7 @@
 - 标准验证路径：./init.sh verify
 - 当前最高优先级未完成功能：全部完成（Phase 1-7）；**V2.0 架构升级方案（docs/架构升级方案书_V2.0.md，未提交）已启动——见 Session 8**
 - 当前 blocker：无
-- CI 状态：**ruff / mypy --strict / pytest（1294 passed，77 源文件）/ harness 四关全绿（2026-06-05，Session 8 逐关复跑确认）**
+- CI 状态：**ruff / mypy --strict / pytest（1300 passed，77 源文件）/ harness 四关全绿（2026-06-06，Session 8 逐关复跑确认）**
   - ⚠️ Session 5 复跑时发现 **`./init.sh` 自 `aea5527` 起 bash 语法坏**（install/verify 两个 if/else 块各多一个 `fi`，line 47/62）——四关都直接跑、从不走 init.sh，故一直没暴露。已修（commit `2bf9c48`），`bash -n` 干净。固定工作循环 step 7「检查端到端路径是否损坏」正是为抓这类问题。
 - 已完成：lint 债 114→0、mypy 224→0、真实 LLM e2e 验证（GLM-5.1 via 智谱，chat/FC/streaming + 全管道）、**3 轮全量审计 + 修复**（审计1 53 项 → 再审 47 → 三审 20；所有 CRITICAL/HIGH 全清。报告：docs/code-health-audit-2026-06-03.md、docs/audit-2026-06-04.md、docs/reaudit-2026-06-04.md）
 
@@ -35,11 +35,13 @@
 - **+7 回归测试**（5 个语气误杀 param + 多符号混淆仍拦 + 路径穿越 via ratio 仍拦），改前实测 RED（5 误杀 FAIL）。
 - **实测对照：** 12 条正常消息 0 误杀（改前 1），4 条已知攻击 0 漏过。**1287 → 1294 passed**，ruff + mypy --strict（77 文件）+ harness check 全绿。
 
-**发现但未修（超出本次"修误杀"范围、方向相反、Rule 12 如实上报）：两个检测缺口**
-1. **英文 "ignore all previous instructions" 漏检**：pattern `ignore\s+(previous|prior|all|above)\s+instructions?` 要求限定词后**紧跟** instructions，故 "ignore **all previous** instructions"（all 后是 previous）不匹配 → 基础英文注入漏过。**这是真·安全洞**，但属"加强检测"（与"减少误杀"相反方向），且改 pattern 有引入新误杀风险，留给用户决定（1 行正则可修：允许限定词间有词）。
-2. **`#`-混淆低于阈值漏过**：`i#g#n#o#r#e#/#a#l#l#<previous>#...` ratio 0.356 < 0.4。降阈值会**增加**误杀，与本次目标冲突，**不应动**。
+**第二刀（commit `58c1284`，用户再次「自主决策」后）：补上缺口#1 检测洞**
+- **英文 "ignore all previous instructions" 漏检已修**：旧 pattern `ignore\s+(previous|prior|all|above)\s+instructions?` 要求限定词**紧贴** instructions，故 "ignore **all previous** instructions"（all 后是 previous）漏过——基础英文注入洞。改为 `ignore\s+(?:(?:all|any|the|your|these|those)\s+)*(?:previous|prior|above|earlier|all)\s+(?:instructions?|prompts?)`：限定词可叠/可换序、对象含 prompts，**但仍要求 prior-context 限定词**，故良性 "ignore the washing instructions"（产品说明）/ "ignore the previous **message**"（自我纠正）不被误杀。
+- **+6 测试**（4 攻击变体现拦 + 2 良性放行守卫），改前实测 RED（4 攻击 FAIL）。实测 14 正常 0 误杀 / 8 攻击 0 漏过。**1294 → 1300 passed**，四关全绿。只动 `ignore` 一条 pattern，不碰其余。
 
-**下一步建议（V2.0 推进）：** 模块四剩余=输出幻觉校验（assert LLM 话术里的数字与 tool 返回严格一致，独立中等功能）；或上面缺口#1（小而安全正向）；或启动模块一/二/三（大盘，需先拆 feature_list + 用户确认）。
+**仍未修（刻意保留，Rule 12）：缺口#2** — `#`-混淆 `i#g#n#o#r#e#...` ratio 0.356 < 0.4 漏过。降阈值会**增加**误杀，与"减少误杀"目标冲突，**不应动**（要修须换非阈值手段，如"字母-符号交替密度"专项检测，属独立设计）。
+
+**下一步建议（V2.0 推进）：** 模块四剩余=**输出幻觉校验**（assert LLM 话术里的金额/单号与 tool 返回严格一致，独立中等功能、需碰编排/响应路径，建议新会话满预算做）；或启动**模块一/二/三**（Multi-Agent / pgvector / 长期记忆，大盘，须先拆 feature_list + 用户确认再编码）。护栏（模块四输入侧）本会话两刀后：误杀已清、基础英文注入洞已补。
 
 ### Session 7 完成（2026-06-05，本会话）— 审计残留 #2 推进
 
