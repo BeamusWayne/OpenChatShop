@@ -824,16 +824,16 @@
       "title": "Hybrid RAG 检索路由（结构化 FC / 非结构化 RAG）",
       "phase": 8,
       "priority": 9,
-      "status": "not_started",
+      "status": "passing",
       "description": "doc 模块二。查询分流：结构化查询（订单状态）走现有 Function Calling；非结构化查询（'这款会缩水吗'）走 VectorStore 检索商品详情/FAQ。新增 FAQ/商品知识库 ingest。",
       "depends_on": [
         "feat-044"
       ],
       "verification": "非结构化问题命中 RAG 并把 Top-K 注入 LLM；结构化仍走 FC；+回归测试。",
-      "plan_file": "",
-      "evidence": "",
+      "plan_file": ".harness/plans/active/20260606-1431-feat-046.md",
+      "evidence": "## 代码审查\n- 安全：无密钥；query 仅用于 embedding+检索，无注入面；纯检索不改数据。\n- 正确性：should_use_rag(fallback→True, 结构化→False)、ingest+retrieve 返回最相关 doc、top_k 限量、空 KB→[] 均有测试。\n- 可维护性：HybridRetriever 3 法各 ≤3 行；hybrid_retrieval.py 56 行；复用 feat-044 VectorStore + 现有 EmbeddingService。\n- 测试：7 测试(test_hybrid_retrieval.py)，改前 RED；pytest→1385 passed，四关全绿。\n- 结论：通过。接入对话流(fallback→RAG 注入)属部署接线，按设计留在核心路径外。",
       "blocked_reason": "",
-      "iteration_count": 0,
+      "iteration_count": 1,
       "iteration_budget": 5
     },
     {
