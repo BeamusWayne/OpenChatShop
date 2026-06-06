@@ -12,6 +12,7 @@ the core path so the structured behaviour is unchanged.
 """
 from __future__ import annotations
 
+from open_chat_shop.core.reranker import Reranker
 from open_chat_shop.core.semantic_search import (
     EmbeddingService,
     SearchResult,
@@ -46,3 +47,14 @@ class HybridRetriever:
         """Return the top-k knowledge documents most similar to *query*."""
         vector = await self._embedding.embed_text(query)
         return self._store.search(vector, top_k)
+
+    async def retrieve_reranked(
+        self,
+        query: str,
+        reranker: Reranker,
+        recall_k: int = 10,
+        top_n: int = 3,
+    ) -> list[SearchResult]:
+        """Recall *recall_k* candidates, then re-rank down to *top_n* (feat-047)."""
+        candidates = await self.retrieve(query, recall_k)
+        return reranker.rerank(query, candidates, top_n)

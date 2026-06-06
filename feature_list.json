@@ -841,16 +841,16 @@
       "title": "RAG 重排序（Top-10 召回 → Top-3）",
       "phase": 8,
       "priority": 10,
-      "status": "not_started",
+      "status": "passing",
       "description": "doc 模块二。初步召回 Top-10 后用轻量 Re-ranker 提取最相关 Top-3 喂 LLM，降无关干扰。Reranker 抽象，默认可降级为'取前 3'。",
       "depends_on": [
         "feat-046"
       ],
       "verification": "召回→重排→Top-3 链路；reranker 缺失时降级不崩；+测试。",
-      "plan_file": "",
-      "evidence": "",
+      "plan_file": ".harness/plans/active/20260606-1433-feat-047.md",
+      "evidence": "## 代码审查\n- 安全：无密钥/输入入口；纯排序，无注入面。\n- 正确性：TruncateReranker 保序取前N(降级安全)、LexicalReranker 把高重叠候选提前(即使召回分更低)、top_n 限量、retrieve_reranked 召回→重排管道 均有测试；稳定排序保证 ties 不劣于召回。\n- 可维护性：rerank 各 ≤6 行；reranker.py 64 行；retrieve_reranked 加在 HybridRetriever(additive，feat-046 零回归)。\n- 测试：5 测试(test_reranker.py)，改前 RED；pytest→1390 passed，四关全绿。\n- 结论：通过。真实 cross-encoder reranker 可后续实现 Reranker ABC 插入。",
       "blocked_reason": "",
-      "iteration_count": 0,
+      "iteration_count": 1,
       "iteration_budget": 5
     },
     {
