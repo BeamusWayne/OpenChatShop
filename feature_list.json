@@ -741,17 +741,17 @@
       "title": "编排器接入 Triage→DomainAgent 流（feature-flag）",
       "phase": 8,
       "priority": 4,
-      "status": "not_started",
+      "status": "passing",
       "description": "doc 模块一。DialogueOrchestrator 增加 Triage→DomainAgent 路径，feature-flag 控制（默认关→回退现有单体流）。开启时：Triage 路由→选中 DomainAgent 用其 scoped tools+prompt 处理。⚠️主流程重构，须保现有流可逐字回退。",
       "depends_on": [
         "feat-049",
         "feat-050"
       ],
       "verification": "flag 开时走 Multi-Agent，关时行为与现状逐字一致；两路都有 e2e；全量零回归。",
-      "plan_file": "",
-      "evidence": "",
+      "plan_file": ".harness/plans/active/20260606-1405-feat-051.md",
+      "evidence": "## 代码审查\n- 安全：orchestrator/triage 改动无密钥；triage 用 message.content(上游已过 SecurityGuard)；_domain_prompt 走 _ 前缀 slot(已被 cache/LLM-payload 下划线过滤)，每轮清理无残留；**不绕 RBAC**：scope_tools 只缩小工具集不扩大，权限门仍在执行处把守；handoff 复用既有 transfer 路径。\n- 正确性：**router 未注入→逐字零回归(1348 不变，triage 块被 if 门控)**；escalation>routing、按域 scope、fallback、router-off 均有集成测试；domain_prompt 仅 route 时设、每触发轮先 pop 防陈旧。\n- 可维护性：triage 块约 18 行；用 slot 避免改 _execute_action 多分支签名；set_triage_router 小。\n- 测试：4 集成测试(test_triage_integration.py)，**stash 实证 RED**(4 failed)→GREEN；pytest→1352 passed，四关全绿。\n- 结论：通过。decision→执行复用现有 transfer/enhance；scoped tools+prompt 已落地。",
       "blocked_reason": "",
-      "iteration_count": 0,
+      "iteration_count": 1,
       "iteration_budget": 5
     },
     {

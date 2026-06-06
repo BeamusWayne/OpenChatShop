@@ -94,6 +94,7 @@ class DialogueOrchestrator:
         self._handoff_queue: Any = None
         self._middleware_pipeline: Any = None
         self._response_cache: Any = None
+        self._triage_router: Any = None
 
     def set_provider(self, provider: Any) -> None:
         """Inject an LLM provider for natural language response generation.
@@ -144,6 +145,17 @@ class DialogueOrchestrator:
         supported intents and populated after successful execution.
         """
         self._response_cache = cache
+
+    def set_triage_router(self, router: Any) -> None:
+        """Inject a TriageRouter to enable the Multi-Agent path (feat-051).
+
+        When set, each turn is triaged after intent classification: an
+        escalation hands off to a human, a routable intent is scoped to its
+        domain specialist's tools + prompt, and anything else falls through to
+        the normal flow. Pass None (the default) to keep the monolithic path,
+        in which case behaviour is byte-identical to before.
+        """
+        self._triage_router = router
 
     def _trace_extras(self, session_id: str = "") -> dict[str, str]:
         """Build structured log extras with trace_id / span_id when available."""
@@ -391,8 +403,33 @@ class DialogueOrchestrator:
         with inject_span:
             tools = await self._tool_injector.inject(intent, context)
 
-        # 5. Strategy decision
-        action = await self._strategy.decide(intent, context, tools)
+        # 4.5 Multi-Agent triage (feat-051, opt-in via set_triage_router). With
+        # no router injected this whole block is skipped and the flow below is
+        # byte-identical to the monolithic path. The chosen specialist's prompt
+        # rides on a transient underscore slot (cleared each triaged turn; never
+        # cached or sent to the model) that _llm_enhance* reads.
+        action: Action | None = None
+        triage_domain = ""
+        if self._triage_router is not None:
+            context.slots.pop("_domain_prompt", None)
+            decision = self._triage_router.triage(message.content, intent)
+            if decision.kind == "handoff":
+                # Escalation: short-circuit to the existing transfer path.
+                action = Action(
+                    type="transfer",
+                    payload={"reason": "escalation", "department": "general"},
+                )
+            elif decision.kind == "route" and decision.domain:
+                agent = self._triage_router.registry.get(decision.domain)
+                if agent is not None:
+                    # Scope the turn to the specialist: only its tools, its prompt.
+                    tools = agent.scope_tools(tools)
+                    context.slots["_domain_prompt"] = agent.system_prompt
+                    triage_domain = decision.domain
+
+        # 5. Strategy decision (skipped when triage already chose a handoff).
+        if action is None:
+            action = await self._strategy.decide(intent, context, tools)
 
         # 5.5 Persist multi-turn state: clarify slots, or a high-risk confirmation
         if action.type == "clarify" and "_pending_action" in action.payload:
@@ -417,6 +454,7 @@ class DialogueOrchestrator:
             "intent_source": intent.source,
             "entities": dict(intent.entities),
             "tool_calls": [executed_tool] if executed_tool else [],
+            "triage_domain": triage_domain,
         }
 
         # 6.5 Cache successful responses for read-only intents, scoped to the
@@ -774,7 +812,7 @@ class DialogueOrchestrator:
 
         history_text = self._build_history_text(context)
 
-        system_prompt = (
+        system_prompt = context.slots.get("_domain_prompt") or (
             "你是 OpenChatShop 电商智能客服。根据对话上下文和系统提供的信息，"
             "用自然、友好的语言回复用户。要求：\n"
             "1. 回复简洁，通常1-3句话\n"
@@ -837,7 +875,7 @@ class DialogueOrchestrator:
 
         history_text = self._build_history_text(context)
 
-        system_prompt = (
+        system_prompt = context.slots.get("_domain_prompt") or (
             "你是 OpenChatShop 电商智能客服。根据对话上下文和工具返回的数据，"
             "用自然、友好的语言回复用户。要求：\n"
             "1. 回复简洁，通常1-3句话\n"

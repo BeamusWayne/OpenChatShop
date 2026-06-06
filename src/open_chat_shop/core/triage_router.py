@@ -64,6 +64,11 @@ class TriageRouter:
     def __init__(self, registry: AgentRegistry) -> None:
         self._registry = registry
 
+    @property
+    def registry(self) -> AgentRegistry:
+        """The agent registry this router routes into (read-only access)."""
+        return self._registry
+
     def triage(self, text: str, intent: Intent) -> TriageDecision:
         """Return the routing decision for *text* with its classified *intent*.
 
