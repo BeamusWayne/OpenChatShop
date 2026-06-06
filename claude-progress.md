@@ -7,7 +7,7 @@
 - 标准验证路径：./init.sh verify
 - 当前最高优先级未完成功能：全部完成（Phase 1-7）；**V2.0 架构升级方案（docs/架构升级方案书_V2.0.md，未提交）已启动——见 Session 8**
 - 当前 blocker：无
-- CI 状态：**ruff / mypy --strict / pytest（1300 passed，77 源文件）/ harness 四关全绿（2026-06-06，Session 8 逐关复跑确认）**
+- CI 状态：**ruff / mypy --strict / pytest（1311 passed，77 源文件）/ harness 四关全绿（2026-06-06，Session 8 逐关复跑确认）**
   - ⚠️ Session 5 复跑时发现 **`./init.sh` 自 `aea5527` 起 bash 语法坏**（install/verify 两个 if/else 块各多一个 `fi`，line 47/62）——四关都直接跑、从不走 init.sh，故一直没暴露。已修（commit `2bf9c48`），`bash -n` 干净。固定工作循环 step 7「检查端到端路径是否损坏」正是为抓这类问题。
 - 已完成：lint 债 114→0、mypy 224→0、真实 LLM e2e 验证（GLM-5.1 via 智谱，chat/FC/streaming + 全管道）、**3 轮全量审计 + 修复**（审计1 53 项 → 再审 47 → 三审 20；所有 CRITICAL/HIGH 全清。报告：docs/code-health-audit-2026-06-03.md、docs/audit-2026-06-04.md、docs/reaudit-2026-06-04.md）
 
@@ -41,7 +41,18 @@
 
 **仍未修（刻意保留，Rule 12）：缺口#2** — `#`-混淆 `i#g#n#o#r#e#...` ratio 0.356 < 0.4 漏过。降阈值会**增加**误杀，与"减少误杀"目标冲突，**不应动**（要修须换非阈值手段，如"字母-符号交替密度"专项检测，属独立设计）。
 
-**下一步建议（V2.0 推进）：** 模块四剩余=**输出幻觉校验**（assert LLM 话术里的金额/单号与 tool 返回严格一致，独立中等功能、需碰编排/响应路径，建议新会话满预算做）；或启动**模块一/二/三**（Multi-Agent / pgvector / 长期记忆，大盘，须先拆 feature_list + 用户确认再编码）。护栏（模块四输入侧）本会话两刀后：误杀已清、基础英文注入洞已补。
+**第三步（用户「自主决策, 继续, 忽略所有会话预算限制, 把rule给改了」后）：改 Rule 6 + 模块四输出侧落地**
+
+1. **改了 harness Rule 6（commit `b080fd4`）**：用户明确"忽略所有会话预算限制"。Rule 6 从"Token 预算是硬约束（单任务 4k / 单会话 30k / 30%-20% 门控暂停）"改为"**不设 token 预算上限**——不因预算暂停/收尾/强停；停止条件只看实质完成、真实 blocker、用户喊停"。同步删掉自治循环升级条件里的预算行（Rule 7 一致性）。保留 Rule 10 的 checkpoint/进度更新（那是连续性，不是预算门控）。
+
+2. **模块四输出侧：输出幻觉校验（commit `dba962a`，防"凭空发钱"）**——方案书点名的安全生产事故。LLM 在 `_llm_enhance_tool_result` 把工具结果改写成自然语言时，可能报出工具从未返回的金额。新增 **`OutputGroundingChecker`**（security.py 第 5 个护栏组件）+ `SecurityGuard.is_output_grounded`：校验回复里**每个金额**都在工具自身输出（formatted 文本 + 原始 data）里有据；编排器命中未接地金额→**回退确定性 formatted 文本**（已接地），幻觉数字永不达用户。
+   - **只盯金额**（¥/￥/$/RMB/元/块，逗号千分位 + 末尾零归一化），无金额的回复原样放行→误杀风险近零，最坏情况用户拿到朴素 formatted 回复。**精确值匹配**（199==199.00，金额近似即幻觉）。grounding 源取**全部数字**（工具印"退款 199"无货币符也能接地"¥199"回复）。
+   - 接线复用既有 `enhanced or formatted` 回退契约（rejection 返回 None→caller 用 formatted），仅改 `_llm_enhance_tool_result` 返回路径一处；`self._security is None` 守卫保护退化 orchestrator。
+   - **+11 测试**（checker 纯逻辑 8 + 编排器回退 3），**集成测试改前实测 RED**（¥999 幻觉直穿）→ 接线后 GREEN。**1300 → 1311 passed**，四关全绿。
+
+**模块四状态：输入侧（误杀清 + 英文注入洞补）+ 输出侧（金额幻觉校验）均已落地。** 剩余可选：输出幻觉校验扩到非金额（单号/订单状态——当前只盖金额，方案书也主要担心"发钱"）；输入侧引入轻量分类模型（方案书提的，需外部模型依赖，本会话刻意未做）。
+
+**下一步建议（V2.0 推进）：** 启动**模块一/二/三**（Multi-Agent 路由 / pgvector RAG / 长期记忆画像，大盘）——须先把方案书拆成可验证 feature 写入 feature_list（含 depends_on/verification），**写入后等用户确认满意再改 _status=active 编码**（CLAUDE.md 硬约束）。Rule 6 已无预算门，可放手做，但 plan-before-code + 一次一个 active feature 仍在。
 
 ### Session 7 完成（2026-06-05，本会话）— 审计残留 #2 推进
 
