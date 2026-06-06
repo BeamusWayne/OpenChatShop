@@ -774,16 +774,16 @@
       "title": "异步用户画像提取流水线",
       "phase": 8,
       "priority": 6,
-      "status": "not_started",
+      "status": "passing",
       "description": "doc 模块三。对话结束/长时不活跃后异步触发提取任务，用小模型总结用户核心特征（'尺码 L'/'价格敏感'）写入 Persona。复用现有 background task 机制。",
       "depends_on": [
         "feat-052"
       ],
       "verification": "会话结束触发提取→persona 更新；异步不阻塞主流程；+测试。",
-      "plan_file": "",
-      "evidence": "",
+      "plan_file": ".harness/plans/active/20260606-1419-feat-053.md",
+      "evidence": "## 代码审查\n- 安全：无密钥；LLM 输出经 _parse_attributes 严格校验(只收 str 值、失败→{})，绝不污染 persona；provider 调用 try/except 兜底。\n- 正确性：有效JSON→upsert、含散文的JSON→抽出、无provider/空对话→{}不写、坏JSON→{}、非str值过滤、schedule后台任务完成后写入 均有测试。\n- 可维护性：extract 约 15 行、_parse_attributes 12 行；persona_extractor.py 96 行；schedule 用 _tasks 集合+done-callback(防 GC，RUF006 模式)。\n- 测试：7 测试(test_persona_extractor.py，MockProvider)，改前 RED；pytest→1370 passed，四关全绿。\n- 结论：通过。对话结束触发点接线在 feat-054/集成时调 schedule()。",
       "blocked_reason": "",
-      "iteration_count": 0,
+      "iteration_count": 1,
       "iteration_budget": 5
     },
     {
