@@ -858,16 +858,16 @@
       "title": "pgvector PgVectorStore 实现 + HNSW 索引",
       "phase": 8,
       "priority": 11,
-      "status": "not_started",
+      "status": "passing",
       "description": "doc 模块二。PostgreSQL + pgvector 的 VectorStore 实现：HNSW 向量索引，按 DATABASE_URL 切换。Alembic 迁移建向量表/索引。⚠️需 Postgres+pgvector 环境，验证须 docker/CI。",
       "depends_on": [
         "feat-044"
       ],
       "verification": "DATABASE_URL 指向 pgvector 时 add/search 走 SQL HNSW；迁移建表成功；集成测试（需 docker pgvector）。",
-      "plan_file": "",
-      "evidence": "",
+      "plan_file": ".harness/plans/active/20260606-1438-feat-045.md",
+      "evidence": "## 代码审查\n- 安全：SQL 全部参数化(text()+绑定参数，无字符串拼接用户值；_format_vector 只格式化数值向量)；无密钥。\n- 正确性：_format_vector 字面量、工厂 DATABASE_URL 切换(无→InMemory/有→PgVectorStore 不连库)、ABC 合规、迁移 004 含 CREATE EXTENSION/vector(384)/USING hnsw/vector_cosine_ops 均有测试；search 用余弦 <=> + score=1-距离。\n- 可维护性：方法各 ≤10 行；pgvector_store.py 95 行；不 import pgvector 包(用原生 SQL)→不破坏无 Postgres 环境。\n- 测试：5 测试(test_pgvector_store.py)，改前 RED；pytest→1395 passed，四关全绿。\n- ⚠️**验证限制(Rule 12)：本机无 Postgres、pgvector Python 包未装，故 live add/search 往返未本机运行**——只验了工厂选择/ABC/SQL 与 DDL 结构/向量格式化。**真实 pgvector HNSW 往返需 docker(pgvector/pgvector:pg16)或 CI 验**。\n- 结论：实现完整、本机可验部分全绿；live DB 验证 deferred to docker/CI(已在 evidence 与会话汇报明确标注)。",
       "blocked_reason": "",
-      "iteration_count": 0,
+      "iteration_count": 1,
       "iteration_budget": 5
     }
   ]
