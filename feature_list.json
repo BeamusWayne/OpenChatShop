@@ -692,14 +692,14 @@
       "title": "DomainAgent 基类 + AgentRegistry（Multi-Agent 基础）",
       "phase": 8,
       "priority": 1,
-      "status": "not_started",
+      "status": "passing",
       "description": "doc 模块一基础设施。DomainAgent 基类：持领域名、领域专属工具子集、专属 system prompt、handle()。AgentRegistry：注册/按领域查找。纯附加、不改现有编排流，行为零变化。⚠️设计决策：DomainAgent 复用现有 ToolInjector/Strategy 还是自带——编码前在 plan 里定。",
       "depends_on": [],
       "verification": "DomainAgent 基类 + Registry 有单测；现有全量测试零回归；mypy --strict 绿。",
-      "plan_file": "",
-      "evidence": "",
+      "plan_file": ".harness/plans/active/20260606-1239-feat-048.md",
+      "evidence": "## 代码审查\n- 安全：扫描 domain_agent.py + test_domain_agent.py，无硬编码密钥/token；无外部输入入口（纯内部值对象+注册表，无 API/CLI/文件读）；无 SQL/HTML/命令拼接；不绕过 RBAC（只声明工具名归属，权限门仍由 security.py/ToolInjector 在 feat-051 集成时把守）。\n- 正确性：边界 empty tool_names(allows False/scope [])、unknown domain→None、unknown tool→None、shared tool 确定性(sorted)、scope_tools 不可变保序 均有测试；无失败路径(无 I/O/解析/网络)；register 单次 dict 赋值原子，无并发状态。\n- 可维护性：5 个新方法均 <10 行(最大 route_tool 4 行)；domain_agent.py 87 行；最大嵌套 2 层；命名清晰；与 ToolInjector 无重复(本类只做工具名归属，不做 intent 匹配/权限过滤)。\n- 测试：12 个新测试(test_domain_agent.py)覆盖 DomainAgent 3 法 + AgentRegistry 4 法全部公开路径 + 4 边界；每测带意图说明；无 skip；pytest tests/ -q → 1323 passed，ruff/mypy --strict/harness 全绿。\n- 结论：通过。handle()/编排器集成按设计推迟 feat-051(plan 已记)。",
       "blocked_reason": "",
-      "iteration_count": 0,
+      "iteration_count": 1,
       "iteration_budget": 5
     },
     {

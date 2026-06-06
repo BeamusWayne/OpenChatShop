@@ -63,6 +63,14 @@
 
 **关键约束提醒（Rule 6 改了，但这些没改）：** plan-before-code（每个 feature 编码前 `harness new-plan`）、一次一个 active feature、feat-048/051 有明确设计决策（DomainAgent 与现有 ToolInjector/Strategy 的关系、主流程可回退）须在 plan 里先定。建议从 **feat-048** 起步（纯附加、无外部依赖、可 test-first、不破坏现有 1311 测试）。
 
+**第五步（用户「继续」greenlight）：feat-048 已完成 passing**
+
+Multi-Agent 第一块地基落地。plan：`.harness/plans/completed/20260606-1239-feat-048.md`（先做、含设计岔路决议）。
+- **设计岔路决议**：DomainAgent **不带 handle()/执行**，把执行模型 + 编排器集成 + feature-flag 推迟到 **feat-051**（那才是岔路真正所在）。feat-048 只交付**设计中立、零风险**的地基：`DomainAgent`（领域名 + 工具名集合 + system prompt + `allows_tool`/`scope_tools`）+ `AgentRegistry`（register/get/domains/route_tool）。新模块 `core/domain_agent.py`（87 行），**不 import 进任何现有流**。
+- **领域→工具映射不在本功能**（那是 feat-050）。route_tool 共享工具按 sorted 域名确定性解析。scope_tools 泛型（Protocol `_NamedTool` + TypeVar），真 BaseTool 与测试 stub 通吃，不可变保序。
+- **test-first**：12 测试（test_domain_agent.py），改前 RED（ModuleNotFound）。结构化 review 写入 evidence（安全/正确性/可维护性/测试逐项 file:line）。**1311 → 1323 passed**，ruff + mypy --strict + harness 全绿，现有功能零回归。
+- **下一个：feat-049 TriageRouter**（dep feat-048）。注：`.harness/plans/active/20260605-2325-feat-044.md` 是上一会话遗留的 orphan plan（feat-044 仍 not_started），未动。
+
 ### Session 7 完成（2026-06-05，本会话）— 审计残留 #2 推进
 
 **任务：** 续 Session 6，推进「下一会话优先 #2」(LOW/MEDIUM 残留小项)。专注、不并行、test-first、三关全绿再 commit。
