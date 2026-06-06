@@ -759,14 +759,14 @@
       "title": "UserPersona 存储模型 + PersonaRepository",
       "phase": 8,
       "priority": 5,
-      "status": "not_started",
+      "status": "passing",
       "description": "doc 模块三基础。UserPersona 模型（user_id 维度：尺码偏好/价格敏感/风格标签等）+ PersonaRepository ABC + InMemory/DB 实现 + Alembic 迁移。",
       "depends_on": [],
       "verification": "Persona 存取（InMemory + DB）；迁移建表；+测试。",
-      "plan_file": "",
-      "evidence": "",
+      "plan_file": ".harness/plans/active/20260606-1415-feat-052.md",
+      "evidence": "## 代码审查\n- 安全：persona.py 无密钥；attributes_json 走 JSON 序列化(无注入)；user_id 主键；无外部输入入口(被 feat-053/054 调用)。\n- 正确性：get 未命中→None、upsert merge(保留/覆盖)、DB 跨 session 持久化、get 返回副本(不可变) 均有测试；两实现共享契约参数化。\n- 可维护性：方法均 <12 行；persona.py 88 行；alembic 003 chains 002(test_alembic 只验 001，安全)。\n- 测试：11 测试(test_persona.py，InMemory+DB 参数化 + 跨 session)，改前 RED；pytest→1363 passed，四关全绿。\n- 结论：通过。",
       "blocked_reason": "",
-      "iteration_count": 0,
+      "iteration_count": 1,
       "iteration_budget": 5
     },
     {
