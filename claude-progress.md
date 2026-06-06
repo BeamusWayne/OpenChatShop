@@ -52,7 +52,16 @@
 
 **模块四状态：输入侧（误杀清 + 英文注入洞补）+ 输出侧（金额幻觉校验）均已落地。** 剩余可选：输出幻觉校验扩到非金额（单号/订单状态——当前只盖金额，方案书也主要担心"发钱"）；输入侧引入轻量分类模型（方案书提的，需外部模型依赖，本会话刻意未做）。
 
-**下一步建议（V2.0 推进）：** 启动**模块一/二/三**（Multi-Agent 路由 / pgvector RAG / 长期记忆画像，大盘）——须先把方案书拆成可验证 feature 写入 feature_list（含 depends_on/verification），**写入后等用户确认满意再改 _status=active 编码**（CLAUDE.md 硬约束）。Rule 6 已无预算门，可放手做，但 plan-before-code + 一次一个 active feature 仍在。
+**第四步：V2.0 模块一/二/三 已拆解写入 feature_list（Phase 8，11 个 not_started，等用户确认）**
+
+方案书剩余三大模块已按 CLAUDE.md「需求拆解规则」拆成 11 个可验证 feature（feat-044..feat-054，phase 8，全 `not_started`，含 depends_on/verification），写入 `feature_list.json`（43 passing + 11 not_started = 54）。**全部 not_started、无 active**——按硬约束「写入后等用户确认满意再改 active 编码」，**等用户拍板才动工**。43 个原功能逐字未改（已校验 byte-identical）。
+
+**推荐执行顺序（按 priority）：**
+- **模块一 Multi-Agent（无外部依赖，建议最先）：** feat-048 DomainAgent 基类+Registry（基础）→ feat-049 TriageRouter → feat-050 三领域专家(Refund/Sales/Logistics) → feat-051 编排器接入(feature-flag、可回退)。
+- **模块三 长期记忆：** feat-052 UserPersona 存储 → feat-053 异步画像提取 → feat-054 Persona 注入。
+- **模块二 pgvector RAG（feat-045 需 Postgres 环境）：** feat-044 VectorStore 抽象(零行为变化基础) → feat-046 Hybrid 检索 → feat-047 Re-ranker → feat-045 PgVectorStore(需 docker pgvector)。
+
+**关键约束提醒（Rule 6 改了，但这些没改）：** plan-before-code（每个 feature 编码前 `harness new-plan`）、一次一个 active feature、feat-048/051 有明确设计决策（DomainAgent 与现有 ToolInjector/Strategy 的关系、主流程可回退）须在 plan 里先定。建议从 **feat-048** 起步（纯附加、无外部依赖、可 test-first、不破坏现有 1311 测试）。
 
 ### Session 7 完成（2026-06-05，本会话）— 审计残留 #2 推进
 

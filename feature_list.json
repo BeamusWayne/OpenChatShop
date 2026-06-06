@@ -1,7 +1,7 @@
 {
   "project": "OpenChatShop",
   "_status": "active",
-  "last_updated": "2026-05-20",
+  "last_updated": "2026-06-06",
   "autonomous_config": {
     "enabled": true,
     "max_iterations_per_feature": 5,
@@ -662,7 +662,9 @@
       "priority": 4,
       "status": "passing",
       "description": "(1) 创建 .env.production.example，与 .env.example 分离，所有密码/密钥标记为必填，无占位符默认值。(2) CORS_ORIGINS 在生产配置中无默认值，必须显式设置。(3) LOG_LEVEL 生产默认 INFO。(4) 增加 DEPLOY_ENV 环境变量区分 dev/prod。",
-      "depends_on": ["feat-040"],
+      "depends_on": [
+        "feat-040"
+      ],
       "verification": ".env.production.example 存在且所有敏感字段标为必填。代码中有 DEPLOY_ENV 检查逻辑。",
       "plan_file": "",
       "evidence": ".env.production.example created with all required fields (ANTHROPIC_API_KEY, JWT_SECRET_KEY, CORS_ORIGINS, POSTGRES_*, REDIS_PASSWORD, GRAFANA_PASSWORD). DEPLOY_ENV=production CORS warning added to app.py. All tests passing.",
@@ -684,6 +686,189 @@
       "blocked_reason": "",
       "iteration_count": 0,
       "iteration_budget": 3
+    },
+    {
+      "id": "feat-048",
+      "title": "DomainAgent 基类 + AgentRegistry（Multi-Agent 基础）",
+      "phase": 8,
+      "priority": 1,
+      "status": "not_started",
+      "description": "doc 模块一基础设施。DomainAgent 基类：持领域名、领域专属工具子集、专属 system prompt、handle()。AgentRegistry：注册/按领域查找。纯附加、不改现有编排流，行为零变化。⚠️设计决策：DomainAgent 复用现有 ToolInjector/Strategy 还是自带——编码前在 plan 里定。",
+      "depends_on": [],
+      "verification": "DomainAgent 基类 + Registry 有单测；现有全量测试零回归；mypy --strict 绿。",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-049",
+      "title": "TriageRouter 意图路由网关",
+      "phase": 8,
+      "priority": 2,
+      "status": "not_started",
+      "description": "doc 模块一。Triage：分析初始意图/情绪/紧迫性，路由到下游 DomainAgent，或检测极高负面情绪直接 handoff。用低成本模型或复用现有 rule-based intent 引擎。",
+      "depends_on": [
+        "feat-048"
+      ],
+      "verification": "给定消息路由到正确 domain；高负面情绪→handoff；+测试（MockProvider）。",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-050",
+      "title": "Refund/Sales/Logistics 三领域专家 Agent",
+      "phase": 8,
+      "priority": 3,
+      "status": "not_started",
+      "description": "doc 模块一。三个 DomainAgent 实例：Refund（售后，仅退款相关工具）、Sales（导购，搜品/推荐）、Logistics（物流，查件）。每个仅携带本领域工具 + 专属 prompt（导购不知道退款接口）。",
+      "depends_on": [
+        "feat-048"
+      ],
+      "verification": "每个 agent 仅暴露本领域工具；专属 prompt 生效；+测试。",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-051",
+      "title": "编排器接入 Triage→DomainAgent 流（feature-flag）",
+      "phase": 8,
+      "priority": 4,
+      "status": "not_started",
+      "description": "doc 模块一。DialogueOrchestrator 增加 Triage→DomainAgent 路径，feature-flag 控制（默认关→回退现有单体流）。开启时：Triage 路由→选中 DomainAgent 用其 scoped tools+prompt 处理。⚠️主流程重构，须保现有流可逐字回退。",
+      "depends_on": [
+        "feat-049",
+        "feat-050"
+      ],
+      "verification": "flag 开时走 Multi-Agent，关时行为与现状逐字一致；两路都有 e2e；全量零回归。",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-052",
+      "title": "UserPersona 存储模型 + PersonaRepository",
+      "phase": 8,
+      "priority": 5,
+      "status": "not_started",
+      "description": "doc 模块三基础。UserPersona 模型（user_id 维度：尺码偏好/价格敏感/风格标签等）+ PersonaRepository ABC + InMemory/DB 实现 + Alembic 迁移。",
+      "depends_on": [],
+      "verification": "Persona 存取（InMemory + DB）；迁移建表；+测试。",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-053",
+      "title": "异步用户画像提取流水线",
+      "phase": 8,
+      "priority": 6,
+      "status": "not_started",
+      "description": "doc 模块三。对话结束/长时不活跃后异步触发提取任务，用小模型总结用户核心特征（'尺码 L'/'价格敏感'）写入 Persona。复用现有 background task 机制。",
+      "depends_on": [
+        "feat-052"
+      ],
+      "verification": "会话结束触发提取→persona 更新；异步不阻塞主流程；+测试。",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-054",
+      "title": "Persona 上下文注入（千人千面）",
+      "phase": 8,
+      "priority": 7,
+      "status": "not_started",
+      "description": "doc 模块三。用户再次发起对话时，Triage 检索其 persona 标签，静默注入下游 DomainAgent 的 system prompt，实现'按您上次习惯推荐'。",
+      "depends_on": [
+        "feat-052",
+        "feat-049"
+      ],
+      "verification": "有 persona 的用户下游 prompt 含其标签；无 persona 行为不变；+测试。",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-044",
+      "title": "VectorStore 抽象接口 + InMemory 重构",
+      "phase": 8,
+      "priority": 8,
+      "status": "not_started",
+      "description": "doc 模块二基础。把现有 InMemoryVectorStore（全表线性扫描）抽到 VectorStore ABC 后面（add_documents/search/delete），现有内存实现作默认。为 pgvector 迁移铺路，行为零变化。",
+      "depends_on": [],
+      "verification": "VectorStore ABC 定义；InMemoryVectorStore 实现它；现有 semantic_search 测试零修改通过；mypy 绿。",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-046",
+      "title": "Hybrid RAG 检索路由（结构化 FC / 非结构化 RAG）",
+      "phase": 8,
+      "priority": 9,
+      "status": "not_started",
+      "description": "doc 模块二。查询分流：结构化查询（订单状态）走现有 Function Calling；非结构化查询（'这款会缩水吗'）走 VectorStore 检索商品详情/FAQ。新增 FAQ/商品知识库 ingest。",
+      "depends_on": [
+        "feat-044"
+      ],
+      "verification": "非结构化问题命中 RAG 并把 Top-K 注入 LLM；结构化仍走 FC；+回归测试。",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-047",
+      "title": "RAG 重排序（Top-10 召回 → Top-3）",
+      "phase": 8,
+      "priority": 10,
+      "status": "not_started",
+      "description": "doc 模块二。初步召回 Top-10 后用轻量 Re-ranker 提取最相关 Top-3 喂 LLM，降无关干扰。Reranker 抽象，默认可降级为'取前 3'。",
+      "depends_on": [
+        "feat-046"
+      ],
+      "verification": "召回→重排→Top-3 链路；reranker 缺失时降级不崩；+测试。",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 5
+    },
+    {
+      "id": "feat-045",
+      "title": "pgvector PgVectorStore 实现 + HNSW 索引",
+      "phase": 8,
+      "priority": 11,
+      "status": "not_started",
+      "description": "doc 模块二。PostgreSQL + pgvector 的 VectorStore 实现：HNSW 向量索引，按 DATABASE_URL 切换。Alembic 迁移建向量表/索引。⚠️需 Postgres+pgvector 环境，验证须 docker/CI。",
+      "depends_on": [
+        "feat-044"
+      ],
+      "verification": "DATABASE_URL 指向 pgvector 时 add/search 走 SQL HNSW；迁移建表成功；集成测试（需 docker pgvector）。",
+      "plan_file": "",
+      "evidence": "",
+      "blocked_reason": "",
+      "iteration_count": 0,
+      "iteration_budget": 5
     }
   ]
 }
