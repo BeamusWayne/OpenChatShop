@@ -388,7 +388,71 @@ class OutputSanitizer:
 
 
 # ---------------------------------------------------------------------------
-# 5. Security Guard (orchestrator)
+# 5. Output Grounding Check (anti-hallucination for money amounts)
+# ---------------------------------------------------------------------------
+
+# A numeric token, optionally with thousands separators and decimals
+# ("199", "1,999.00", "50.5"). Commas are stripped before float conversion.
+_NUM = r"\d[\d,]*(?:\.\d+)?"
+# Money = a number bound to a currency marker, either as a prefix
+# (¥199  ￥199  $99  RMB 100) or a suffix (199元  100块  50块钱  199 RMB).
+_MONEY_RE = re.compile(
+    rf"(?:¥|￥|\$|RMB\s*)\s*({_NUM})|({_NUM})\s*(?:元|块钱|块|RMB)",
+    re.IGNORECASE,
+)
+_NUMBER_RE = re.compile(_NUM)
+
+
+def _to_float(token: str) -> float:
+    return float(token.replace(",", ""))
+
+
+def _money_values(text: str) -> set[float]:
+    """Return the numeric value of every money expression in *text*."""
+    values: set[float] = set()
+    for prefix_num, suffix_num in _MONEY_RE.findall(text):
+        token = prefix_num or suffix_num
+        if token:
+            values.add(_to_float(token))
+    return values
+
+
+def _all_numbers(text: str) -> set[float]:
+    """Return every numeric token in *text* (the grounded ground-truth set)."""
+    return {_to_float(tok) for tok in _NUMBER_RE.findall(text)}
+
+
+class OutputGroundingChecker:
+    """Verify money amounts in an LLM reply are grounded in the tool output.
+
+    Part of the V2.0 semantic-guardrail upgrade (module 4, output side). When
+    the LLM rewrites a tool result into natural language it can state a refund
+    or price figure the tool never returned ("凭空发钱"). Before such a reply
+    reaches the user, every money amount it mentions is checked against the
+    grounded sources (the deterministic formatted text + the raw tool data);
+    an ungrounded amount fails the check and the caller falls back to the
+    grounded formatted text.
+
+    Only *money* amounts in the reply are scrutinised (a reply with no money is
+    trivially grounded), and the match is exact on the numeric value
+    (199 == 199.00) — for money an approximation is a hallucination, not a
+    match. Grounding pulls *all* numbers from the sources, so a tool that prints
+    "退款 199" without a currency symbol still grounds a "¥199" reply.
+    """
+
+    def is_grounded(self, reply: str, *grounded_sources: str) -> bool:
+        """Return True if every money amount in *reply* appears in the sources."""
+        stated = _money_values(reply)
+        if not stated:
+            return True
+        grounded: set[float] = set()
+        for source in grounded_sources:
+            grounded |= _all_numbers(source)
+        return stated <= grounded
+
+
+# ---------------------------------------------------------------------------
+# 6. Security Guard (orchestrator)
 # ---------------------------------------------------------------------------
 
 class SecurityGuard:
@@ -399,6 +463,7 @@ class SecurityGuard:
         self.content_filter = ContentSafetyFilter()
         self.permission_checker = PermissionChecker(config.get("rbac", {}))
         self.output_sanitizer = OutputSanitizer()
+        self.output_grounding = OutputGroundingChecker()
 
     def check_input(self, message: UserMessage) -> UserMessage:
         """Run injection + content checks on user input.
@@ -448,3 +513,12 @@ class SecurityGuard:
     ) -> dict[str, Any]:
         """Sanitize output data, returning a new dict."""
         return self.output_sanitizer.sanitize(data, sensitive_fields)
+
+    def is_output_grounded(self, reply: str, *grounded_sources: str) -> bool:
+        """Return True if every money amount in *reply* is grounded in sources.
+
+        Used before an LLM-rewritten tool reply reaches the user, to block a
+        hallucinated refund/price figure ("凭空发钱"). A reply with no money is
+        grounded. See OutputGroundingChecker.
+        """
+        return self.output_grounding.is_grounded(reply, *grounded_sources)

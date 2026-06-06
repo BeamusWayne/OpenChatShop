@@ -868,7 +868,25 @@ class DialogueOrchestrator:
             return None, 0
 
         tokens = self._record_llm_cost(response)
-        return response.content, tokens
+        content = response.content
+        # Output grounding (V2.0 module 4): reject a reply that states a money
+        # amount absent from the tool's own output ("凭空发钱"). Returning None
+        # makes the caller fall back to the deterministic, grounded formatted
+        # text, so the hallucinated figure never reaches the user.
+        if (
+            content
+            and self._security is not None
+            and not self._security.is_output_grounded(
+                content, formatted, "" if data is None else str(data)
+            )
+        ):
+            logger.warning(
+                "Ungrounded money amount in LLM tool reply; using formatted text "
+                "(session=%s)",
+                context.session_id,
+            )
+            return None, tokens
+        return content, tokens
 
     async def _persist_turn(
         self,
