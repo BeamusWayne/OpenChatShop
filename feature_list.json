@@ -724,16 +724,16 @@
       "title": "Refund/Sales/Logistics 三领域专家 Agent",
       "phase": 8,
       "priority": 3,
-      "status": "not_started",
+      "status": "passing",
       "description": "doc 模块一。三个 DomainAgent 实例：Refund（售后，仅退款相关工具）、Sales（导购，搜品/推荐）、Logistics（物流，查件）。每个仅携带本领域工具 + 专属 prompt（导购不知道退款接口）。",
       "depends_on": [
         "feat-048"
       ],
       "verification": "每个 agent 仅暴露本领域工具；专属 prompt 生效；+测试。",
-      "plan_file": "",
-      "evidence": "",
+      "plan_file": ".harness/plans/active/20260606-1359-feat-050.md",
+      "evidence": "## 代码审查\n- 安全：domain_agents.py 无密钥；纯静态专家定义，无输入入口/注入面；不绕 RBAC。\n- 正确性：三专家工具子集 + 隔离(sales 不含退款)+ 工厂 registry 路由 + handoff 非领域工具 均有测试。\n- 可维护性：build_default_agents 8 行；文件 55 行；无嵌套>2；命名清晰。\n- 测试：7 测试(test_domain_agents.py)，改前 RED；pytest→1348 passed，四关全绿。\n- 结论：通过。执行接线 feat-051。",
       "blocked_reason": "",
-      "iteration_count": 0,
+      "iteration_count": 1,
       "iteration_budget": 5
     },
     {
